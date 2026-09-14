@@ -1,0 +1,40 @@
+{
+  "name": "mailbox",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p $(perch port 2>/dev/null || echo 4030)",
+    "build": "next build",
+    "start": "next start -p 4030",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@libsql/client": "0.17.0",
+    "@tiptap/extension-color": "^3.31.3",
+    "@tiptap/extension-highlight": "^3.31.3",
+    "@tiptap/extension-image": "^3.31.3",
+    "@tiptap/extension-link": "^3.31.3",
+    "@tiptap/extension-table": "^3.31.3",
+    "@tiptap/extension-text-align": "^3.31.3",
+    "@tiptap/extension-text-style": "^3.31.3",
+    "@tiptap/extension-underline": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "@vercel/blob": "^2.6.1",
+    "next": "16.2.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "resend": "^6.12.3",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.6",
+    "typescript": "^5"
+  }
+}

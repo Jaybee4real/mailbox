@@ -1,0 +1,116 @@
+/**
+ * Turn editor HTML into HTML an email client will render.
+ *
+ * Mail is not the web. Outlook renders with Word's engine: it drops <style> blocks, ignores
+ * flexbox and grid, and honours only a narrow set of inline properties — so every rule the
+ * editor expresses through a class or a stylesheet has to be pushed onto the element itself.
+ * Gmail additionally strips anything it does not recognise, which is why the styles below are
+ * deliberately plain.
+ */
+
+const FONT = "font-family:Arial,Helvetica,sans-serif;"
+
+/** Inline styles applied per tag, in the order the tags appear in the document. */
+const STYLES: Record<string, string> = {
+  p: `${FONT}font-size:15px;line-height:1.65;color:#030712;margin:0 0 14px;`,
+  h1: `${FONT}font-size:24px;line-height:1.3;color:#030712;margin:24px 0 12px;font-weight:700;`,
+  h2: `${FONT}font-size:20px;line-height:1.35;color:#030712;margin:22px 0 10px;font-weight:700;`,
+  h3: `${FONT}font-size:17px;line-height:1.4;color:#030712;margin:20px 0 8px;font-weight:700;`,
+  ul: `${FONT}font-size:15px;line-height:1.65;color:#030712;margin:0 0 14px;padding-left:22px;`,
+  ol: `${FONT}font-size:15px;line-height:1.65;color:#030712;margin:0 0 14px;padding-left:22px;`,
+  li: 'margin:0 0 6px;',
+  blockquote:
+    `${FONT}font-size:15px;line-height:1.65;color:#45414f;margin:0 0 14px;padding:2px 0 2px 14px;border-left:3px solid #E8E2F4;`,
+  a: 'color:#a90317;text-decoration:underline;',
+  code: "font-family:'Courier New',Courier,monospace;font-size:14px;background:#F5F3F8;padding:1px 4px;border-radius:3px;",
+  pre: "font-family:'Courier New',Courier,monospace;font-size:13px;background:#F5F3F8;padding:12px 14px;border-radius:6px;overflow:auto;margin:0 0 14px;",
+  table: 'border-collapse:collapse;margin:0 0 14px;',
+  td: `${FONT}font-size:15px;line-height:1.6;color:#030712;border:1px solid #E4E4EC;padding:7px 10px;`,
+  th: `${FONT}font-size:15px;line-height:1.6;color:#030712;border:1px solid #E4E4EC;padding:7px 10px;background:#F7F7FA;text-align:left;font-weight:700;`,
+  hr: 'border:0;border-top:1px solid #E4E4EC;margin:22px 0;',
+  img: 'max-width:100%;height:auto;display:block;border:0;',
+}
+
+export function inlineEmailStyles(html: string, base?: { family?: string; size?: string }): string {
+  const family = base?.family?.replace(/'/g, '').trim()
+  const size = base?.size?.trim()
+  const styles = Object.fromEntries(
+    Object.entries(STYLES).map(([tag, style]) => {
+      let adjusted = style
+      if (family) adjusted = adjusted.replace('font-family:Arial,Helvetica,sans-serif;', `font-family:'${family}',Arial,Helvetica,sans-serif;`)
+      if (size && !/^h[123]$/.test(tag)) adjusted = adjusted.replace('font-size:15px;', `font-size:${size};`)
+      return [tag, adjusted]
+    }),
+  )
+  const withBase = (tag: string, attrs: string) => {
+    const style = styles[tag]
+    const existing = attrs.match(/\sstyle="([^"]*)"/i)
+    if (!existing) return `${attrs} style="${style}"`
+    return attrs.replace(existing[0], ` style="${style}${existing[1]}"`)
+  }
+  return html.replace(/<([a-z0-9]+)((?:\s[^>]*)?)>/gi, (match, rawTag: string, attrs: string) => {
+    const tag = rawTag.toLowerCase()
+    if (!styles[tag]) return match
+    return `<${rawTag}${withBase(tag, attrs)}>`
+  })
+}
+
+/**
+ * A plain-text fallback. Every message carries one: some clients prefer it, and a message
+ * with no text part is markedly more likely to be filed as spam.
+ */
+export function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<li[^>]*>/gi, '\n  • ')
+    // Not </li>: the opening tag already broke the line, and closing it too double-spaced
+    // every bullet.
+    .replace(/<\/(p|div|h[1-6]|tr)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+const SAFE_SCHEME = /^(https?:|mailto:|tel:)/i
+
+/**
+ * Normalises a user-typed address, or rejects it. The result is embedded in mail that
+ * recipients click, so anything that is not an ordinary web/mail/phone address — most
+ * of all `javascript:` and `data:` — has to come back null rather than be passed on.
+ */
+export function safeHref(raw: string): string | null {
+  const value = raw.trim()
+  if (!value) return null
+  if (SAFE_SCHEME.test(value)) return value
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return null
+  return value.includes('@') && !value.includes('/') ? `mailto:${value}` : `https://${value}`
+}
+
+/**
+ * Removes the `[cid:...]` markers a client leaves in the plain-text alternative where an
+ * embedded image sat. They stand in for a signature logo the text part cannot draw, so
+ * they carry nothing for a reader and appear mid-sentence, usually straight after a
+ * sign-off. The html alternative never contains them.
+ */
+/** Drops <img> tags whose source is not reachable from a recipient's mail client. */
+export function dropUnreachableImages(html: string): string {
+  return html.replace(/<img\b[^>]*>/gi, tag => {
+    const src = /\bsrc\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1]?.trim() ?? ''
+    return /^(https?:\/\/|data:image\/|\/)/i.test(src) ? tag : ''
+  })
+}
+
+export function stripCidPlaceholders(text: string): string {
+  return text
+    .replace(/\[cid:[^\]\n]{0,300}\]/gi, '')
+    // A placeholder on its own line leaves the blank line it sat on behind.
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+}
