@@ -3813,7 +3813,7 @@ export default function DevMailPage() {
     if (messageId) void carryForwardAttachments(messageId, kind)
   }
 
-  const printMessage = (subject: string, from: string, when: string, html: string | null, text: string | null) => {
+  const printMessage = (subject: string, from: string, when: string, html: string | null, text: string | null, recipients: { to?: string[]; cc?: string[] } = {}) => {
     const frame = document.createElement('iframe')
     frame.style.position = 'fixed'
     frame.style.right = '0'
@@ -3832,11 +3832,13 @@ export default function DevMailPage() {
         <td style="vertical-align:top;">
           <div style="font-size:18px;font-weight:600;color:#111;margin-bottom:6px;">${escapeHtml(subject)}</div>
           <div><strong>From:</strong> ${escapeHtml(from)}</div>
+          ${recipients.to?.length ? `<div><strong>To:</strong> ${escapeHtml(recipients.to.join(', '))}</div>` : ''}
+          ${recipients.cc?.length ? `<div><strong>Cc:</strong> ${escapeHtml(recipients.cc.join(', '))}</div>` : ''}
           <div><strong>Date:</strong> ${new Date(when).toLocaleString()}</div>
         </td>
-        <td style="vertical-align:top;text-align:right;width:130px;">
-          <img src="${PRINT_MARK_URL}" alt={CLIENT_BRAND.name} width="84" height="60"
-               style="display:inline-block;width:84px;height:auto;border:0;" />
+        <td style="vertical-align:top;text-align:right;width:110px;">
+          <img src="${PRINT_MARK_URL}" alt="${escapeHtml(CLIENT_BRAND.name)}" width="64" height="46"
+               style="display:inline-block;width:64px;height:auto;padding:8px;border:1px solid ${CLIENT_BRAND.accent};vertical-align:top;" />
           <div style="font-size:11px;color:#6B6480;padding-top:4px;">${CLIENT_BRAND.website}</div>
         </td>
       </tr>
@@ -4862,6 +4864,7 @@ export default function DevMailPage() {
                   item.sent.createdAt,
                   detail?.html ?? null,
                   detail?.text ?? null,
+                  { to: item.sent.to, cc: detail?.cc ?? item.sent.cc },
                 )
               } else {
                 printMessage(
@@ -4870,6 +4873,7 @@ export default function DevMailPage() {
                   item.inbound.receivedAt,
                   item.inbound.html,
                   item.inbound.text,
+                  { to: item.inbound.to, cc: item.inbound.cc },
                 )
               }
             }}
@@ -5062,7 +5066,7 @@ export default function DevMailPage() {
                 {ICONS.trash}
               </button>
             )}
-            <button className={styles.iconBtn} title="Print" onClick={() => printMessage(inbound.subject, inbound.from, inbound.receivedAt, inbound.html, inbound.text)}>
+            <button className={styles.iconBtn} title="Print" onClick={() => printMessage(inbound.subject, inbound.from, inbound.receivedAt, inbound.html, inbound.text, { to: inbound.to, cc: inbound.cc })}>
               {ICONS.print}
             </button>
             <button className={styles.iconBtn} title="Download .eml" onClick={() => downloadEml(inbound)}>
@@ -5572,7 +5576,7 @@ export default function DevMailPage() {
                 <button
                   className={styles.iconBtn}
                   title="Print"
-                  onClick={() => printMessage(selectedSent.subject, selectedDetail?.from ?? selectedSent.from, selectedSent.createdAt, selectedDetail?.html ?? null, selectedDetail?.text ?? null)}
+                  onClick={() => printMessage(selectedSent.subject, selectedDetail?.from ?? selectedSent.from, selectedSent.createdAt, selectedDetail?.html ?? null, selectedDetail?.text ?? null, { to: selectedSent.to, cc: selectedDetail?.cc ?? selectedSent.cc })}
                 >
                   {ICONS.print}
                 </button>
