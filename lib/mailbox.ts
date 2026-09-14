@@ -143,6 +143,7 @@ export function ensureMailSchema(): Promise<void> {
         // sort it and then discards all but one page.
         `CREATE INDEX IF NOT EXISTS mail_inbox_list_idx ON mail_inbox (lower(owner), archived, trashed, received_at DESC, id DESC)`,
         `CREATE INDEX IF NOT EXISTS mail_inbox_owner_recent_idx ON mail_inbox (lower(owner), received_at DESC, id DESC)`,
+        `CREATE INDEX IF NOT EXISTS mail_inbox_thread_idx ON mail_inbox (lower(owner), thread_id, received_at DESC, id DESC)`,
         // The folder counts read only these five columns. Without them all in one index
         // SQLite walks the rows themselves, and a row here can carry 50KB of html — which
         // turned a five-number summary into a 37-second scan on the larger mailboxes.
