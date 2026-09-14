@@ -170,6 +170,7 @@ export function ensureMailSchema(): Promise<void> {
         )`,
         `CREATE INDEX IF NOT EXISTS mail_threads_latest_idx ON mail_threads (owner, latest_at DESC)`,
         `CREATE INDEX IF NOT EXISTS mail_threads_key_idx ON mail_threads (owner, subject_key, latest_at DESC)`,
+        `CREATE INDEX IF NOT EXISTS mail_threads_list_idx ON mail_threads (owner, latest_at DESC, thread_id DESC)`,
         `CREATE INDEX IF NOT EXISTS mail_inbox_folder_idx ON mail_inbox (archived, trashed, received_at DESC, id DESC)`,
         `CREATE INDEX IF NOT EXISTS mail_inbox_starred_idx ON mail_inbox (starred, trashed, received_at DESC, id DESC)`,
         // Finds rows whose body still sits in the database. Partial, so it shrinks to
@@ -765,7 +766,9 @@ async function rethreadAfterChange(id: string, previousOwner?: string | null, pr
 export type ThreadFolder = 'inbox' | 'archive' | 'trash' | 'starred'
 
 /** The newest conversations in a folder: one row each, already summarised. */
-export async function listThreads(ownerRaw: string, folder: ThreadFolder, limit: number): Promise<ThreadRow[]> {
+export type ThreadPage = { rows: ThreadRow[]; nextCursor: string | null }
+
+export async function listThreads(ownerRaw: string, folder: ThreadFolder, limit: number, cursorRaw?: string | null): Promise<ThreadPage> {
   await ensureMailSchema()
   const owner = ownerRaw.toLowerCase()
   const predicate =
@@ -773,12 +776,17 @@ export async function listThreads(ownerRaw: string, folder: ThreadFolder, limit:
     : folder === 'trash' ? 'trashed_count > 0'
     : folder === 'starred' ? 'starred_count > 0'
     : 'inbox_count > 0'
+  const cursor = decodeCursor(cursorRaw)
   const rows = await tagged(db(), `
     SELECT thread_id, subject, first_at, latest_at, latest_id, count, unread_count, starred_count,
       inbox_count, archived_count, trashed_count, attach_count, senders, snippet, labels
     FROM mail_threads WHERE owner = ? AND ${predicate}
-    ORDER BY latest_at DESC LIMIT ?`, [owner, limit])
-  return rows.map(row => ({
+      ${cursor ? 'AND (latest_at < ? OR (latest_at = ? AND thread_id < ?))' : ''}
+    ORDER BY latest_at DESC, thread_id DESC LIMIT ?`,
+    cursor ? [owner, cursor.receivedAt, cursor.receivedAt, cursor.id, limit] : [owner, limit])
+  const last = rows[rows.length - 1]
+  const nextCursor = rows.length === limit && last ? encodeCursor(String(last.latest_at), String(last.thread_id)) : null
+  const mapped = rows.map(row => ({
     threadId: String(row.thread_id),
     subject: String(row.subject ?? ''),
     firstAt: String(row.first_at),
@@ -795,6 +803,7 @@ export async function listThreads(ownerRaw: string, folder: ThreadFolder, limit:
     snippet: String(row.snippet ?? ''),
     labels: parseJson<string[]>(row.labels, []),
   }))
+  return { rows: mapped, nextCursor }
 }
 
 /**

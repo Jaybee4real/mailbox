@@ -1442,20 +1442,55 @@ export default function DevMailPage() {
   const [threadsResolved, setThreadsResolved] = useState(false)
   const threadFolder = folder === 'archived' ? 'archive' : folder === 'trash' ? 'trash' : folder === 'starred' ? 'starred' : 'inbox'
   const threadsFetch = useRef<string | null>(null)
+  const threadsLoadedFolder = useRef<string | null>(null)
+  const [threadsCursor, setThreadsCursor] = useState<string | null>(null)
+  const THREAD_PAGE = 500
   const loadThreads = useCallback(async () => {
     if (!isLoggedIn) return
     if (threadsFetch.current === threadFolder) return
     threadsFetch.current = threadFolder
     try {
-      const response = await fetch(`/api/mail/threads?folder=${threadFolder}&limit=500`, { headers: apiHeaders() })
+      const response = await fetch(`/api/mail/threads?folder=${threadFolder}&limit=${THREAD_PAGE}`, { headers: apiHeaders() })
       const data = await response.json().catch(() => null)
-      if (data?.ok && Array.isArray(data.threads)) setThreads(data.threads as ConversationRow[])
+      if (data?.ok && Array.isArray(data.threads)) {
+        const fresh = data.threads as ConversationRow[]
+        const replace = threadsLoadedFolder.current !== threadFolder
+        threadsLoadedFolder.current = threadFolder
+        setThreads(current => {
+          if (replace || current.length === 0) return fresh
+          const freshIds = new Set(fresh.map(entry => entry.threadId))
+          return [...fresh, ...current.filter(entry => !freshIds.has(entry.threadId))]
+        })
+        setThreadsCursor(current => (replace ? (data.nextCursor ?? null) : current ?? (data.nextCursor ?? null)))
+      }
     } catch {
     } finally {
       if (threadsFetch.current === threadFolder) threadsFetch.current = null
       setThreadsResolved(true)
     }
   }, [isLoggedIn, threadFolder, apiHeaders])
+
+  const threadPageInFlight = useRef(false)
+  const loadMoreThreads = useCallback(async () => {
+    if (!threadsCursor || threadPageInFlight.current) return
+    threadPageInFlight.current = true
+    setLoadingMore(true)
+    try {
+      const response = await fetch(`/api/mail/threads?folder=${threadFolder}&limit=${THREAD_PAGE}&cursor=${encodeURIComponent(threadsCursor)}`, { headers: apiHeaders() })
+      const data = await response.json().catch(() => null)
+      if (!data?.ok || !Array.isArray(data.threads)) return
+      const fresh = data.threads as ConversationRow[]
+      setThreads(current => {
+        const seen = new Set(current.map(entry => entry.threadId))
+        return [...current, ...fresh.filter(entry => !seen.has(entry.threadId))]
+      })
+      setThreadsCursor(data.nextCursor ?? null)
+    } catch {
+    } finally {
+      threadPageInFlight.current = false
+      setLoadingMore(false)
+    }
+  }, [threadsCursor, threadFolder, apiHeaders])
 
   useEffect(() => {
     setThreadsResolved(false)
@@ -1898,8 +1933,10 @@ export default function DevMailPage() {
   // continuously, and each re-observe fires again while the sentinel is on screen — which
   // is an endless request loop. The effect therefore depends only on the cursor, and
   // reaches the current loader through a ref.
+  const usingThreads = threads.length > 0 && !search.trim()
+  const moreCursor = usingThreads ? threadsCursor : inboxCursor
   const loadMoreRef = useRef(loadMoreInbox)
-  useEffect(() => { loadMoreRef.current = loadMoreInbox }, [loadMoreInbox])
+  useEffect(() => { loadMoreRef.current = usingThreads ? loadMoreThreads : loadMoreInbox }, [usingThreads, loadMoreThreads, loadMoreInbox])
 
   // The list is its own scroll container, so this watches that element rather than the
   // viewport: it fires a screen early, and unlike an intersection observer it does not
@@ -1907,14 +1944,14 @@ export default function DevMailPage() {
   // shorter than its container and would otherwise never scroll.
   useEffect(() => {
     const node = listRef.current
-    if (!node || !inboxCursor) return
+    if (!node || !moreCursor) return
     const check = () => {
       if (node.scrollHeight - node.scrollTop - node.clientHeight < 600) void loadMoreRef.current()
     }
     check()
     node.addEventListener('scroll', check, { passive: true })
     return () => node.removeEventListener('scroll', check)
-  }, [inboxCursor])
+  }, [moreCursor])
 
   const loadEvents = useCallback(async () => {
     try {
@@ -2135,6 +2172,8 @@ export default function DevMailPage() {
     setInboxEmails([])
     setSentEmails([])
     setThreads([])
+    setThreadsCursor(null)
+    threadsLoadedFolder.current = null
     setThreadsResolved(false)
     refreshAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6281,7 +6320,7 @@ export default function DevMailPage() {
               </button>
             ))
           )}
-          {inboxCursor && (
+          {moreCursor && (
             <div className={styles.listSentinel} aria-busy={loadingMore}>
               {[0, 1, 2].map(row => (
                 <div key={row} className={styles.rowSkeleton} aria-hidden>
@@ -6299,7 +6338,7 @@ export default function DevMailPage() {
                 scheduled and drafts arrive whole, so their count is the list itself —
                 reporting the inbox's total under them said "All 6 messages" over a list
                 of four. */}
-            {!inboxCursor && listItems.length > 0 && (
+            {!moreCursor && listItems.length > 0 && (
               <div className={styles.listEnd}>
                 {!isInboundFolder
                   ? `${listItems.length.toLocaleString()} ${listItems.length === 1 ? 'message' : 'messages'}`
