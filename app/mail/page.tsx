@@ -386,7 +386,10 @@ const SETTINGS_TABS: Array<{ key: SettingsTab; label: string; hint: string; admi
 const MAIL_ADDRESSES: string[] = CLIENT_BRAND.addresses
 
 /** Everyone here signs in at the same domain, so only the part before it is worth typing. */
-const DEFAULT_MAIL_DOMAIN = (MAIL_ADDRESSES[0] ?? `@${CLIENT_BRAND.domain}`).split('@')[1] ?? CLIENT_BRAND.domain
+const LOGIN_DOMAINS: string[] = CLIENT_BRAND.addressDomains.length
+  ? CLIENT_BRAND.addressDomains
+  : [(MAIL_ADDRESSES[0] ?? `@${CLIENT_BRAND.domain}`).split('@')[1] ?? CLIENT_BRAND.domain]
+const DEFAULT_MAIL_DOMAIN = LOGIN_DOMAINS[0]
 
 const LABELS: Array<{ id: string; name: string; color: string }> = [
   { id: 'important', name: 'Important', color: '#F5A623' },
@@ -4273,7 +4276,19 @@ export default function DevMailPage() {
                 placeholder="you"
                 required
               />
-              {!loginRaw.includes('@') && (domainOpen ? (
+              {!loginRaw.includes('@') && (LOGIN_DOMAINS.length > 1 ? (
+                <MailSelect
+                  value={loginDomain}
+                  options={LOGIN_DOMAINS.map(entry => ({ value: entry, label: `@${entry}` }))}
+                  ariaLabel="Domain"
+                  buttonClassName={styles.loginDomain}
+                  onChange={value => {
+                    setLoginDomain(value)
+                    setEmail(current => `${current.split('@')[0]}@${value}`)
+                    try { localStorage.setItem(LS_DOMAIN_KEY, value) } catch {}
+                  }}
+                />
+              ) : domainOpen ? (
                 <input
                   className={styles.loginDomainEdit}
                   value={loginDomain}

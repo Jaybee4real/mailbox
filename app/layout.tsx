@@ -8,8 +8,11 @@ export const metadata: Metadata = {
   description: `${BRAND.name} team mailbox`,
   robots: { index: false, follow: false, nocache: true, googleBot: { index: false, follow: false } },
   manifest: '/manifest.webmanifest',
+  ...(BRAND.iconUrl
+    ? { icons: { icon: BRAND.iconUrl, shortcut: BRAND.iconUrl, apple: BRAND.appleIconUrl || BRAND.iconUrl } }
+    : {}),
   applicationName: `${BRAND.name} Mail`,
-  appleWebApp: { capable: true, title: 'MP Mail', statusBarStyle: 'black-translucent' },
+  appleWebApp: { capable: true, title: `${BRAND.name} Mail`, statusBarStyle: 'black-translucent' },
   formatDetection: { telephone: false },
 }
 

@@ -39,9 +39,23 @@ export const BRAND = {
     link: env('BRAND_COLOR_LINK', 'rgb(17, 85, 204)'),
     muted: env('BRAND_COLOR_MUTED', 'rgb(107, 114, 128)'),
   },
+  iconUrl: env('BRAND_ICON_URL'),
+  appleIconUrl: env('BRAND_APPLE_ICON_URL', env('BRAND_ICON_URL')),
+  accentHex: env('BRAND_ACCENT_HEX', env('NEXT_PUBLIC_BRAND_ACCENT', '#6d28d9')),
   supportEmail: env('MAIL_SUPPORT_EMAIL', `info@${domain}`),
   vapidSubject: env('VAPID_SUBJECT', `mailto:info@${domain}`),
 } as const
+
+const addressDomains: string[] = (() => {
+  const extra = env('MAIL_ADDRESS_DOMAINS')
+    .split(',')
+    .map(entry => entry.trim().toLowerCase())
+    .filter(Boolean)
+  const preferred = env('MAIL_DEFAULT_ADDRESS_DOMAIN').toLowerCase() || domain
+  return [...new Set([preferred, domain, ...extra])]
+})()
+
+export const ADDRESS_DOMAINS = addressDomains
 
 export const MAIL_SEATS: MailSeat[] = json<MailSeat[]>('MAIL_SEATS', [])
 export const ADDRESS_ALIASES: Record<string, string> = json<Record<string, string>>('MAIL_ADDRESS_ALIASES', {})

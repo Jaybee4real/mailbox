@@ -22,7 +22,7 @@ const subscribeStandalone = (notify: () => void) => {
   }
 }
 
-const PERMISSION_EVENT = 'mp-notification-permission'
+const PERMISSION_EVENT = 'mailbox-notification-permission'
 const readPermission = (): NotificationPermission | 'unsupported' =>
   typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
 const subscribePermission = (notify: () => void) => {

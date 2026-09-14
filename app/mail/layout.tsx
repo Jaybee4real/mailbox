@@ -1,4 +1,5 @@
 import { BRAND } from '@/lib/brand'
+import { accentRampCss } from '@/lib/accent-ramp'
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { ConfirmProvider } from './ConfirmDialog'
@@ -9,5 +10,11 @@ export const metadata: Metadata = {
 }
 
 export default function MailLayout({ children }: { children: ReactNode }) {
-  return <ConfirmProvider>{children}</ConfirmProvider>
+  const ramp = accentRampCss(BRAND.accentHex)
+  return (
+    <>
+      {ramp ? <style>{`:root{${ramp}}`}</style> : null}
+      <ConfirmProvider>{children}</ConfirmProvider>
+    </>
+  )
 }

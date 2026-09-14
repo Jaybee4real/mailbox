@@ -1,4 +1,4 @@
-import { BRAND } from '@/lib/brand'
+import { BRAND, ADDRESS_DOMAINS as BRAND_ADDRESS_DOMAINS } from '@/lib/brand'
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
@@ -26,13 +26,7 @@ const ADDRESS_DOMAIN = BRAND.domain
  * our inbound webhook — a domain we can send as but not receive on would look like a working
  * mailbox and silently drop replies. The default domain always stays first.
  */
-const ADDRESS_DOMAINS: string[] = (() => {
-  const configured = (process.env.MAIL_ADDRESS_DOMAINS ?? '')
-    .split(',')
-    .map(entry => entry.trim().toLowerCase())
-    .filter(Boolean)
-  return [...new Set([ADDRESS_DOMAIN, ...configured])]
-})()
+const ADDRESS_DOMAINS: string[] = BRAND_ADDRESS_DOMAINS
 
 function resolveDomain(requested?: string): string | null {
   if (!requested) return ADDRESS_DOMAIN

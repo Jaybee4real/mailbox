@@ -13,6 +13,10 @@ export const CLIENT_BRAND = {
   publicUrl,
   markUrl: process.env.NEXT_PUBLIC_BRAND_MARK_URL?.trim() || `${publicUrl}/brand/mark-email.png`,
   accent: process.env.NEXT_PUBLIC_BRAND_ACCENT?.trim() || '#6d28d9',
+  addressDomains: (process.env.NEXT_PUBLIC_MAIL_ADDRESS_DOMAINS ?? '')
+    .split(',')
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean),
   addresses: (process.env.NEXT_PUBLIC_MAIL_ADDRESSES ?? '')
     .split(',')
     .map(value => value.trim().toLowerCase())
