@@ -1,3 +1,4 @@
+import { BRAND } from './brand'
 /**
  * Turn editor HTML into HTML an email client will render.
  *
@@ -21,7 +22,7 @@ const STYLES: Record<string, string> = {
   li: 'margin:0 0 6px;',
   blockquote:
     `${FONT}font-size:15px;line-height:1.65;color:#45414f;margin:0 0 14px;padding:2px 0 2px 14px;border-left:3px solid #E8E2F4;`,
-  a: 'color:#a90317;text-decoration:underline;',
+  a: `color:${BRAND.colors.accent};text-decoration:underline;`,
   code: "font-family:'Courier New',Courier,monospace;font-size:14px;background:#F5F3F8;padding:1px 4px;border-radius:3px;",
   pre: "font-family:'Courier New',Courier,monospace;font-size:13px;background:#F5F3F8;padding:12px 14px;border-radius:6px;overflow:auto;margin:0 0 14px;",
   table: 'border-collapse:collapse;margin:0 0 14px;',

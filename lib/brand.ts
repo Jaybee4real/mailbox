@@ -35,7 +35,7 @@ export const BRAND = {
     `DISCLAIMER: The information contained in this e-mail is proprietary to ${env('BRAND_LEGAL_NAME', name)} and is intended only for the individual or entity to which it is addressed. It may contain information that is privileged, confidential or exempt from disclosure under applicable law. If you are not the intended recipient, any use, distribution, transmission, printing, copying or dissemination of this information is strictly prohibited. If you have received this communication in error, please delete it and notify us.`,
   ),
   colors: {
-    accent: env('BRAND_COLOR_ACCENT', 'rgb(153, 0, 0)'),
+    accent: env('BRAND_COLOR_ACCENT', 'rgb(109, 40, 217)'),
     link: env('BRAND_COLOR_LINK', 'rgb(17, 85, 204)'),
     muted: env('BRAND_COLOR_MUTED', 'rgb(107, 114, 128)'),
   },

@@ -1303,7 +1303,7 @@ export async function appendEvent(event: MailEvent): Promise<void> {
 export type { MailRole }
 /**
  * The mailboxes this deployment serves. `email` is the sign-in identity and `address` is
- * the mailbox it owns; for Metro Peril they are the same, so a person signs in as the
+ * the mailbox it owns; for most tenants they are the same, so a person signs in as the
  * address they are known by. info@ owns the shared inbox, which makes it the admin.
  */
 /**

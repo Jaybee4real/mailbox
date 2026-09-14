@@ -42,7 +42,7 @@ const LS_ACCENT_KEY = LS('accent')
 const LS_THEME_CUSTOM_KEY = LS('theme_custom')
 
 const ACCENT_PRESETS: Array<{ key: string; label: string; hex: string }> = [
-  { key: 'violet', label: 'Violet', hex: '#a90317' },
+  { key: 'brand', label: 'Brand', hex: CLIENT_BRAND.accent },
   { key: 'indigo', label: 'Indigo', hex: '#4F5BD5' },
   { key: 'teal', label: 'Teal', hex: '#0E8F8F' },
   { key: 'emerald', label: 'Emerald', hex: '#12855B' },
@@ -72,7 +72,7 @@ const THEME_PRESETS: Array<{ key: string; label: string; base: ThemeBase; accent
   { key: 'slate', label: 'Slate', base: 'dim', accent: '#4F8CD5', vars: {} },
   { key: 'forest', label: 'Forest', base: 'dark', accent: '#2F9E68', vars: { surface: '#0C1512', sidebar: '#122019', panel: '#16281F', raised: '#1D3529', border: '#25412F' } },
   { key: 'ember', label: 'Ember', base: 'dark', accent: '#D2632A', vars: { surface: '#160F0B', sidebar: '#1F1611', panel: '#271B14', raised: '#33241A', border: '#3F2C20' } },
-  { key: 'paper', label: 'Paper', base: 'light', accent: '#a90317', vars: {} },
+  { key: 'paper', label: 'Paper', base: 'light', accent: CLIENT_BRAND.accent, vars: {} },
   { key: 'sand', label: 'Sand', base: 'light', accent: '#A6600F', vars: { surface: '#FDFBF6', sidebar: '#F5EFE2', panel: '#FFFDF8', raised: '#EFE6D3', border: '#E2D6BE' } },
 ]
 
@@ -435,9 +435,9 @@ function inlineMd(src: string): string {
     )
     .replace(
       /\[button:(.+?)\]\((.+?)\)/g,
-      '<a href="$2" style="display:inline-block;background:#a90317;color:#ffffff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:10px;margin:6px 0;">$1</a>',
+      '<a href="$2" style="display:inline-block;background:${CLIENT_BRAND.accent};color:#ffffff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:10px;margin:6px 0;">$1</a>',
     )
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" style="color:#a90317;">$1</a>')
+    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" style="color:${CLIENT_BRAND.accent};">$1</a>')
 }
 
 // Signatures used to be stored as markdown. Anything without tags is still run through
@@ -3410,7 +3410,7 @@ export default function DevMailPage() {
       const rows = linked
         .map(
           entry =>
-            `<tr><td style="padding:6px 0"><a href="${entry.shareUrl ?? entry.url}" style="display:inline-block;background:#a90317;color:#fff;text-decoration:none;font-weight:600;padding:9px 16px;border-radius:8px;font-family:Arial,sans-serif;font-size:14px">Download ${escapeHtml(entry.filename)} (${formatBytes(entry.size)})</a></td></tr>`,
+            `<tr><td style="padding:6px 0"><a href="${entry.shareUrl ?? entry.url}" style="display:inline-block;background:${CLIENT_BRAND.accent};color:#fff;text-decoration:none;font-weight:600;padding:9px 16px;border-radius:8px;font-family:Arial,sans-serif;font-size:14px">Download ${escapeHtml(entry.filename)} (${formatBytes(entry.size)})</a></td></tr>`,
         )
         .join('')
       html += `<div style="margin-top:20px"><p style="font-family:Arial,sans-serif;font-size:14px;color:#5A5170;margin:0 0 8px">Large files:</p><table role="presentation">${rows}</table></div>`
@@ -3696,7 +3696,7 @@ export default function DevMailPage() {
       const linkRows = linked
         .map(
           entry =>
-            `<tr><td style="padding:6px 0"><a href="${entry.shareUrl ?? entry.url}" style="display:inline-block;background:#a90317;color:#fff;text-decoration:none;font-weight:600;padding:9px 16px;border-radius:8px;font-family:Arial,sans-serif;font-size:14px">Download ${escapeHtml(entry.filename)} (${formatBytes(entry.size)})</a></td></tr>`,
+            `<tr><td style="padding:6px 0"><a href="${entry.shareUrl ?? entry.url}" style="display:inline-block;background:${CLIENT_BRAND.accent};color:#fff;text-decoration:none;font-weight:600;padding:9px 16px;border-radius:8px;font-family:Arial,sans-serif;font-size:14px">Download ${escapeHtml(entry.filename)} (${formatBytes(entry.size)})</a></td></tr>`,
         )
         .join('')
       const linkBlock = linkRows ? `<table role="presentation" style="margin-top:18px">${linkRows}</table>` : ''
@@ -3798,7 +3798,7 @@ export default function DevMailPage() {
     const fwSubject = subject.startsWith('Fwd:') ? subject : `Fwd: ${subject}`
     if (html && html.trim()) {
       // Carry the whole original mail (full HTML), not a stripped snippet.
-      const header = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5A5170;border-left:3px solid #a90317;padding:4px 0 4px 12px;margin:0 0 16px;">---------- Forwarded message ----------<br>Subject: ${escapeHtml(subject)}</div>`
+      const header = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5A5170;border-left:3px solid ${CLIENT_BRAND.accent};padding:4px 0 4px 12px;margin:0 0 16px;">---------- Forwarded message ----------<br>Subject: ${escapeHtml(subject)}</div>`
       openCompose({ subject: fwSubject, quoteHtml: `${header}${html}` })
     } else {
       openCompose({
@@ -4253,7 +4253,7 @@ export default function DevMailPage() {
         >
           <div className={styles.loginBrand}>
             <span className={styles.brandMark} role="img" aria-label={CLIENT_BRAND.name} />
-            <h1 className={styles.loginTitle}>Metro Peril Mail</h1>
+            <h1 className={styles.loginTitle}>{CLIENT_BRAND.name} Mail</h1>
           </div>
           <p className={styles.loginSub}>Admin access only. Sign in with your account credentials.</p>
           <label className={styles.loginField}>
@@ -5714,7 +5714,7 @@ export default function DevMailPage() {
         <button
           className={styles.themeToggle}
           onClick={install}
-          aria-label="Install Metro Peril Mail as an app"
+          aria-label={`Install ${CLIENT_BRAND.name} Mail as an app`}
         >
           {ICONS.install}
         </button>
@@ -5823,7 +5823,7 @@ export default function DevMailPage() {
         <div className={styles.brand}>
           <span className={styles.brandLogo} role="img" aria-label={CLIENT_BRAND.name} />
           <span className={styles.brandName}>Mail</span>
-          <span className={styles.brandTag}>Metro Peril</span>
+          <span className={styles.brandTag}>{CLIENT_BRAND.name}</span>
           <button className={styles.railClose} onClick={() => setRailOpen(false)} aria-label="Close menu">
             {ICONS.close}
           </button>
@@ -6874,7 +6874,7 @@ export default function DevMailPage() {
               <input
                 value={settings.senderName}
                 onChange={event => setMailSettings(current => ({ ...current, senderName: event.target.value }))}
-                placeholder="Metro Peril"
+                placeholder={CLIENT_BRAND.name}
               />
             </label>
             <div className={styles.settingsField}>
@@ -7279,7 +7279,7 @@ export default function DevMailPage() {
 
             {settingsTab === 'app' && (<>
             <div className={styles.settingsField}>
-              <span>Install Metro Peril Mail</span>
+              <span>Install {CLIENT_BRAND.name} Mail</span>
               <p className={styles.settingsNote}>
                 {installed
                   ? 'Installed. Launch it from your dock, home screen or app list.'

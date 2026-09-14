@@ -16,7 +16,7 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import { safeHref } from '@/lib/email-html'
 import styles from './page.module.css'
 
-const TEXT_COLOURS = ['#030712', '#a90317', '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#6b7280']
+const TEXT_COLOURS = ['#030712', '#b91c1c', '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#6b7280']
 const HIGHLIGHTS = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FBCFE8', '#FED7AA']
 const SIZES: Array<{ label: string; level: 1 | 2 | 3 | null }> = [
   { label: 'Body', level: null },

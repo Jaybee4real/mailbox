@@ -49,9 +49,9 @@ export async function POST(req: Request) {
         subject: `Reset your ${BRAND.name} Mail password`,
         text: `Someone requested a password reset for ${BRAND.name} Mail.\n\nSet a new password: ${resetUrl}\n\nThis link expires in 30 minutes. If you didn't request it, ignore this email — your password won't change.`,
         html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#1A1030;">
-          <p style="margin:0 0 12px;color:#a90317;font-weight:600;">Reset your Metro Peril Mail password</p>
+          <p style="margin:0 0 12px;color:${BRAND.colors.accent};font-weight:600;">Reset your ${BRAND.name} Mail password</p>
           <p style="margin:0 0 16px;">Click below to set a new password. The link expires in 30 minutes.</p>
-          <a href="${resetUrl}" style="display:inline-block;background:#a90317;color:#fff;text-decoration:none;font-weight:600;padding:11px 20px;border-radius:8px;">Set a new password</a>
+          <a href="${resetUrl}" style="display:inline-block;background:${BRAND.colors.accent};color:#fff;text-decoration:none;font-weight:600;padding:11px 20px;border-radius:8px;">Set a new password</a>
           <p style="margin:16px 0 0;color:#8E84A8;font-size:13px;">Didn't request this? Ignore this email — your password won't change.</p>
         </div>`,
       })

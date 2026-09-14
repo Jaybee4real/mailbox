@@ -13,7 +13,7 @@ assert.ok(coloured.indexOf('font-family') < coloured.indexOf('color:#ff0000'), '
 assert.equal(inlineEmailStyles('<strong>bold</strong>'), '<strong>bold</strong>')
 
 // Lists, links and tables all pick up styles.
-assert.match(inlineEmailStyles('<a href="https://x.test">x</a>'), /style="color:#a90317/)
+assert.match(inlineEmailStyles('<a href="https://x.test">x</a>'), /style="color:/)
 assert.match(inlineEmailStyles('<td>c</td>'), /border:1px solid/)
 
 // Plain text falls out readable, with list bullets preserved.

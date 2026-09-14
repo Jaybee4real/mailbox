@@ -1,5 +1,6 @@
 'use client'
 
+import { CLIENT_BRAND } from '@/lib/brand.client'
 import { Suspense, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -50,7 +51,7 @@ function ResetForm() {
     return (
       <div className={styles.loginCard}>
         <div className={styles.loginBrand}>
-          <span className={styles.brandMark} role="img" aria-label="Metro Peril" />
+          <span className={styles.brandMark} role="img" aria-label={CLIENT_BRAND.name} />
           <h1 className={styles.loginTitle}>Reset link needed</h1>
         </div>
         <p className={styles.loginSub}>This page needs a reset token. Request a fresh link from the sign-in screen.</p>
@@ -65,7 +66,7 @@ function ResetForm() {
     return (
       <div className={styles.loginCard}>
         <div className={styles.loginBrand}>
-          <span className={styles.brandMark} role="img" aria-label="Metro Peril" />
+          <span className={styles.brandMark} role="img" aria-label={CLIENT_BRAND.name} />
           <h1 className={styles.loginTitle}>{invite ? "You're all set" : 'Password updated'}</h1>
         </div>
         <p className={styles.loginSub}>
@@ -81,11 +82,11 @@ function ResetForm() {
   return (
     <form className={styles.loginCard} onSubmit={submit}>
       <div className={styles.loginBrand}>
-        <span className={styles.brandMark} role="img" aria-label="Metro Peril" />
-        <h1 className={styles.loginTitle}>{invite ? 'Welcome to Metro Peril Mail' : 'Set a new password'}</h1>
+        <span className={styles.brandMark} role="img" aria-label={CLIENT_BRAND.name} />
+        <h1 className={styles.loginTitle}>{invite ? `Welcome to ${CLIENT_BRAND.name} Mail` : 'Set a new password'}</h1>
       </div>
       <p className={styles.loginSub}>
-        {invite ? 'Create a password to activate your mailbox and sign in.' : 'Choose a new password for your Metro Peril Mail account.'}
+        {invite ? 'Create a password to activate your mailbox and sign in.' : `Choose a new password for your ${CLIENT_BRAND.name} Mail account.`}
       </p>
       <label className={styles.loginField}>
         <span>New password</span>

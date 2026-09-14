@@ -5,7 +5,7 @@
 # Idempotent: re-running resumes; each phase retries until its completion line appears.
 set -u
 ZIP=$1; OWNER=$2
-S=${IMPORT_LOG_DIR:-/private/tmp/claude-501/-Users-jaybee4real-Documents-Programming-Codes-Personal-Web-metroperil-landing/2cd382f6-87f6-47c9-ba7e-d32082a17fe1/scratchpad}
+S=${IMPORT_LOG_DIR:?set IMPORT_LOG_DIR to a scratch directory}
 cd "$(dirname "$0")/.." || exit 1
 set -a; . ./.env.local; set +a
 TAG=${OWNER%%@*}
@@ -16,7 +16,7 @@ ARCHIVE_ID=$(printf "%s" "$ZIP" | shasum | cut -c1-8)
 # Logs are per archive, not per owner: two archives for one mailbox must not share state.
 LOG1="$S/import-$TAG-$ARCHIVE_ID-phase1.log"; LOG2="$S/import-$TAG-$ARCHIVE_ID-attach.log"
 # The first archive imported for a mailbox predates the archive id; keep its history.
-[ -f "$S/import-$TAG-phase1.log" ] && [ ! -f "$LOG1" ] && [ "$TAG" = okomolafe ] && cp "$S/import-$TAG-phase1.log" "$LOG1"
+[ -f "$S/import-$TAG-phase1.log" ] && [ ! -f "$LOG1" ] && [ -n "${IMPORT_LEGACY_TAG:-}" ] && [ "$TAG" = "$IMPORT_LEGACY_TAG" ] && cp "$S/import-$TAG-phase1.log" "$LOG1"
 
 attempt=0
 until grep -q "^imported for" "$LOG1" 2>/dev/null; do

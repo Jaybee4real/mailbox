@@ -1,5 +1,6 @@
 'use client'
 
+import { CLIENT_BRAND } from '@/lib/brand.client'
 import { use, useCallback, useEffect, useState } from 'react'
 import styles from './share.module.css'
 
@@ -118,7 +119,7 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
     <main className={styles.wrap}>
       <div className={styles.card}>
         <span className={styles.mark} aria-hidden />
-        <p className={styles.eyebrow}>Metro Peril Insurance Brokers</p>
+        <p className={styles.eyebrow}>{CLIENT_BRAND.legalName}</p>
         <h1 className={styles.title}>{meta.filename}</h1>
         <p className={styles.meta}>
           {kindOf(meta.filename, meta.contentType)} · {readableSize(meta.size)}

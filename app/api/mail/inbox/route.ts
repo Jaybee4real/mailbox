@@ -172,11 +172,11 @@ async function forwardToAccounts(
   // forward still goes out, just without re-attaching the files.
   const resendKey = process.env.RESEND_API_KEY
   const attachments = (files ?? (resendKey ? await fetchAttachmentBytes(emailId, resendKey) : [])).filter(file => file.content)
-  const header = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5A5170;border-left:3px solid #a90317;padding:4px 0 4px 12px;margin:0 0 16px;">---------- Forwarded message ----------<br><strong>From:</strong> ${escapeHtml(inbound.from)}<br><strong>Subject:</strong> ${escapeHtml(inbound.subject)}</div>`
+  const header = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5A5170;border-left:3px solid ${BRAND.colors.accent};padding:4px 0 4px 12px;margin:0 0 16px;">---------- Forwarded message ----------<br><strong>From:</strong> ${escapeHtml(inbound.from)}<br><strong>Subject:</strong> ${escapeHtml(inbound.subject)}</div>`
   try {
     const data = await sendMail({
       from: from.replace(/^.*<|>$/g, ''),
-      fromName: 'Metro Peril Mail',
+      fromName: `${BRAND.name} Mail`,
       to: [recipient],
       replyTo: inbound.from || undefined,
       subject: inbound.subject.startsWith('Fwd:') ? inbound.subject : `Fwd: ${inbound.subject}`,

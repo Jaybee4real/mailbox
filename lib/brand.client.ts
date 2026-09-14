@@ -5,13 +5,14 @@ const publicUrl = (process.env.NEXT_PUBLIC_MAIL_PUBLIC_URL?.trim() || `https://m
 
 export const CLIENT_BRAND = {
   name,
+  legalName: process.env.NEXT_PUBLIC_BRAND_LEGAL_NAME?.trim() || name,
   slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'mailbox',
   domain,
   website,
   websiteUrl: `https://${website}`,
   publicUrl,
   markUrl: process.env.NEXT_PUBLIC_BRAND_MARK_URL?.trim() || `${publicUrl}/brand/mark-email.png`,
-  accent: process.env.NEXT_PUBLIC_BRAND_ACCENT?.trim() || '#a90317',
+  accent: process.env.NEXT_PUBLIC_BRAND_ACCENT?.trim() || '#6d28d9',
   addresses: (process.env.NEXT_PUBLIC_MAIL_ADDRESSES ?? '')
     .split(',')
     .map(value => value.trim().toLowerCase())

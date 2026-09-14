@@ -13,7 +13,7 @@ export const runtime = 'nodejs'
 
 type SentEmail = { id: string; from: string; to: string[]; subject: string; createdAt: string; scheduledAt: string | null; lastEvent: string }
 
-const KNOWN_AUTO_SUBJECTS = new Set(['Reset your Metro Peril Mail password'])
+const KNOWN_AUTO_SUBJECTS = new Set([`Reset your ${BRAND.name} Mail password`])
 
 /** Heuristic for pre-existing automated sends that predate owner/auto tagging. */
 function looksAutomated(email: SentEmail): boolean {
