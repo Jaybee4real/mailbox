@@ -28,6 +28,16 @@ waiting.
 3. Point `TURSO_DATABASE_URL` at a SQLite file on a mounted volume.
 4. Deploy. The schema is created on first boot and migrates itself forward.
 
+## Trying it locally
+
+Outside production the app seeds one account for you — `test@<MAIL_ADDRESS_DOMAIN>`,
+an admin whose password is the address itself — so a fresh checkout can be signed
+into without configuring seats. It is never seeded when `NODE_ENV=production`.
+
+`node scripts/seed-dev.mjs` then fills that mailbox with enough traffic to exercise
+the list, search, paging and attachments. Create the schema first by starting the
+app once, or by calling `ensureMailSchema()`.
+
 ## Configuration
 
 `lib/brand.ts` is the single server-side source of tenant identity — name,

@@ -24,7 +24,7 @@ export const CLIENT_BRAND = {
   website,
   websiteUrl: `https://${website}`,
   publicUrl,
-  markUrl: process.env.NEXT_PUBLIC_BRAND_MARK_URL?.trim() || `${publicUrl}/brand/mark-email.png`,
+  markUrl: process.env.NEXT_PUBLIC_BRAND_MARK_URL?.trim() || `${publicUrl}/icon-192.png`,
   accent: process.env.NEXT_PUBLIC_BRAND_ACCENT?.trim() || '#6d28d9',
   chromeMarkUrl: process.env.NEXT_PUBLIC_BRAND_CHROME_MARK_URL?.trim() || '/brand/mark.png',
   signatureMark: {

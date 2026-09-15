@@ -26,7 +26,7 @@ export const BRAND = {
   websiteUrl: `https://${website}`,
   publicUrl,
   logoUrl: env('BRAND_LOGO_URL', `${publicUrl}/brand/mark-email.png`),
-  markUrl: env('BRAND_MARK_URL', `${publicUrl}/brand/mark-email.png`),
+  markUrl: env('BRAND_MARK_URL', `${publicUrl}/icon-192.png`),
   address: env('BRAND_ADDRESS'),
   tel: env('BRAND_TEL'),
   regulatory: env('BRAND_REGULATORY'),
@@ -62,7 +62,18 @@ const addressDomains: string[] = (() => {
 
 export const ADDRESS_DOMAINS = addressDomains
 
-export const MAIL_SEATS: MailSeat[] = json<MailSeat[]>('MAIL_SEATS', [])
+/**
+ * A mailbox a fresh checkout can sign into, so the package can be run and tried with no
+ * configuration at all. Its password is its own address, so it is never seeded into a
+ * production deployment.
+ */
+const DEV_SEAT: MailSeat = { email: `test@${domain}`, address: `test@${domain}`, name: 'Test Account', role: 'admin' }
+
+export const MAIL_SEATS: MailSeat[] = (() => {
+  const configured = json<MailSeat[]>('MAIL_SEATS', [])
+  if (process.env.NODE_ENV === 'production') return configured
+  return configured.some(seat => seat.email.toLowerCase() === DEV_SEAT.email) ? configured : [...configured, DEV_SEAT]
+})()
 export const ADDRESS_ALIASES: Record<string, string> = json<Record<string, string>>('MAIL_ADDRESS_ALIASES', {})
 
 export const brandSlug = BRAND.name.toLowerCase().replace(/[^a-z0-9]+/g, '')
