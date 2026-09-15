@@ -1807,6 +1807,9 @@ export async function resetPasswordWithToken(token: string, passwordHash: string
   await sql`
     INSERT INTO mail_accounts (email, password_hash, status, created_at) VALUES (${String(email)}, ${passwordHash}, 'active', ${nowIso()})
     ON CONFLICT (email) DO UPDATE SET password_hash = excluded.password_hash, status = 'active'`
+  // Any other link still outstanding for this address is now stale — and one of them
+  // may be the reason the password is being changed.
+  await sql`DELETE FROM mail_reset_tokens WHERE email = ${String(email)}`
   return String(email)
 }
 
