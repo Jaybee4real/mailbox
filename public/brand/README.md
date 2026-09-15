@@ -1,7 +1,7 @@
 # Brand assets
 
 > **Never deploy or `git push` unless asked for it in that request.** Pushing
-> `master` auto-deploys every live mailbox. See the deploying section in the
+> `master` auto-deploys the Novacraft mailbox. See the deploying section in the
 > root [README](../README.md).
 
 **No tenant's artwork belongs in this repository.** Each mailbox keeps its own

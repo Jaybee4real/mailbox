@@ -16,8 +16,11 @@ for it in that same request.** This is a standing rule for every agent and every
 session. A granted deploy covers that one deploy only; it is not permission for
 the next one.
 
-Here, pushing *is* deploying. Coolify auto-deploys `master` on push, and a single
-push updates **every** live mailbox at once, not just the one you are working on.
+Here, pushing *is* deploying — for one tenant. A GitHub webhook on this repository
+points at the Coolify that serves production, so a push to `master` auto-deploys the
+**Novacraft** mailbox. Metroperil is deliberately not wired: it shares this repository
+and branch, but Coolify checks the webhook signature against each application's own
+secret, so metroperil is skipped and still needs a manual deploy from Coolify.
 Finish the work, commit locally, leave it unpushed, and say plainly that it is
 waiting.
 
