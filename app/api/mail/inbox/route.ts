@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { sendPush } from '@/lib/push'
 import { FORWARD_RECIPIENTS, MAIL_DOMAIN, mailAuthGuard, isLocalOrigin, resolveAccount } from '@/lib/dev-auth'
-import { ADDRESS_ALIASES, searchInbox, appendEvent, appendInbound, recordContact, recordSentMeta, getAccountByAddress, setInboundFlags, setInboundFlagsForThread, setInboundLabels, setInboxOwner, readInbox, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
+import { ADDRESS_ALIASES, searchInbox, appendEvent, appendInbound, recordContact, recordSentMeta, getAccountByAddress, setInboundFlags, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
 import { isBrevoInbound, normalizeBrevoInbound, sendMail } from '@/lib/mail-provider'
 
 // The address we send from, and the inbox that owns mail addressed to nobody specific.
@@ -210,7 +210,7 @@ export async function GET(req: Request) {
   const threadId = params.get('thread') ?? undefined
   if (text || limitRaw || offset || cursor || threadId) {
     const folderParam = params.get('folder')
-    const folder = (['inbox', 'archive', 'trash', 'starred'] as const).find(f => f === folderParam)
+    const folder = (['inbox', 'archive', 'trash', 'starred', 'snoozed'] as const).find(f => f === folderParam)
     const { rows, total, nextCursor } = await searchInbox({
       text,
       owner: ownerFilter,
@@ -239,7 +239,7 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
-  let body: { id?: string; ids?: string[]; threadId?: string; labels?: string[]; owner?: string } & InboundFlags
+  let body: { id?: string; ids?: string[]; threadId?: string; labels?: string[]; owner?: string; snoozedUntil?: string | null } & InboundFlags
   try {
     body = await req.json()
   } catch {
@@ -248,6 +248,24 @@ export async function PATCH(req: Request) {
   const ids = body.ids ?? (body.id ? [body.id] : [])
   if (!ids.length && !body.threadId) {
     return NextResponse.json({ ok: false, error: 'id, ids or threadId is required' }, { status: 400 })
+  }
+
+  // Snooze belongs to the conversation, so it is set by thread and nothing else.
+  if (body.snoozedUntil !== undefined) {
+    if (!body.threadId) {
+      return NextResponse.json({ ok: false, error: 'snoozedUntil needs a threadId' }, { status: 400 })
+    }
+    const until = body.snoozedUntil
+    if (until !== null && Number.isNaN(Date.parse(until))) {
+      return NextResponse.json({ ok: false, error: 'snoozedUntil must be a date or null' }, { status: 400 })
+    }
+    const account = await resolveAccount(req)
+    const moved = await setThreadSnooze(
+      account.address ?? ' no-address',
+      body.threadId,
+      until === null ? null : new Date(until).toISOString(),
+    )
+    return NextResponse.json({ ok: true, messages: moved })
   }
   // Reassigning inbound mail to a mailbox is admin-only.
   if (body.owner !== undefined) {

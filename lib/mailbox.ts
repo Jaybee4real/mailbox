@@ -17,6 +17,7 @@ import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
 export type InboundAttachment = { filename: string; contentType?: string; size?: number; shareId?: string }
 
 export type InboundEmail = {
+  snoozedUntil?: string | null
   id: string
   from: string
   to: string[]
@@ -355,6 +356,15 @@ export function ensureMailSchema(): Promise<void> {
       await sqlRaw('ALTER TABLE mail_inbox ADD COLUMN thread_id TEXT').catch(() => {})
       await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_thread_idx ON mail_inbox (lower(owner), thread_id, received_at DESC, id DESC)').catch(() => {})
 
+      // Snooze. An ISO timestamp in the future means "not now": the message is out of the
+      // inbox until then and comes back on its own, because every folder decides from this
+      // column against the clock rather than from a flag some worker has to flip. There is
+      // no job to fall behind, and nothing to reconcile if one does.
+      await sqlRaw('ALTER TABLE mail_inbox ADD COLUMN snoozed_until TEXT').catch(() => {})
+      await sqlRaw('ALTER TABLE mail_threads ADD COLUMN snoozed_until TEXT').catch(() => {})
+      await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_snoozed_idx ON mail_inbox (lower(owner), snoozed_until, received_at DESC, id DESC)').catch(() => {})
+      await sqlRaw('CREATE INDEX IF NOT EXISTS mail_threads_snoozed_idx ON mail_threads (owner, snoozed_until, latest_at DESC)').catch(() => {})
+
       // Seed the mailboxes this deployment serves — metadata only, never clobber an
       // existing password_hash.
       const sql = db()
@@ -404,6 +414,7 @@ function mapInbound(row: Record<string, unknown>): InboundEmail {
     starred: Boolean(row.starred),
     archived: Boolean(row.archived),
     trashed: Boolean(row.trashed),
+    snoozedUntil: row.snoozed_until == null ? null : String(row.snoozed_until),
     labels: parseArray(row.labels),
     owner: (row.owner as string) ?? null,
     threadId: row.thread_id == null ? null : String(row.thread_id),
@@ -432,7 +443,7 @@ export type InboxPage = {
 export async function searchInbox(options: {
   text?: string
   owner?: string
-  folder?: 'inbox' | 'archive' | 'trash' | 'starred'
+  folder?: 'inbox' | 'archive' | 'trash' | 'starred' | 'snoozed'
   unread?: boolean
   starred?: boolean
   hasAttachment?: boolean
@@ -474,10 +485,15 @@ export async function searchInbox(options: {
   if (options.from) { where.push('lower(m.from_addr) LIKE ?'); args.push(`%${options.from.toLowerCase()}%`) }
   if (options.to) { where.push('lower(m.to_addrs) LIKE ?'); args.push(`%${options.to.toLowerCase()}%`) }
 
+  // A snoozed message is only out of the inbox while its time is still ahead; the clause
+  // does the waking, so nothing has to run on a timer.
+  const nowIso = new Date().toISOString()
+  const awake = "(m.snoozed_until IS NULL OR m.snoozed_until <= ?)"
   if (options.folder === 'trash') where.push('m.trashed = 1')
   else if (options.folder === 'archive') where.push('m.archived = 1 AND m.trashed = 0')
   else if (options.folder === 'starred') where.push('m.starred = 1 AND m.trashed = 0')
-  else if (options.folder === 'inbox') where.push('m.archived = 0 AND m.trashed = 0')
+  else if (options.folder === 'snoozed') { where.push('m.snoozed_until > ? AND m.trashed = 0'); args.push(nowIso) }
+  else if (options.folder === 'inbox') { where.push(`m.archived = 0 AND m.trashed = 0 AND ${awake}`); args.push(nowIso) }
 
   const filterClause = where.length ? `WHERE ${where.join(' AND ')}` : ''
 
@@ -507,7 +523,7 @@ export async function searchInbox(options: {
                 'contentType', json_extract(value, '$.contentType'),
                 'size', json_extract(value, '$.size')))
               FROM json_each(CASE WHEN json_valid(m.attachments) THEN m.attachments ELSE '[]' END)), '[]') AS attachments,
-            m.starred, m.archived, m.trashed, m.labels, m.owner, m.thread_id
+            m.starred, m.archived, m.trashed, m.snoozed_until, m.labels, m.owner, m.thread_id
      FROM ${ftsFrom}mail_inbox m ${ftsFrom ? 'ON m.rowid = fts.fts_rid' : ''} ${pageClause}
      ORDER BY m.received_at DESC, m.id DESC LIMIT ?${cursor ? '' : ' OFFSET ?'}`,
     cursor ? [...pageArgs, limit] : [...pageArgs, limit, offset],
@@ -553,6 +569,7 @@ export type FolderTally = {
   starred: number
   archived: number
   trashed: number
+  snoozed: number
 }
 
 /**
@@ -605,19 +622,21 @@ export async function countFolders(owner?: string): Promise<FolderCounts> {
   const sql = db()
   const scope = owner ? 'WHERE lower(owner) = ?' : ''
   const args = owner ? [owner.toLowerCase()] : []
+  const nowIso = new Date().toISOString()
 
   // One pass, not one per folder: five separate counts read the table five times
   // (206k rows against 69k here) for figures that all come off the same scan.
   const rows = await tagged(
     sql,
     `SELECT
-       SUM(CASE WHEN archived = 0 AND trashed = 0 THEN 1 ELSE 0 END) AS inbox,
-       SUM(CASE WHEN archived = 0 AND trashed = 0 AND read = 0 THEN 1 ELSE 0 END) AS unread,
+       SUM(CASE WHEN archived = 0 AND trashed = 0 AND (snoozed_until IS NULL OR snoozed_until <= ?) THEN 1 ELSE 0 END) AS inbox,
+       SUM(CASE WHEN archived = 0 AND trashed = 0 AND read = 0 AND (snoozed_until IS NULL OR snoozed_until <= ?) THEN 1 ELSE 0 END) AS unread,
        SUM(CASE WHEN starred = 1 AND trashed = 0 THEN 1 ELSE 0 END) AS starred,
        SUM(CASE WHEN archived = 1 AND trashed = 0 THEN 1 ELSE 0 END) AS archived,
-       SUM(CASE WHEN trashed = 1 THEN 1 ELSE 0 END) AS trashed
+       SUM(CASE WHEN trashed = 1 THEN 1 ELSE 0 END) AS trashed,
+       SUM(CASE WHEN snoozed_until > ? AND trashed = 0 THEN 1 ELSE 0 END) AS snoozed
      FROM mail_inbox ${scope}`,
-    args,
+    [nowIso, nowIso, nowIso, ...args],
   )
   const row = rows[0] ?? {}
   const value = (key: string) => Number((row[key] as number) ?? 0)
@@ -631,13 +650,14 @@ export async function countFolders(owner?: string): Promise<FolderCounts> {
     const threadRows = await tagged(
       sql,
       `SELECT
-         SUM(CASE WHEN inbox_count > 0 THEN 1 ELSE 0 END) AS inbox,
-         SUM(CASE WHEN inbox_count > 0 AND unread_count > 0 THEN 1 ELSE 0 END) AS unread,
+         SUM(CASE WHEN inbox_count > 0 AND (snoozed_until IS NULL OR snoozed_until <= ?) THEN 1 ELSE 0 END) AS inbox,
+         SUM(CASE WHEN inbox_count > 0 AND unread_count > 0 AND (snoozed_until IS NULL OR snoozed_until <= ?) THEN 1 ELSE 0 END) AS unread,
          SUM(CASE WHEN starred_count > 0 THEN 1 ELSE 0 END) AS starred,
          SUM(CASE WHEN archived_count > 0 THEN 1 ELSE 0 END) AS archived,
-         SUM(CASE WHEN trashed_count > 0 THEN 1 ELSE 0 END) AS trashed
+         SUM(CASE WHEN trashed_count > 0 THEN 1 ELSE 0 END) AS trashed,
+         SUM(CASE WHEN snoozed_until > ? THEN 1 ELSE 0 END) AS snoozed
        FROM mail_threads WHERE owner = ?`,
-      [owner.toLowerCase()],
+      [nowIso, nowIso, nowIso, owner.toLowerCase()],
     )
     const threadRow = threadRows[0] ?? {}
     const threadValue = (key: string) => Number((threadRow[key] as number) ?? 0)
@@ -647,6 +667,7 @@ export async function countFolders(owner?: string): Promise<FolderCounts> {
       starred: threadValue('starred'),
       archived: threadValue('archived'),
       trashed: threadValue('trashed'),
+      snoozed: threadValue('snoozed'),
     }
   }
 
@@ -656,6 +677,7 @@ export async function countFolders(owner?: string): Promise<FolderCounts> {
     starred: value('starred'),
     archived: value('archived'),
     trashed: value('trashed'),
+    snoozed: value('snoozed'),
     conversations,
   }
 }
@@ -691,6 +713,7 @@ export type ThreadRow = {
   senders: string[]
   snippet: string
   labels: string[]
+  snoozedUntil: string | null
 }
 
 /**
@@ -780,6 +803,8 @@ async function threadMessage(row: { id: string; owner: string | null; subject: s
     const threadId = await assignThread({ id: row.id, owner: row.owner, subject: row.subject, receivedAt: row.receivedAt })
     const sql = db()
     await sql`UPDATE mail_inbox SET thread_id = ${threadId} WHERE id = ${row.id}`
+    // A reply to a conversation someone put aside is the reason to stop putting it aside.
+    await setThreadSnooze(row.owner, threadId, null)
     await refreshThread(row.owner, threadId)
   } catch (err) {
     console.error('[threads] could not thread', row.id, err instanceof Error ? err.message : err)
@@ -805,7 +830,7 @@ async function rethreadAfterChange(id: string, previousOwner?: string | null, pr
   }
 }
 
-export type ThreadFolder = 'inbox' | 'archive' | 'trash' | 'starred'
+export type ThreadFolder = 'inbox' | 'archive' | 'trash' | 'starred' | 'snoozed'
 
 /** The newest conversations in a folder: one row each, already summarised. */
 export type ThreadPage = { rows: ThreadRow[]; nextCursor: string | null }
@@ -813,19 +838,26 @@ export type ThreadPage = { rows: ThreadRow[]; nextCursor: string | null }
 export async function listThreads(ownerRaw: string, folder: ThreadFolder, limit: number, cursorRaw?: string | null): Promise<ThreadPage> {
   await ensureMailSchema()
   const owner = ownerRaw.toLowerCase()
+  const nowIso = new Date().toISOString()
   const predicate =
     folder === 'archive' ? 'archived_count > 0'
     : folder === 'trash' ? 'trashed_count > 0'
     : folder === 'starred' ? 'starred_count > 0'
-    : 'inbox_count > 0'
+    : folder === 'snoozed' ? 'snoozed_until > ?'
+    : 'inbox_count > 0 AND (snoozed_until IS NULL OR snoozed_until <= ?)'
+  // Both snooze predicates carry one bound timestamp; the others carry none, and the
+  // cursor's arguments have to follow whatever the predicate used.
+  const folderArgs = folder === 'snoozed' || folder === 'inbox' ? [nowIso] : []
   const cursor = decodeCursor(cursorRaw)
   const rows = await tagged(db(), `
     SELECT thread_id, subject, first_at, latest_at, latest_id, count, unread_count, starred_count,
-      inbox_count, archived_count, trashed_count, attach_count, senders, snippet, labels
+      inbox_count, archived_count, trashed_count, attach_count, senders, snippet, labels, snoozed_until
     FROM mail_threads WHERE owner = ? AND ${predicate}
       ${cursor ? 'AND (latest_at < ? OR (latest_at = ? AND thread_id < ?))' : ''}
     ORDER BY latest_at DESC, thread_id DESC LIMIT ?`,
-    cursor ? [owner, cursor.receivedAt, cursor.receivedAt, cursor.id, limit] : [owner, limit])
+    cursor
+      ? [owner, ...folderArgs, cursor.receivedAt, cursor.receivedAt, cursor.id, limit]
+      : [owner, ...folderArgs, limit])
   const last = rows[rows.length - 1]
   const nextCursor = rows.length === limit && last ? encodeCursor(String(last.latest_at), String(last.thread_id)) : null
   const mapped = rows.map(row => ({
@@ -844,6 +876,7 @@ export async function listThreads(ownerRaw: string, folder: ThreadFolder, limit:
     senders: parseJson<string[]>(row.senders, []),
     snippet: String(row.snippet ?? ''),
     labels: parseJson<string[]>(row.labels, []),
+    snoozedUntil: row.snoozed_until == null ? null : String(row.snoozed_until),
   }))
   return { rows: mapped, nextCursor }
 }
@@ -1206,6 +1239,31 @@ export async function setInboundFlagsForThread(
   const ids = rows.map(row => String(row.id))
   for (const id of ids) await setInboundFlags(id, flags)
   return ids
+}
+
+/**
+ * Snooze or wake a conversation. Snooze is a property of the conversation rather than of
+ * one message in it: the list shows a row per thread, and half a thread disappearing would
+ * be a puzzle rather than a feature. `until` of null wakes it immediately.
+ */
+export async function setThreadSnooze(
+  ownerRaw: string,
+  threadId: string,
+  until: string | null,
+): Promise<number> {
+  await ensureMailSchema()
+  const sql = db()
+  const owner = ownerRaw.toLowerCase()
+  const rows = await sql`
+    SELECT id FROM mail_inbox WHERE lower(owner) = ${owner} AND thread_id = ${threadId}`
+  for (const row of rows) {
+    await sql`UPDATE mail_inbox SET snoozed_until = ${until} WHERE id = ${String(row.id)}`
+  }
+  await sql`
+    UPDATE mail_threads SET snoozed_until = ${until}
+    WHERE owner = ${owner} AND thread_id = ${threadId}`
+  await invalidateCounts(owner)
+  return rows.length
 }
 
 export async function setInboundLabels(id: string, labels: string[]): Promise<void> {

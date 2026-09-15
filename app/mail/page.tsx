@@ -115,7 +115,7 @@ type Accessor = {
   invitedBy: string | null
 }
 
-type Folder = 'inbox' | 'starred' | 'sent' | 'scheduled' | 'drafts' | 'archived' | 'trash'
+type Folder = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'scheduled' | 'drafts' | 'archived' | 'trash'
 
 type SentEmail = {
   id: string
@@ -151,6 +151,7 @@ type SentDetail = SentEmail & {
 
 type ConversationRow = {
   threadId: string
+  snoozedUntil?: string | null
   subject: string
   firstAt: string
   latestAt: string
@@ -169,6 +170,7 @@ type ConversationRow = {
 
 type InboundEmail = {
   id: string
+  snoozedUntil?: string | null
   from: string
   to: string[]
   cc: string[]
@@ -1146,6 +1148,7 @@ const ICONS = {
   settings: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
   sliders: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>,
   send: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
+  snooze: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="13" r="8"/><path d="M11 9v4l2.5 1.6"/><path d="M16.5 2.5h4l-4 4h4"/></svg>,
   chevron: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>,
   bell: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>,
   bellOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13.7 21a2 2 0 0 1-3.4 0"/><path d="M18.6 13A16.7 16.7 0 0 1 18 8a6 6 0 0 0-9.3-5"/><path d="M6.3 6.3A6 6 0 0 0 6 8c0 7-3 9-3 9h14"/><path d="m2 2 20 20"/></svg>,
@@ -1174,6 +1177,7 @@ const SETTINGS_TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
 const FOLDER_ICONS: Record<Folder, React.ReactNode> = {
   inbox: ICONS.inbox,
   starred: ICONS.star,
+  snoozed: ICONS.snooze,
   sent: ICONS.sent,
   scheduled: ICONS.scheduled,
   drafts: ICONS.drafts,
@@ -1210,7 +1214,7 @@ export default function DevMailPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [inboxCursor, setInboxCursor] = useState<string | null>(null)
   const inboxFetch = useRef<string | null>(null)
-  type FolderTally = { inbox: number; unread: number; starred: number; archived: number; trashed: number }
+  type FolderTally = { inbox: number; unread: number; starred: number; archived: number; trashed: number; snoozed: number }
   const [serverCounts, setServerCounts] = useState<(FolderTally & { conversations: FolderTally | null }) | null>(null)
   const [countsLoading, setCountsLoading] = useState(false)
   const [composeExpanded, setComposeExpanded] = useState(true)
@@ -1480,7 +1484,7 @@ export default function DevMailPage() {
   )
   const [threads, setThreads] = useState<ConversationRow[]>([])
   const [threadsResolved, setThreadsResolved] = useState(false)
-  const threadFolder = folder === 'archived' ? 'archive' : folder === 'trash' ? 'trash' : folder === 'starred' ? 'starred' : 'inbox'
+  const threadFolder = folder === 'archived' ? 'archive' : folder === 'trash' ? 'trash' : folder === 'starred' ? 'starred' : folder === 'snoozed' ? 'snoozed' : 'inbox'
   const threadsFetch = useRef<string | null>(null)
   const threadsLoadedFolder = useRef<string | null>(null)
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null)
@@ -1883,6 +1887,10 @@ export default function DevMailPage() {
     setCountsLoading(true)
     try {
       const params = new URLSearchParams(mailboxQuery.replace(/^\?/, ''))
+      // A forced count follows an action that just changed the figures, so it has to skip
+      // the server's own cache as well as this one — otherwise a folder someone just moved
+      // mail into reads zero for another twenty seconds.
+      if (force) params.set('fresh', '1')
       const response = await fetch(`/api/mail/inbox/counts?${params.toString()}`, { headers: apiHeaders() })
       if (!response.ok) return
       const data = await response.json().catch(() => null)
@@ -2022,6 +2030,60 @@ export default function DevMailPage() {
    * the same two actions live on a horizontal drag instead. The action is named and
    * coloured behind the row before it commits, and nothing fires below the threshold.
    */
+  /**
+   * Snooze. The times are the ones people actually mean when they say "not now": the rest
+   * of today, first thing tomorrow, and the start of next week. Everything is computed in
+   * the reader's own timezone, because "tomorrow morning" is a local idea.
+   */
+  const snoozeChoices = useMemo(() => {
+    const at = (days: number, hour: number) => {
+      const when = new Date()
+      when.setDate(when.getDate() + days)
+      when.setHours(hour, 0, 0, 0)
+      return when
+    }
+    const laterToday = new Date(Date.now() + 3 * 60 * 60 * 1000)
+    const tomorrow = at(1, 8)
+    const monday = (() => {
+      const when = at(1, 8)
+      while (when.getDay() !== 1) when.setDate(when.getDate() + 1)
+      return when
+    })()
+    const weekend = (() => {
+      const when = at(1, 9)
+      while (when.getDay() !== 6) when.setDate(when.getDate() + 1)
+      return when
+    })()
+    return [
+      // Past the end of the working day this stops meaning "later today".
+      ...(laterToday.getHours() >= 7 && laterToday.getHours() <= 20
+        ? [{ key: 'later', label: 'Later today', at: laterToday }]
+        : []),
+      { key: 'tomorrow', label: 'Tomorrow morning', at: tomorrow },
+      { key: 'weekend', label: 'This weekend', at: weekend },
+      { key: 'monday', label: 'Next week', at: monday },
+    ]
+  }, [])
+
+  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false)
+  const applySnooze = useCallback(
+    (threadId: string | null, until: Date | null) => {
+      if (!threadId) return
+      setSnoozeMenuOpen(false)
+      setThreads(list => list.filter(thread => thread.threadId !== threadId))
+      setSelectedId(null)
+      setReaderOpenMobile(false)
+      fetch('/api/mail/inbox', {
+        method: 'PATCH',
+        headers: apiHeaders(),
+        body: JSON.stringify({ threadId, snoozedUntil: until ? until.toISOString() : null }),
+      })
+        .then(() => loadCounts(true))
+        .catch(() => {})
+    },
+    [apiHeaders, loadCounts],
+  )
+
   const SWIPE_COMMIT = 96
   const [swipe, setSwipe] = useState<{ id: string; dx: number; top: number; height: number } | null>(null)
   const swipeRef = useRef<{ id: string; threadId: string | null; x: number; y: number; dx: number; axis: '' | 'x' | 'y'; moved: boolean; top: number; height: number } | null>(null)
@@ -2481,7 +2543,9 @@ export default function DevMailPage() {
         ? serverCounts.trashed
         : threadFolder === 'starred'
           ? serverCounts.starred
-          : serverCounts.inbox
+          : threadFolder === 'snoozed'
+            ? serverCounts.snoozed
+            : serverCounts.inbox
     setInboxTotal(total)
   }, [serverCounts, search, threadFolder])
 
@@ -2491,6 +2555,7 @@ export default function DevMailPage() {
       starred: serverCounts?.starred ?? 0,
       archived: serverCounts?.archived ?? 0,
       trashed: serverCounts?.trashed ?? 0,
+      snoozed: serverCounts?.snoozed ?? 0,
     }),
     [serverCounts],
   )
@@ -2507,6 +2572,7 @@ export default function DevMailPage() {
     if (folder === 'archived') return tally.archived
     if (folder === 'trash') return tally.trashed
     if (folder === 'starred') return tally.starred
+    if (folder === 'snoozed') return tally.snoozed
     if (folder === 'inbox') return tally.inbox
     return null
   }, [serverCounts, search, folder])
@@ -2669,10 +2735,12 @@ export default function DevMailPage() {
 
   const inboxFolderPredicate = useCallback(
     (entry: InboundEmail) => {
+      const asleep = Boolean(entry.snoozedUntil && Date.parse(entry.snoozedUntil) > Date.now())
+      if (folder === 'snoozed') return asleep && !entry.trashed
       if (folder === 'starred') return entry.starred && !entry.trashed
       if (folder === 'archived') return entry.archived && !entry.trashed
       if (folder === 'trash') return entry.trashed
-      return !entry.archived && !entry.trashed
+      return !entry.archived && !entry.trashed && !asleep
     },
     [folder],
   )
@@ -2763,7 +2831,7 @@ export default function DevMailPage() {
 
   /** The folders backed by the paged inbound list, as opposed to ones loaded whole. */
   const isInboundFolder =
-    folder === 'inbox' || folder === 'starred' || folder === 'archived' || folder === 'trash'
+    folder === 'inbox' || folder === 'starred' || folder === 'snoozed' || folder === 'archived' || folder === 'trash'
 
   const listItems = useMemo(() => {
     const sentToItem = (entry: SentEmail) => ({
@@ -2784,7 +2852,7 @@ export default function DevMailPage() {
       latestAt: new Date(entry.createdAt).getTime(),
       labels: [] as string[],
     })
-    if (folder === 'inbox' || folder === 'starred' || folder === 'archived' || folder === 'trash') {
+    if (isInboundFolder) {
       const visible = inboxEmails
         .filter(inboxFolderPredicate)
         .filter(matchesInbound)
@@ -2796,11 +2864,14 @@ export default function DevMailPage() {
         if (list) list.push(entry)
         else groups.set(key, [entry])
       }
-      const inThreadFolder = (thread: ConversationRow) =>
-        folder === 'archived' ? thread.archivedCount > 0
-        : folder === 'trash' ? thread.trashedCount > 0
-        : folder === 'starred' ? thread.starredCount > 0
-        : thread.inboxCount > 0
+      const inThreadFolder = (thread: ConversationRow) => {
+        const asleep = Boolean(thread.snoozedUntil && Date.parse(thread.snoozedUntil) > Date.now())
+        if (folder === 'snoozed') return asleep
+        if (folder === 'archived') return thread.archivedCount > 0
+        if (folder === 'trash') return thread.trashedCount > 0
+        if (folder === 'starred') return thread.starredCount > 0
+        return thread.inboxCount > 0 && !asleep
+      }
       const threadItems = threads.length > 0 && !search.trim()
         ? threads
             .filter(inThreadFolder)
@@ -2895,12 +2966,12 @@ export default function DevMailPage() {
       .filter(entry => !(folder === 'sent' && hideForwarded && isForwarded(entry.subject)))
       .filter(entry => !(folder === 'sent' && (entry.archived || entry.trashed)))
       .map(entry => sentToItem(entry))
-  }, [folder, inboxEmails, drafts, scheduledEmails, deliveredEmails, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, statusFor, now, hideForwarded, threadSentMembers, detailCache, threads, search])
+  }, [folder, isInboundFolder, inboxEmails, drafts, scheduledEmails, deliveredEmails, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, statusFor, now, hideForwarded, threadSentMembers, detailCache, threads, search])
 
   const listSettling = searching || ((mailboxLoading || !threadsResolved) && listItems.length === 0)
   const listRefreshing = !listSettling && (mailboxStale || mailboxLoading || !threadsResolved)
 
-  const inboxFolder = folder === 'inbox' || folder === 'starred' || folder === 'archived' || folder === 'trash'
+  const inboxFolder = isInboundFolder
 
   // Sent, drafts and scheduled really are lists of messages, so only the threaded folders
   // count in conversations. Where the folder total is known and the list has not reached
@@ -4590,6 +4661,7 @@ export default function DevMailPage() {
   const folderTitles: Record<Folder, string> = {
     inbox: 'Inbox',
     starred: 'Starred',
+    snoozed: 'Snoozed',
     sent: 'Sent',
     scheduled: 'Scheduled',
     drafts: 'Drafts',
@@ -5454,6 +5526,50 @@ export default function DevMailPage() {
                 {inbound.archived ? ICONS.restore : ICONS.archive}
               </button>
             )}
+            {inbound.threadId && (() => {
+              // A snooze that has already come round leaves its timestamp behind, since
+              // nothing runs to clear it. Asleep means the time is still ahead, which is
+              // what every folder query asks too.
+              const wakesAt = inbound.snoozedUntil ? Date.parse(inbound.snoozedUntil) : 0
+              const asleep = wakesAt > Date.now()
+              return (
+              <span className={styles.snoozeWrap}>
+                <button
+                  className={`${styles.iconBtn} ${snoozeMenuOpen ? styles.iconBtnOn : ''}`}
+                  title={
+                    asleep
+                      ? `Snoozed until ${new Date(wakesAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} — wake it now`
+                      : 'Snooze'
+                  }
+                  aria-haspopup="menu"
+                  aria-expanded={snoozeMenuOpen}
+                  onClick={() => {
+                    if (asleep) applySnooze(inbound.threadId ?? null, null)
+                    else setSnoozeMenuOpen(open => !open)
+                  }}
+                >
+                  {ICONS.snooze}
+                </button>
+                {snoozeMenuOpen && (
+                  <div className={styles.snoozeMenu} role="menu">
+                    {snoozeChoices.map(choice => (
+                      <button
+                        key={choice.key}
+                        role="menuitem"
+                        className={styles.snoozeItem}
+                        onClick={() => applySnooze(inbound.threadId ?? null, choice.at)}
+                      >
+                        <span>{choice.label}</span>
+                        <span className={styles.snoozeWhen}>
+                          {choice.at.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </span>
+              )
+            })()}
             <button
               className={styles.iconBtn}
               title={inbound.read ? 'Mark unread' : 'Mark read'}
@@ -6278,12 +6394,14 @@ export default function DevMailPage() {
           <span className={styles.composePen}>{ICONS.pencil}</span>
           <span className={styles.railLabel}>Compose</span>
         </button>
-        {(['inbox', 'starred', 'sent', 'scheduled', 'drafts', 'archived', 'trash'] as Folder[]).map(key => {
+        {(['inbox', 'starred', 'snoozed', 'sent', 'scheduled', 'drafts', 'archived', 'trash'] as Folder[]).map(key => {
           const count =
             key === 'inbox'
               ? folderCounts.inbox || ''
               : key === 'starred'
                 ? folderCounts.starred || ''
+                : key === 'snoozed'
+                  ? folderCounts.snoozed || ''
                 : key === 'sent'
                   ? deliveredEmails.filter(entry => !entry.archived && !entry.trashed).length || ''
                   : key === 'scheduled'
@@ -6589,6 +6707,7 @@ export default function DevMailPage() {
               <p className={styles.emptyTitle}>
                 {folder === 'inbox' && 'Inbox zero'}
                 {folder === 'starred' && 'No starred mail'}
+                {folder === 'snoozed' && 'Nothing snoozed'}
                 {folder === 'sent' && 'Nothing sent yet'}
                 {folder === 'scheduled' && 'Nothing scheduled'}
                 {folder === 'drafts' && 'No drafts'}
@@ -6599,6 +6718,8 @@ export default function DevMailPage() {
                 {folder === 'inbox' &&
                   'Nothing new right now. Messages sent to your address will appear here.'}
                 {folder === 'starred' && 'Star a message and it will be kept here so you can find it again.'}
+                {folder === 'snoozed' &&
+                  'Put a conversation aside and it waits here, then returns to the inbox by itself at the time you chose.'}
                 {folder === 'sent' && 'Everything you send is kept here, newest first.'}
                 {folder === 'scheduled' && 'Messages waiting to go out. You can still edit or cancel them.'}
                 {folder === 'drafts' && 'Unfinished messages are saved here automatically, so nothing is lost.'}

@@ -254,6 +254,26 @@ async function main() {
   })
   const folderRow = folders.rows[0]
   console.log(`  folders: ${folderRow.archived} archived, ${folderRow.trashed} in the bin, ${folderRow.starred} starred`)
+
+  // Two conversations put aside: one that is still waiting, and one whose time has come
+  // round, so both sides of "it comes back on its own" are visible without waiting a day.
+  const wakesLater = new Date(now + 36 * 3600_000).toISOString()
+  const wokeAlready = new Date(now - 2 * 3600_000).toISOString()
+  await db.execute({
+    sql: `UPDATE mail_inbox SET snoozed_until = ?
+          WHERE owner = ? AND id IN ('dev-0040', 'dev-0041', 'dev-0042')`,
+    args: [wakesLater, DEV_ADDRESS],
+  })
+  await db.execute({
+    sql: `UPDATE mail_inbox SET snoozed_until = ? WHERE owner = ? AND id = 'dev-0050'`,
+    args: [wokeAlready, DEV_ADDRESS],
+  })
+  const napping = await db.execute({
+    sql: `SELECT SUM(snoozed_until > ?) AS waiting, SUM(snoozed_until <= ?) AS woken
+          FROM mail_inbox WHERE owner = ? AND snoozed_until IS NOT NULL`,
+    args: [new Date(now).toISOString(), new Date(now).toISOString(), DEV_ADDRESS],
+  })
+  console.log(`  snoozed: ${napping.rows[0].waiting} still waiting, ${napping.rows[0].woken} already back`)
   console.log(`  search index rows: ${indexed.rows[0].n}`)
 }
 
