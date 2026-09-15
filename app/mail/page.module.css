@@ -2206,11 +2206,7 @@
   color: var(--nc-fg-3);
   flex-shrink: 0;
 }
-.threadClip {
-  display: inline-flex;
-  color: var(--nc-fg-3);
-  flex-shrink: 0;
-}
+
 .threadClip svg { width: 13px; height: 13px; }
 /* ── Attachment tiles ────────────────────────────────────── */
 .attachGrid {
@@ -5821,25 +5817,25 @@
 
 /* Print one message out of a conversation. Sits over the row's top-right rather than in
    the header button, which is the open/close toggle. */
-.threadMsgPrint {
-  position: absolute;
-  top: 8px;
-  right: 40px;
+/* The attachment mark and the print control are the same object in two states, so they
+   are the same size, the same box, and sit in the same row. */
+.threadMsgTool {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
+  flex-shrink: 0;
   border: 1px solid var(--nc-line-1);
   border-radius: 8px;
   background: var(--nc-ink-2);
   color: var(--nc-fg-3);
-  cursor: pointer;
   transition: color var(--dur-fast) var(--nc-ease-out), border-color var(--dur-fast) var(--nc-ease-out);
 }
+.threadMsgTool svg { width: 15px; height: 15px; }
+.threadMsgToolBtn { cursor: pointer; }
+.threadMsgToolBtn:hover { color: var(--nc-violet-500); border-color: var(--nc-violet-500); }
 .threadMsg { position: relative; }
-.threadMsgPrint:hover { color: var(--nc-violet-500); border-color: var(--nc-violet-500); }
-.threadMsgPrint svg { width: 15px; height: 15px; }
 
 /* The control that opens the fold, centred under it where the text runs out. */
 .composeSignatureMore {

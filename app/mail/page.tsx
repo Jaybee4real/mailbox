@@ -4940,7 +4940,21 @@ export default function DevMailPage() {
     }
     return (
       <div key={item.id} className={shellClass}>
-        <button className={styles.threadMsgHead} onClick={toggleOpen} aria-expanded={open}>
+        {/* A container rather than a button: the print control has to sit in this row beside
+            the attachment mark, and a button cannot hold another button. */}
+        <div
+          className={styles.threadMsgHead}
+          role="button"
+          tabIndex={0}
+          aria-expanded={open}
+          onClick={toggleOpen}
+          onKeyDown={event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              toggleOpen()
+            }
+          }}
+        >
           <span className={styles.avatar}>{initial}</span>
           <span className={styles.threadMsgMeta}>
             <span className={styles.threadMsgFrom}>
@@ -4949,15 +4963,17 @@ export default function DevMailPage() {
             </span>
             {!open && <span className={styles.threadMsgSnippet}>{snippet}</span>}
           </span>
-          {hasAttach && <span className={styles.threadClip}>{ICONS.attach}</span>}
-          <span className={styles.threadMsgDate}>{formatRelative(when, now)}</span>
-          <span className={styles.threadChevron} aria-hidden>{ICONS.chevron}</span>
-        </button>
-        {/* Printing one message out of a conversation, which is how a claim or a renewal
-            gets filed. Outside the header button, which is the open/close toggle. */}
-        {open && (
+          {hasAttach && (
+            <span className={styles.threadMsgTool} title="Carries an attachment" aria-label="Carries an attachment">
+              {ICONS.attach}
+            </span>
+          )}
+          {/* Printing one message out of a conversation, which is how a claim or a renewal
+              gets filed. */}
+          {open && (
           <button
-            className={styles.threadMsgPrint}
+            type="button"
+            className={`${styles.threadMsgTool} ${styles.threadMsgToolBtn}`}
             title="Print this message"
             aria-label="Print this message"
             onClick={event => {
@@ -4985,7 +5001,10 @@ export default function DevMailPage() {
           >
             {ICONS.print}
           </button>
-        )}
+          )}
+          <span className={styles.threadMsgDate}>{formatRelative(when, now)}</span>
+          <span className={styles.threadChevron} aria-hidden>{ICONS.chevron}</span>
+        </div>
         {(open || threadEverOpen.has(item.id)) && (
           <div className={`${styles.threadMsgWrap} ${open ? styles.threadMsgWrapOpen : ''}`}>
           <div className={styles.threadMsgBody}>
@@ -6054,7 +6073,12 @@ export default function DevMailPage() {
             {ICONS.menu}
           </button>
           <h1 className={styles.listTitle}>{folderTitles[folder]}</h1>
-          <span className={styles.listMeta}>{listItems.length}</span>
+          <span
+            className={styles.listMeta}
+            title={`${listItems.length.toLocaleString()} ${isInboundFolder ? (listItems.length === 1 ? 'conversation' : 'conversations') : listItems.length === 1 ? 'message' : 'messages'}`}
+          >
+            {listItems.length}
+          </span>
           <button
             className={`${styles.refreshBtn} ${refreshing ? styles.spinning : ''}`}
             onClick={refreshAll}
@@ -6435,8 +6459,10 @@ export default function DevMailPage() {
                     : !inboxTotal
                       ? `${inboxEmails.length.toLocaleString()} loaded`
                       : inboxEmails.length >= inboxTotal
-                        ? `All ${inboxTotal.toLocaleString()} messages`
-                        : `${inboxEmails.length.toLocaleString()} of ${inboxTotal.toLocaleString()}`}
+                        ? listItems.length < inboxTotal
+                          ? `All ${inboxTotal.toLocaleString()} messages, in ${listItems.length.toLocaleString()} conversations`
+                          : `All ${inboxTotal.toLocaleString()} messages`
+                        : `${inboxEmails.length.toLocaleString()} of ${inboxTotal.toLocaleString()} messages`}
               </div>
             )}
         </div>
