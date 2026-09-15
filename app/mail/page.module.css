@@ -5,6 +5,12 @@
      existed every one of those declarations was invalid and silently dropped — which is
      why opening a thread, expanding a message and half the rest of the interface moved
      with no animation at all. */
+  /* Corners. Eighteen declarations name these, and while they were undefined every one was
+     invalid and dropped — which is why the reading pane, the settings panel and the
+     composer all had square corners the design never asked for. */
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-feature: 18px;
   --dur-fast: 140ms;
   --dur-base: 240ms;
   --dur-med: 380ms;
@@ -84,6 +90,7 @@
   --row-lead: 1.25;
   --row-step: 2px;
   --thread-pad: 14px 16px;
+  --thread-inset: 12px;
   grid-template-columns: var(--rail-w) var(--list-w) 1fr;
   grid-template-rows: 100dvh;
   /* This element carries the theme's tokens, so it has to carry the theme's text and
@@ -662,6 +669,7 @@
   --row-lead: 1.65;
   --row-step: 7px;
   --thread-pad: 24px 26px;
+  --thread-inset: 18px;
 }
 
 .item {
@@ -2605,11 +2613,17 @@
   overflow: hidden;
   min-height: 0;
 }
+/* The message itself is a sheet of paper, the same as in the single-message view: edges on
+   all four sides, so you can see where the mail begins and where it ends rather than a
+   band of white running into the furniture above it. */
 .threadMsgBody {
-  border-top: 1px solid var(--nc-line-soft);
+  margin: 0 var(--thread-inset) var(--thread-inset);
+  border: 1px solid var(--nc-line-1);
+  border-radius: var(--radius-card);
   background: var(--nc-ink-1);
   font-size: var(--row-subject);
   line-height: var(--row-lead);
+  overflow: hidden;
 }
 .threadFrame {
   width: 100%;
@@ -5855,6 +5869,20 @@
 }
 .composeSignatureEdit:hover { color: var(--nc-violet-500); border-color: var(--nc-violet-500); }
 
+.composeSignature:not(.composeSignatureOpen) .composeSignatureBody,
+.composeSignature:not(.composeSignatureOpen) .composeSignatureLogo {
+  display: none;
+}
+/* Closed, this is one line of reassurance, not a panel: it sat between the message and the
+   reply box taking a third of the height either of them had. */
+.composeSignature:not(.composeSignatureOpen) {
+  padding: 10px 16px;
+}
+.composeSignature:not(.composeSignatureOpen) .composeSignatureMore {
+  position: static;
+  transform: none;
+  margin-left: 8px;
+}
 .composeSignature .composeSignatureBody {
   max-height: 50px;
   cursor: pointer;

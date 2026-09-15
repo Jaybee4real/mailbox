@@ -25,6 +25,8 @@ const db = createClient({
 })
 
 const DEV_ADDRESS = 'test@example.com'
+/** Written into the body of every message whose link is locked, the way a sender would. */
+const SHARE_PASSWORD = 'open-sesame'
 const TOTAL = 500
 const WITH_ATTACHMENTS = 10
 const WITH_HEAVY = 10
@@ -153,11 +155,18 @@ async function main() {
     const receivedAt = new Date(now - index * (1000 * 60 * 37)).toISOString()
 
     let attachments = []
+    // Every other heavy file is locked, so both the open and the protected path can be
+    // walked. A real sender tells the recipient the password, so these do too.
+    let passwordNote = ''
     if (index < WITH_HEAVY) {
       const [filename, size, contentType] = heavyFiles[index]
       const shareId = `devshare${String(index).padStart(2, '0')}`
-      shares.push([shareId, `shares/dev/${filename}`, filename, contentType, size])
+      const locked = index % 2 === 0
+      shares.push([shareId, `shares/dev/${filename}`, filename, contentType, size, locked])
       attachments = [{ filename, contentType, size, shareId }]
+      passwordNote = locked
+        ? `\n\nThe file is too large to attach, so it is behind a link. The password is ${SHARE_PASSWORD}.`
+        : '\n\nThe file is too large to attach, so it is behind a link. No password is needed.'
     } else if (index < WITH_HEAVY + WITH_ATTACHMENTS) {
       const [filename, size, contentType, key] = smallFiles[(index - WITH_HEAVY) % smallFiles.length]
       attachments = [key ? { filename, contentType, size, key } : { filename, contentType, size }]
@@ -166,28 +175,28 @@ async function main() {
     rows.push([
       id, from, JSON.stringify([DEV_ADDRESS]), '[]', '[]', '[]',
       `${subject} — ${company}`, '',
-      `${body}\n\nRegards,\n${company}`,
+      `${body}${passwordNote}\n\nRegards,\n${company}`,
       '{}', receivedAt, random() > 0.55 ? 1 : 0,
       JSON.stringify(attachments),
       random() > 0.9 ? 1 : 0, 0, 0, '[]', DEV_ADDRESS,
     ])
   }
 
-  for (const [id, key, filename, contentType, size] of shares) {
+  for (const [id, key, filename, contentType, size, locked] of shares) {
     await db.execute({
       sql: `INSERT OR REPLACE INTO mail_shares
             (id, object_key, filename, content_type, size, password_hash, owner, created_at, expires_at, max_downloads)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id, key, filename, contentType, size,
-        // Half the heavy ones are locked, so both paths can be seen.
-        Number(id.slice(-2)) % 2 === 0 ? createHash('sha256').update('open-sesame').digest('hex') : null,
+        locked ? createHash('sha256').update(SHARE_PASSWORD).digest('hex') : null,
         DEV_ADDRESS, new Date().toISOString(),
         new Date(now + 30 * 86400_000).toISOString(), null,
       ],
     })
   }
-  console.log(`  ${shares.length} share records (heavy files, alternating password protection)`)
+  const locked = shares.filter(share => share[5]).length
+  console.log(`  ${shares.length} share records, ${locked} of them locked with "${SHARE_PASSWORD}", which their messages say`)
 
   // Batched: 500 individual round trips to Turso would take minutes.
   const CHUNK = 50
