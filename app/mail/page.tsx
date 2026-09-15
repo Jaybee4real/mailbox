@@ -2017,6 +2017,124 @@ export default function DevMailPage() {
     return () => node.removeEventListener('scroll', check)
   }, [moreCursor])
 
+  /**
+   * Swiping a row. Desktop reveals a row's actions on hover, which a phone cannot do, so
+   * the same two actions live on a horizontal drag instead. The action is named and
+   * coloured behind the row before it commits, and nothing fires below the threshold.
+   */
+  const SWIPE_COMMIT = 96
+  const [swipe, setSwipe] = useState<{ id: string; dx: number; top: number; height: number } | null>(null)
+  const swipeRef = useRef<{ id: string; threadId: string | null; x: number; y: number; dx: number; axis: '' | 'x' | 'y'; moved: boolean; top: number; height: number } | null>(null)
+  const swipeCommitRef = useRef<(id: string, threadId: string | null, flags: Partial<Pick<InboundEmail, 'archived' | 'trashed'>>) => void>(() => {})
+
+  const swipeActions = useMemo(() => {
+    type SwipeAction = { label: string; flags: Partial<Pick<InboundEmail, 'archived' | 'trashed'>> } | null
+    const set = (right: SwipeAction, left: SwipeAction) => ({ right, left })
+    if (folder === 'trash') return set({ label: 'Restore', flags: { trashed: false } }, null)
+    if (folder === 'archived') return set({ label: 'To inbox', flags: { archived: false } }, { label: 'Delete', flags: { trashed: true } })
+    return set({ label: 'Archive', flags: { archived: true } }, { label: 'Delete', flags: { trashed: true } })
+  }, [folder])
+
+  const onRowTouchStart = useCallback((id: string, threadId: string | null, event: React.TouchEvent<HTMLButtonElement>) => {
+    if (event.touches.length !== 1) return
+    const row = event.currentTarget
+    swipeRef.current = {
+      id,
+      threadId,
+      x: event.touches[0].clientX,
+      y: event.touches[0].clientY,
+      dx: 0,
+      axis: '',
+      moved: false,
+      top: row.offsetTop,
+      height: row.offsetHeight,
+    }
+  }, [])
+
+  const onRowTouchMove = useCallback((event: React.TouchEvent) => {
+    const gesture = swipeRef.current
+    if (!gesture) return
+    const dx = event.touches[0].clientX - gesture.x
+    const dy = event.touches[0].clientY - gesture.y
+    if (!gesture.axis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
+      // Whichever way it went first owns the gesture; otherwise a scroll drags rows sideways.
+      gesture.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'
+    }
+    if (gesture.axis !== 'x') return
+    event.stopPropagation()
+    gesture.moved = true
+    const allowed = dx > 0 ? swipeActions.right : swipeActions.left
+    gesture.dx = allowed ? Math.max(-160, Math.min(160, dx)) : 0
+    setSwipe({ id: gesture.id, dx: gesture.dx, top: gesture.top, height: gesture.height })
+  }, [swipeActions])
+
+  const onRowTouchEnd = useCallback(() => {
+    const gesture = swipeRef.current
+    // Cleared first, so the touchcancel that can follow a touchend is a no-op.
+    swipeRef.current = null
+    setSwipe(null)
+    if (!gesture || gesture.axis !== 'x') return
+    const action = gesture.dx > 0 ? swipeActions.right : swipeActions.left
+    // Deliberately not inside the state updater: React calls those twice in development
+    // to check they are pure, and the archive went out twice because of it.
+    if (action && Math.abs(gesture.dx) >= SWIPE_COMMIT) {
+      swipeCommitRef.current(gesture.id, gesture.threadId, action.flags)
+    }
+  }, [swipeActions])
+
+  /**
+   * Pull to refresh. A phone has no hover and the header has room for one small button, so
+   * the gesture people already expect is the one worth supporting. The listener is not
+   * passive because the pull has to win over the scroll once it starts, and it only ever
+   * starts when the list is already at the top.
+   */
+  const PULL_TRIGGER = 72
+  const [pullDistance, setPullDistance] = useState(0)
+  useEffect(() => {
+    const node = listRef.current
+    if (!node) return
+    let startY = 0
+    let pulling = false
+
+    const start = (event: TouchEvent) => {
+      if (node.scrollTop > 0 || event.touches.length !== 1) return
+      startY = event.touches[0].clientY
+      pulling = true
+    }
+    const move = (event: TouchEvent) => {
+      if (!pulling) return
+      const delta = event.touches[0].clientY - startY
+      if (delta <= 0) {
+        pulling = false
+        setPullDistance(0)
+        return
+      }
+      event.preventDefault()
+      // Resistance, so the sheet follows the finger without tracking it one to one.
+      setPullDistance(Math.min(PULL_TRIGGER * 1.5, delta * 0.45))
+    }
+    const end = () => {
+      if (!pulling) return
+      pulling = false
+      setPullDistance(current => {
+        if (current >= PULL_TRIGGER * 0.75) void refreshAllRef.current()
+        return 0
+      })
+    }
+
+    node.addEventListener('touchstart', start, { passive: true })
+    node.addEventListener('touchmove', move, { passive: false })
+    node.addEventListener('touchend', end)
+    node.addEventListener('touchcancel', end)
+    return () => {
+      node.removeEventListener('touchstart', start)
+      node.removeEventListener('touchmove', move)
+      node.removeEventListener('touchend', end)
+      node.removeEventListener('touchcancel', end)
+    }
+  }, [isLoggedIn])
+
   // Far enough down that the button is wanted, not so far that it appears on a nudge.
   const TO_TOP_AFTER = 400
   const [listScrolled, setListScrolled] = useState(false)
@@ -2054,6 +2172,8 @@ export default function DevMailPage() {
     }
   }, [apiHeaders])
 
+  const refreshAllRef = useRef<() => Promise<void>>(async () => {})
+
   const refreshAll = useCallback(async () => {
     setRefreshing(true)
     try {
@@ -2067,6 +2187,7 @@ export default function DevMailPage() {
       setMailboxStale(false)
     }
   }, [loadSent, refreshInbox, loadEvents, loadThreads])
+  useEffect(() => { refreshAllRef.current = refreshAll }, [refreshAll])
 
   const loadAccessors = useCallback(async () => {
     try {
@@ -2569,6 +2690,7 @@ export default function DevMailPage() {
 
   // An action on a thread applies to every message in it, not just the representative.
   const threadIds = useCallback((id: string): string[] => threadMembers(id).map(member => member.id), [threadMembers])
+  useEffect(() => { threadIdsRef.current = threadIds }, [threadIds])
 
   // Sent replies that belong to an inbound thread: matched by the recorded In-Reply-To
   // Message-ID, falling back to normalized subject for historical sends with no linkage.
@@ -2958,6 +3080,10 @@ export default function DevMailPage() {
     }
   }
 
+  type InboundFlagPatch = Partial<Pick<InboundEmail, 'read' | 'starred' | 'archived' | 'trashed'>>
+  const setInboundFlagRef = useRef<(ids: string[], flags: InboundFlagPatch) => void>(() => {})
+  const threadIdsRef = useRef<(id: string) => string[]>(id => [id])
+
   const setInboundFlag = useCallback(
     (ids: string[], flags: Partial<Pick<InboundEmail, 'read' | 'starred' | 'archived' | 'trashed'>>) => {
       if (flags.read === true) ids.forEach(id => pendingRead.current.add(id))
@@ -2991,6 +3117,40 @@ export default function DevMailPage() {
     },
     [apiHeaders],
   )
+
+  /**
+   * A row stands for a conversation, and the messages under it may not be loaded, so the
+   * id the row carries is often not enough to act on. Naming the thread lets the server
+   * find its messages; a row with no thread falls back to the ids we do hold.
+   */
+  const commitRowFlags = useCallback(
+    (id: string, threadId: string | null, flags: Partial<Pick<InboundEmail, 'archived' | 'trashed'>>) => {
+      if (!threadId) {
+        setInboundFlag(threadIds(id), flags)
+        return
+      }
+      setInboxEmails(list =>
+        list.map(entry => (threadKeys.get(entry.id) === threadKeys.get(id) ? { ...entry, ...flags } : entry)),
+      )
+      setThreads(list =>
+        list.filter(thread => {
+          if (thread.threadId !== threadId) return true
+          // The row leaves the folder it was swiped out of; the next refresh restates it.
+          return false
+        }),
+      )
+      fetch('/api/mail/inbox', {
+        method: 'PATCH',
+        headers: apiHeaders(),
+        body: JSON.stringify({ threadId, ...flags }),
+      })
+        .then(() => loadCounts(true))
+        .catch(() => {})
+    },
+    [apiHeaders, setInboundFlag, threadIds, threadKeys, loadCounts],
+  )
+  useEffect(() => { swipeCommitRef.current = commitRowFlags }, [commitRowFlags])
+  useEffect(() => { setInboundFlagRef.current = setInboundFlag }, [setInboundFlag])
 
   const setSentFlag = useCallback(
     (ids: string[], flags: Partial<Pick<SentEmail, 'starred' | 'archived' | 'trashed'>>) => {
@@ -6375,6 +6535,15 @@ export default function DevMailPage() {
             <span className={styles.srOnly}>Checking for new mail</span>
           </div>
         )}
+        <div
+          className={styles.pullHint}
+          style={{ height: pullDistance, opacity: pullDistance > 6 ? 1 : 0 }}
+          aria-hidden
+        >
+          <span className={`${styles.pullSpinner} ${pullDistance >= PULL_TRIGGER * 0.75 ? styles.pullSpinnerReady : ''}`}>
+            {ICONS.refresh}
+          </span>
+        </div>
         <button
           type="button"
           className={`${styles.toTop} ${listScrolled ? styles.toTopOn : ''}`}
@@ -6438,12 +6607,42 @@ export default function DevMailPage() {
               </p>
             </div>
           ) : (
-            listItems.map(item => (
+            <>
+            {swipe && (() => {
+              const action = swipe.dx > 0 ? swipeActions.right : swipeActions.left
+              if (!action || swipe.dx === 0) return null
+              return (
+                <div
+                  className={`${styles.swipeBand} ${swipe.dx > 0 ? styles.swipeBandRight : styles.swipeBandLeft} ${Math.abs(swipe.dx) >= SWIPE_COMMIT ? styles.swipeBandArmed : ''}`}
+                  style={{ top: swipe.top, height: swipe.height }}
+                  aria-hidden
+                >
+                  <span>{action.label}</span>
+                </div>
+              )
+            })()}
+            {listItems.map(item => (
               <button
                 key={item.id}
                 className={`${styles.item} ${selectedId === item.id ? styles.itemActive : ''} ${item.unread ? styles.itemUnread : ''} ${selectedBulk.has(item.id) ? styles.itemChecked : ''} ${'threadId' in item && item.threadId && threadOpening === item.threadId ? styles.itemOpening : ''}`}
                 aria-busy={'threadId' in item && item.threadId ? threadOpening === item.threadId : undefined}
+                style={
+                  swipe?.id === item.id
+                    // Two things get in the way of a row following a finger: the staggered
+                    // entry animation, which outranks an inline transform, and a 160ms
+                    // transform transition, which makes the row chase the finger instead of
+                    // tracking it. Both stand down for the duration of the drag.
+                    ? { transform: `translateX(${swipe.dx}px)`, animation: 'none', transition: 'none' }
+                    : undefined
+                }
+                onTouchStart={item.kind === 'inbound' ? event => onRowTouchStart(item.id, 'threadId' in item ? item.threadId ?? null : null, event) : undefined}
+                onTouchMove={item.kind === 'inbound' ? onRowTouchMove : undefined}
+                onTouchEnd={item.kind === 'inbound' ? onRowTouchEnd : undefined}
+                onTouchCancel={item.kind === 'inbound' ? onRowTouchEnd : undefined}
                 onClick={() => {
+                  // A swipe ends on the row it started on, so without this the release
+                  // opens the message the reader just archived.
+                  if (swipeRef.current?.moved) return
                   if (item.kind === 'draft') {
                     openDraft(item.id)
                   } else if (item.kind === 'inbound') {
@@ -6575,7 +6774,8 @@ export default function DevMailPage() {
                   </span>
                 )}
               </button>
-            ))
+            ))}
+            </>
           )}
           {/* Nothing to load more of when nothing is listed: the skeleton under an empty
               folder read as a mailbox that never finished loading. */}
@@ -6661,7 +6861,9 @@ export default function DevMailPage() {
           >
             <div className={styles.composeHead}>
               <h2 className={styles.composeTitle}>New message</h2>
-              <span className={styles.composeHint}>drafts autosave · Esc to close</span>
+              <span className={styles.composeHint}>
+                drafts autosave<span className={styles.composeHintKeys}> · Esc to close</span>
+              </span>
               <div className={styles.composeHeadActions}>
                 <button
                   className={styles.composeExpandBtn}

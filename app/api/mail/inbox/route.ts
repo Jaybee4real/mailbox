@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { sendPush } from '@/lib/push'
 import { FORWARD_RECIPIENTS, MAIL_DOMAIN, mailAuthGuard, isLocalOrigin, resolveAccount } from '@/lib/dev-auth'
-import { ADDRESS_ALIASES, searchInbox, appendEvent, appendInbound, recordContact, recordSentMeta, getAccountByAddress, setInboundFlags, setInboundLabels, setInboxOwner, readInbox, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
+import { ADDRESS_ALIASES, searchInbox, appendEvent, appendInbound, recordContact, recordSentMeta, getAccountByAddress, setInboundFlags, setInboundFlagsForThread, setInboundLabels, setInboxOwner, readInbox, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
 import { isBrevoInbound, normalizeBrevoInbound, sendMail } from '@/lib/mail-provider'
 
 // The address we send from, and the inbox that owns mail addressed to nobody specific.
@@ -239,14 +239,16 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
-  let body: { id?: string; ids?: string[]; labels?: string[]; owner?: string } & InboundFlags
+  let body: { id?: string; ids?: string[]; threadId?: string; labels?: string[]; owner?: string } & InboundFlags
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
   }
   const ids = body.ids ?? (body.id ? [body.id] : [])
-  if (!ids.length) return NextResponse.json({ ok: false, error: 'id or ids is required' }, { status: 400 })
+  if (!ids.length && !body.threadId) {
+    return NextResponse.json({ ok: false, error: 'id, ids or threadId is required' }, { status: 400 })
+  }
   // Reassigning inbound mail to a mailbox is admin-only.
   if (body.owner !== undefined) {
     const account = await resolveAccount(req)
@@ -267,8 +269,13 @@ export async function PATCH(req: Request) {
   if (body.archived !== undefined) flags.archived = body.archived
   if (body.trashed !== undefined) flags.trashed = body.trashed
   if (!Object.keys(flags).length) flags.read = true
+  if (body.threadId) {
+    const account = await resolveAccount(req)
+    const changed = await setInboundFlagsForThread(account.address ?? ' no-address', body.threadId, flags)
+    return NextResponse.json({ ok: true, ids: changed })
+  }
   await Promise.all(ids.map(id => setInboundFlags(id, flags)))
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, ids })
 }
 
 // Svix signature scheme used by Resend webhooks: HMAC-SHA256 over `${id}.${timestamp}.${payload}`

@@ -1188,6 +1188,26 @@ export async function setInboundFlags(id: string, flags: InboundFlags): Promise<
   await rethreadAfterChange(id)
 }
 
+/**
+ * Flags every message in one conversation. The list shows a row per thread, and a client
+ * that has not loaded that thread's messages cannot name them — which is why archiving a
+ * row whose mail sat below the loaded page quietly did nothing.
+ */
+export async function setInboundFlagsForThread(
+  ownerRaw: string,
+  threadId: string,
+  flags: InboundFlags,
+): Promise<string[]> {
+  await ensureMailSchema()
+  const sql = db()
+  const owner = ownerRaw.toLowerCase()
+  const rows = await sql`
+    SELECT id FROM mail_inbox WHERE lower(owner) = ${owner} AND thread_id = ${threadId}`
+  const ids = rows.map(row => String(row.id))
+  for (const id of ids) await setInboundFlags(id, flags)
+  return ids
+}
+
 export async function setInboundLabels(id: string, labels: string[]): Promise<void> {
   const sql = db()
   await sql`UPDATE mail_inbox SET labels = ${JSON.stringify(labels)} WHERE id = ${id}`

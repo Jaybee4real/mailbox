@@ -710,6 +710,69 @@
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--nc-violet-500) 55%, transparent) transparent;
 }
+/* One band, moved to whichever row is being dragged, rather than a wrapper per row: the
+   rows are staggered on entry by :nth-child and wrapping them would reset every one of
+   those to the first position. */
+.swipeBand {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  border-radius: 12px;
+  font: 600 13px/1 var(--nc-font-sans);
+  color: #fff;
+  pointer-events: none;
+}
+.swipeBandRight {
+  justify-content: flex-start;
+  background: color-mix(in srgb, var(--nc-violet-500) 55%, transparent);
+}
+.swipeBandLeft {
+  justify-content: flex-end;
+  background: color-mix(in srgb, var(--nc-danger) 55%, transparent);
+}
+.swipeBandArmed.swipeBandRight { background: var(--nc-violet-500); }
+.swipeBandArmed.swipeBandLeft { background: var(--nc-danger); }
+
+.list {
+  position: relative;
+}
+/* The row rides the finger, so it must not animate back on every frame. */
+.item {
+  touch-action: pan-y;
+}
+
+/* Sits between the header and the rows, growing out of the gap as the list is pulled
+   down, so the gesture has something to answer it. */
+.pullHint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: opacity 120ms ease;
+}
+.pullSpinner {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--nc-ink-2);
+  border: 1px solid var(--nc-line-1);
+  color: var(--nc-fg-3);
+}
+.pullSpinner svg {
+  width: 16px;
+  height: 16px;
+}
+.pullSpinnerReady {
+  background: var(--nc-violet-500);
+  border-color: var(--nc-violet-500);
+  color: #fff;
+}
+
 /* Safari, and older Chrome. */
 .list::-webkit-scrollbar {
   width: 10px;
@@ -3542,7 +3605,8 @@
   position: fixed;
   inset: 0;
   background: rgba(5, 3, 9, .55);
-  z-index: 440;
+  /* Above .topRight, which floats at 500 and was landing squarely on the close button. */
+  z-index: 530;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6393,5 +6457,113 @@
     left: 0;
     right: 0;
     max-width: none;
+  }
+}
+
+/* ---- Phone corrections ------------------------------------------------------------
+   Everything here was found by hit-testing the rendered page at 375x812 rather than by
+   reading the stylesheet, because each fault only appears once the list is full width. */
+@media (max-width: 720px) {
+  /* The notification and theme buttons float over the top-right corner. With a reading
+     pane beside it that corner is empty; without one it is the list header, and these two
+     sat on top of Refresh so it could not be tapped at all. Drop them behind anything that
+     opens over the mailbox, and give the header room to put Refresh beside them. */
+  .topRight {
+    top: 18px;
+    right: 12px;
+    gap: 6px;
+    z-index: 405;
+  }
+  .listHead {
+    padding-right: 106px;
+  }
+  .listTitle {
+    flex: 0 0 auto;
+  }
+  .listMeta {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  /* "60 convers…" reads as a fault rather than as a count. Below this width the number
+     carries it alone; the unit is still in the header's tooltip and spelled out in full
+     at the end of the list. */
+  .listMetaUnit {
+    display: none;
+  }
+  /* An earlier rule lifted this clear of the compose button; a later one pinned it back
+     over the top, so its own buttons were half covered. */
+  .pwNotice {
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+  /* Nine formatting buttons at a size a finger can hit wrap onto three rows and take 134px
+     of a reply that has not been written yet. One row that scrolls keeps every control and
+     costs a third of the height. */
+  .replyToolbar,
+  .readerModeTabs,
+  .readerLayoutTabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .replyToolbar::-webkit-scrollbar,
+  .readerModeTabs::-webkit-scrollbar,
+  .readerLayoutTabs::-webkit-scrollbar {
+    display: none;
+  }
+  .replyToolbar > *,
+  .readerModeTabs > *,
+  .readerLayoutTabs > * {
+    flex: 0 0 auto;
+  }
+
+  /* The card scrolls, and the footer scrolled away with it, so Save was reachable only
+     after finding the bottom of a long form. */
+  .settingsFoot {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    margin-top: 8px;
+    padding: 10px 0 2px;
+    background: var(--nc-ink-1);
+    box-shadow: 0 -10px 16px -12px rgba(0, 0, 0, .5);
+  }
+}
+
+/* A finger is not a mouse pointer: anything it has to hit needs to be a target, not a
+   label. These were 15px to 32px tall, which is a miss more often than a hit. */
+@media (pointer: coarse) {
+  .modeTab,
+  .orderToggle,
+  .settingsNavItem {
+    min-height: 40px;
+  }
+  .toolBtn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .headerToggle,
+  .replyRecipsToggle,
+  .composeSignatureLabel,
+  .composeSignatureEdit,
+  .composeSignatureMore {
+    min-height: 36px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+  .headerToggle {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+
+@media (max-width: 720px) {
+  /* Compose is already the whole screen here, so a control that makes it full width has
+     nothing to do, and a phone has no Esc key to press. Between them they wrapped the
+     compose header onto four lines. */
+  .composeExpandBtn,
+  .composeHintKeys {
+    display: none;
   }
 }
