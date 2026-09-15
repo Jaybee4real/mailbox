@@ -2345,11 +2345,10 @@ export default function DevMailPage() {
   // Server figure when there is one: counting loaded rows undercounts a mailbox this size,
   // and counted unread messages against grouped conversations, which is how an unread
   // badge came to read higher than the folder total beside it.
-  // Conversations when the server counted them, because that is what the list shows a row
-  // for. Falling back to messages keeps a mailbox whose threads are not live readable.
-  const countsTally = serverCounts?.conversations ?? serverCounts ?? null
-  const countsAreConversations = Boolean(serverCounts?.conversations)
-  const unreadCount = countsTally?.unread ?? 0
+  // The sidebar counts mail, the list header counts conversations. They answer different
+  // questions — how much is in the folder, and how many rows that comes to — so they are
+  // deliberately different numbers rather than one of them being wrong.
+  const unreadCount = serverCounts?.unread ?? 0
 
   // Without a search the list total is the folder's own count, which the sidebar has
   // already fetched; asking the list query to count the same rows again is wasted work.
@@ -2367,12 +2366,12 @@ export default function DevMailPage() {
 
   const folderCounts = useMemo(
     () => ({
-      inbox: countsTally?.inbox ?? 0,
-      starred: countsTally?.starred ?? 0,
-      archived: countsTally?.archived ?? 0,
-      trashed: countsTally?.trashed ?? 0,
+      inbox: serverCounts?.inbox ?? 0,
+      starred: serverCounts?.starred ?? 0,
+      archived: serverCounts?.archived ?? 0,
+      trashed: serverCounts?.trashed ?? 0,
     }),
-    [countsTally],
+    [serverCounts],
   )
 
   /**
@@ -2382,13 +2381,14 @@ export default function DevMailPage() {
    * are the result.
    */
   const folderConversationTotal = useMemo(() => {
-    if (!countsAreConversations || search.trim()) return null
-    if (folder === 'archived') return folderCounts.archived
-    if (folder === 'trash') return folderCounts.trashed
-    if (folder === 'starred') return folderCounts.starred
-    if (folder === 'inbox') return folderCounts.inbox
+    const tally = serverCounts?.conversations
+    if (!tally || search.trim()) return null
+    if (folder === 'archived') return tally.archived
+    if (folder === 'trash') return tally.trashed
+    if (folder === 'starred') return tally.starred
+    if (folder === 'inbox') return tally.inbox
     return null
-  }, [countsAreConversations, search, folder, folderCounts])
+  }, [serverCounts, search, folder])
 
   const eventsByEmail = useMemo(() => {
     const map: Record<string, MailEvent[]> = {}
