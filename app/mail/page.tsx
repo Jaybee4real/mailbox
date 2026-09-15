@@ -4066,6 +4066,10 @@ export default function DevMailPage() {
         else if (selectedId) setSelectedId(null)
         return
       }
+      // A shortcut here is a bare letter. Held with a modifier the key belongs to the browser
+      // or the system — copy, select all, find, reload — and claiming it broke both that and
+      // this: cmd+C opened the composer instead of copying the message you had selected.
+      if (event.metaKey || event.ctrlKey || event.altKey) return
       if (typing || composeOpen || !isLoggedIn) return
       if (event.key === '/') {
         event.preventDefault()
