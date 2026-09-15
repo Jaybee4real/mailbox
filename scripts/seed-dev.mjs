@@ -108,18 +108,36 @@ async function main() {
     ['loss-runs.zip', 31_000_000, 'application/zip'],
   ]
 
-  const smallFiles = [
-    ['schedule.pdf', 240_000, 'application/pdf'],
-    ['certificate.pdf', 180_000, 'application/pdf'],
-    ['invoice.pdf', 96_000, 'application/pdf'],
-    ['endorsement.docx', 54_000, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-    ['vehicle-list.xlsx', 128_000, 'application/vnd.ms-excel'],
-    ['photo-front.jpg', 320_000, 'image/jpeg'],
-    ['photo-rear.jpg', 298_000, 'image/jpeg'],
-    ['claim-form.pdf', 145_000, 'application/pdf'],
-    ['valuation.pdf', 210_000, 'application/pdf'],
-    ['cover-note.pdf', 88_000, 'application/pdf'],
-  ]
+  // Real files, uploaded once and then shared by every message that claims to carry one,
+  // so opening an attachment in the seeded mailbox opens something. Without a bucket
+  // configured the records are written on their own, as they always were.
+  const { buildSamples } = await import('./sample-files.mjs')
+  const bucketReady = Boolean(process.env.R2_BUCKET && process.env.R2_ACCESS_KEY_ID && process.env.R2_S3_ENDPOINT)
+  let smallFiles = []
+  if (bucketReady) {
+    const { putObject } = await import('../lib/r2.ts')
+    for (const sample of buildSamples()) {
+      const key = `dev/samples/${sample.filename}`
+      const stored = await putObject(key, sample.bytes, sample.contentType)
+      if (stored) smallFiles.push([sample.filename, sample.bytes.length, sample.contentType, key])
+    }
+    console.log(`  ${smallFiles.length} sample files uploaded, and shared by the messages that carry one`)
+  }
+  if (!smallFiles.length) {
+    console.log('  no bucket configured: attachments are recorded but hold no bytes')
+    smallFiles = [
+      ['schedule.pdf', 240_000, 'application/pdf'],
+      ['certificate.pdf', 180_000, 'application/pdf'],
+      ['invoice.pdf', 96_000, 'application/pdf'],
+      ['endorsement.docx', 54_000, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+      ['vehicle-list.csv', 128_000, 'text/csv'],
+      ['photo-front.jpg', 320_000, 'image/jpeg'],
+      ['photo-rear.jpg', 298_000, 'image/jpeg'],
+      ['claim-form.pdf', 145_000, 'application/pdf'],
+      ['valuation.pdf', 210_000, 'application/pdf'],
+      ['cover-note.pdf', 88_000, 'application/pdf'],
+    ]
+  }
 
   const rows = []
   const shares = []
@@ -141,8 +159,8 @@ async function main() {
       shares.push([shareId, `shares/dev/${filename}`, filename, contentType, size])
       attachments = [{ filename, contentType, size, shareId }]
     } else if (index < WITH_HEAVY + WITH_ATTACHMENTS) {
-      const [filename, size, contentType] = smallFiles[index - WITH_HEAVY]
-      attachments = [{ filename, contentType, size }]
+      const [filename, size, contentType, key] = smallFiles[(index - WITH_HEAVY) % smallFiles.length]
+      attachments = [key ? { filename, contentType, size, key } : { filename, contentType, size }]
     }
 
     rows.push([

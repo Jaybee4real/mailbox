@@ -34,9 +34,15 @@ Outside production the app seeds one account for you — `test@<MAIL_ADDRESS_DOM
 an admin whose password is the address itself — so a fresh checkout can be signed
 into without configuring seats. It is never seeded when `NODE_ENV=production`.
 
-`node scripts/seed-dev.mjs` then fills that mailbox with enough traffic to exercise
-the list, search, paging and attachments. Create the schema first by starting the
-app once, or by calling `ensureMailSchema()`.
+`node --experimental-strip-types scripts/seed-dev.mjs` then fills that mailbox with
+enough traffic to exercise the list, search, paging and attachments. Create the schema
+first by starting the app once, or by calling `ensureMailSchema()`.
+
+The attachments are real files, not records: a PDF, a photo, a short video, a
+spreadsheet and a Word document, generated on the spot and uploaded once. Pictures and
+video need `ffmpeg` and the document needs `zip`; whatever is missing is skipped. With
+no bucket configured the seed still runs and writes the records alone, as it always
+did.
 
 ## Configuration
 
