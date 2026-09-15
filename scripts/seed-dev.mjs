@@ -29,7 +29,6 @@ const DEV_ADDRESS = 'test@example.com'
 const SHARE_PASSWORD = 'open-sesame'
 const TOTAL = 500
 const WITH_ATTACHMENTS = 10
-const WITH_HEAVY = 10
 
 const SUBJECTS = [
   'Marine cargo cover for a Shenzhen shipment', 'Motor fleet renewal, twelve vehicles',
@@ -100,27 +99,13 @@ async function main() {
   const random = seededRandom(20260904)
   const now = Date.now()
 
-  // The heavy ones get a share record each, so the download page has something
-  // real to render — the object itself is not uploaded, only the record.
-  const heavyFiles = [
-    ['site-survey-photos.zip', 1_850_000_000, 'application/zip'],
-    ['warehouse-walkthrough.mp4', 1_240_000_000, 'video/mp4'],
-    ['fleet-inspection-4k.mov', 980_000_000, 'video/quicktime'],
-    ['claims-archive-2019-2025.zip', 740_000_000, 'application/zip'],
-    ['policy-scans-full.pdf', 512_000_000, 'application/pdf'],
-    ['drone-footage-ikoyi.mp4', 430_000_000, 'video/mp4'],
-    ['premium-model.xlsx', 96_000_000, 'application/vnd.ms-excel'],
-    ['risk-register.csv', 62_000_000, 'text/csv'],
-    ['broker-pack.pdf', 48_000_000, 'application/pdf'],
-    ['loss-runs.zip', 31_000_000, 'application/zip'],
-  ]
-
   // Real files, uploaded once and then shared by every message that claims to carry one,
   // so opening an attachment in the seeded mailbox opens something. Without a bucket
   // configured the records are written on their own, as they always were.
-  const { buildSamples } = await import('./sample-files.mjs')
+  const { buildSamples, buildHeavySamples } = await import('./sample-files.mjs')
   const bucketReady = Boolean(process.env.R2_BUCKET && process.env.R2_ACCESS_KEY_ID && process.env.R2_S3_ENDPOINT)
   let smallFiles = []
+  let heavyFiles = []
   if (bucketReady) {
     const { putObject } = await import('../lib/r2.ts')
     for (const sample of buildSamples()) {
@@ -129,6 +114,31 @@ async function main() {
       if (stored) smallFiles.push([sample.filename, sample.bytes.length, sample.contentType, key])
     }
     console.log(`  ${smallFiles.length} sample files uploaded, and shared by the messages that carry one`)
+
+    for (const sample of buildHeavySamples()) {
+      const key = `shares/dev/${sample.filename}`
+      const stored = await putObject(key, sample.bytes, sample.contentType)
+      if (stored) heavyFiles.push([sample.filename, sample.bytes.length, sample.contentType, key])
+    }
+    const heavyBytes = heavyFiles.reduce((total, file) => total + file[1], 0)
+    console.log(`  ${heavyFiles.length} linked files uploaded, ${(heavyBytes / 1e6).toFixed(0)} MB in all`)
+  }
+  // Without a bucket the share records still exist so the link page renders; the download
+  // is what cannot work, and the route already says so rather than failing obscurely.
+  if (!heavyFiles.length) {
+    console.log('  no bucket configured: linked files are recorded but hold no bytes')
+    heavyFiles = [
+      ['site-survey-photos.zip', 1_850_000_000, 'application/zip', 'shares/dev/site-survey-photos.zip'],
+      ['warehouse-walkthrough.mp4', 1_240_000_000, 'video/mp4', 'shares/dev/warehouse-walkthrough.mp4'],
+      ['fleet-inspection-4k.mov', 980_000_000, 'video/quicktime', 'shares/dev/fleet-inspection-4k.mov'],
+      ['claims-archive-2019-2025.zip', 740_000_000, 'application/zip', 'shares/dev/claims-archive-2019-2025.zip'],
+      ['policy-scans-full.pdf', 512_000_000, 'application/pdf', 'shares/dev/policy-scans-full.pdf'],
+      ['drone-footage-ikoyi.mp4', 430_000_000, 'video/mp4', 'shares/dev/drone-footage-ikoyi.mp4'],
+      ['premium-model.xlsx', 96_000_000, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'shares/dev/premium-model.xlsx'],
+      ['risk-register.csv', 62_000_000, 'text/csv', 'shares/dev/risk-register.csv'],
+      ['broker-pack.pdf', 48_000_000, 'application/pdf', 'shares/dev/broker-pack.pdf'],
+      ['loss-runs.zip', 31_000_000, 'application/zip', 'shares/dev/loss-runs.zip'],
+    ]
   }
   if (!smallFiles.length) {
     console.log('  no bucket configured: attachments are recorded but hold no bytes')
@@ -163,17 +173,17 @@ async function main() {
     // Every other heavy file is locked, so both the open and the protected path can be
     // walked. A real sender tells the recipient the password, so these do too.
     let passwordNote = ''
-    if (index < WITH_HEAVY) {
-      const [filename, size, contentType] = heavyFiles[index]
+    if (index < heavyFiles.length) {
+      const [filename, size, contentType, objectKey] = heavyFiles[index]
       const shareId = `devshare${String(index).padStart(2, '0')}`
       const locked = index % 4 === 0
-      shares.push([shareId, `shares/dev/${filename}`, filename, contentType, size, locked])
+      shares.push([shareId, objectKey, filename, contentType, size, locked])
       attachments = [{ filename, contentType, size, shareId }]
       passwordNote = locked
-        ? `\n\nThe file is too large to attach, so it is behind a link. The password is "${SHARE_PASSWORD}".`
-        : '\n\nThe file is too large to attach, so it is behind a link. No password is needed.'
-    } else if (index < WITH_HEAVY + WITH_ATTACHMENTS) {
-      const [filename, size, contentType, key] = smallFiles[(index - WITH_HEAVY) % smallFiles.length]
+        ? `\n\nThe file is behind a link rather than attached. The password is "${SHARE_PASSWORD}".`
+        : '\n\nThe file is behind a link rather than attached. No password is needed.'
+    } else if (index < heavyFiles.length + WITH_ATTACHMENTS) {
+      const [filename, size, contentType, key] = smallFiles[(index - heavyFiles.length) % smallFiles.length]
       attachments = [key ? { filename, contentType, size, key } : { filename, contentType, size }]
     }
 
@@ -230,7 +240,7 @@ async function main() {
   const indexed = await db.execute('SELECT COUNT(*) AS n FROM mail_inbox_fts')
 
   console.log(`\n  ${total.rows[0].n} messages for ${DEV_ADDRESS}`)
-  console.log(`  ${withAttachments.rows[0].n} carry attachments (${WITH_HEAVY} heavy, ${WITH_ATTACHMENTS} ordinary)`)
+  console.log(`  ${withAttachments.rows[0].n} carry attachments (${shares.length} behind links, ${WITH_ATTACHMENTS} ordinary)`)
   console.log(`  search index rows: ${indexed.rows[0].n}`)
 }
 
