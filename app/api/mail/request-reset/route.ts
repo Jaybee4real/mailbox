@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { isMailAccount } from '@/lib/dev-auth'
 import { createResetToken, recordSentMeta } from '@/lib/mailbox'
 import { sendMail } from '@/lib/mail-provider'
+import { renderActionEmail } from '@/lib/emails'
 import { publicOrigin } from '@/lib/public-url'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
 
@@ -46,12 +47,16 @@ export async function POST(req: Request) {
       to: [email],
       subject: `Reset your ${BRAND.name} Mail password`,
       text: `Someone requested a password reset for ${BRAND.name} Mail.\n\nSet a new password: ${resetUrl}\n\nThis link expires in 30 minutes. If you didn't request it, ignore this email — your password won't change.`,
-      html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#1A1030;">
-          <p style="margin:0 0 12px;color:${BRAND.colors.accent};font-weight:600;">Reset your ${BRAND.name} Mail password</p>
-          <p style="margin:0 0 16px;">Click below to set a new password. The link expires in 30 minutes.</p>
-          <a href="${resetUrl}" style="display:inline-block;background:${BRAND.colors.accent};color:#fff;text-decoration:none;font-weight:600;padding:11px 20px;border-radius:8px;">Set a new password</a>
-          <p style="margin:16px 0 0;color:#8E84A8;font-size:13px;">Didn't request this? Ignore this email — your password won't change.</p>
-        </div>`,
+      html: renderActionEmail({
+        eyebrow: `${BRAND.name} · Mail`,
+        accent: BRAND.colors.accent,
+        title: 'Reset your password',
+        body: `Someone asked to reset the password for your ${BRAND.name} Mail account. Choose a new one below.`,
+        actionLabel: 'Set a new password',
+        actionUrl: resetUrl,
+        expiry: 'This link expires in 30 minutes and can be used once.',
+        footer: "Didn't request this? Ignore this email — your password will not change.",
+      }),
     })
     if (id) await recordSentMeta(id, null, true).catch(() => {})
   } catch (err) {

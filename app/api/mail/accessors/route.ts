@@ -2,6 +2,7 @@ import { BRAND, ADDRESS_DOMAINS as BRAND_ADDRESS_DOMAINS } from '@/lib/brand'
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { sendMail } from '@/lib/mail-provider'
+import { renderActionEmail } from '@/lib/emails'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import {
   listAccounts,
@@ -112,12 +113,16 @@ export async function POST(req: Request) {
       to: [email],
       subject: `You've been invited to ${BRAND.name} Mail`,
       text: `${inviter.email} invited you to ${BRAND.name} Mail.\n\nSet your password to get started: ${inviteUrl}\n\nThis link expires in 7 days.`,
-      html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#1A1030;">
-          <p style="margin:0 0 12px;color:${BRAND.colors.accent};font-weight:600;">You've been invited to ${BRAND.name} Mail</p>
-          <p style="margin:0 0 16px;">${name ? `Hi ${name}, ` : ''}you've been given access to ${BRAND.name} Mail. Set a password to get started.</p>
-          <a href="${inviteUrl}" style="display:inline-block;background:${BRAND.colors.accent};color:#fff;text-decoration:none;font-weight:600;padding:11px 20px;border-radius:8px;">Set your password</a>
-          <p style="margin:16px 0 0;color:#8E84A8;font-size:13px;">This invite link expires in 7 days.</p>
-        </div>`,
+      html: renderActionEmail({
+        eyebrow: `${BRAND.name} · Mail`,
+        accent: BRAND.colors.accent,
+        title: `You've been invited to ${BRAND.name} Mail`,
+        body: `${inviter.email} gave you access to ${BRAND.name} Mail${name ? `, ${name}` : ''}. Set a password to get started.`,
+        actionLabel: 'Set your password',
+        actionUrl: inviteUrl,
+        expiry: 'This invite link expires in 7 days.',
+        footer: `You are receiving this because ${inviter.email} invited you.`,
+      }),
     })
     if (id) await recordSentMeta(id, null, true).catch(() => {})
   } catch (err) {

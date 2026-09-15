@@ -35,6 +35,7 @@ const TPL_AUTO_REPLY = loadTemplate('auto-reply.html')
 const TPL_FIELD_ROW = loadTemplate('field-row.html')
 const TPL_ACADEMY_FOLLOWUP = loadTemplate('academy-followup.html')
 const TPL_CONTACT_FOLLOWUP = loadTemplate('contact-followup.html')
+const TPL_ACTION = loadTemplate('action.html')
 
 // ── Rendering primitives ───────────────────────────────────────────────────
 /** Escape user-provided values before interpolating into HTML. */
@@ -278,4 +279,29 @@ export function renderContactFollowupEmail(vars: ContactFollowupVars): string {
 
 export function contactFollowupSubject(projectType: string): string {
   return `Re: your project — ${projectType} · ${BRAND.name}`
+}
+
+export type ActionEmailVars = {
+  eyebrow: string
+  accent: string
+  title: string
+  body: string
+  actionLabel: string
+  actionUrl: string
+  expiry: string
+  footer: string
+}
+
+/** One-button transactional mail — resets, invites — in the tenant's own accent. */
+export function renderActionEmail(vars: ActionEmailVars): string {
+  return render(TPL_ACTION, {
+    eyebrow: escapeHtml(vars.eyebrow),
+    accent: escapeHtml(vars.accent),
+    title: escapeHtml(vars.title),
+    body: escapeHtml(vars.body),
+    actionLabel: escapeHtml(vars.actionLabel),
+    actionUrl: escapeHtml(vars.actionUrl),
+    expiry: escapeHtml(vars.expiry),
+    footer: escapeHtml(vars.footer),
+  })
 }
