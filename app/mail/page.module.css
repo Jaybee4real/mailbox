@@ -704,6 +704,31 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0 10px 16px;
+  /* Firefox, and Chrome from 121. Where these are honoured the WebKit rules below are
+     ignored outright, so the two have to describe the same scrollbar rather than
+     combine into one. */
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--nc-violet-500) 55%, transparent) transparent;
+}
+/* Safari, and older Chrome. */
+.list::-webkit-scrollbar {
+  width: 10px;
+}
+.list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.list::-webkit-scrollbar-thumb {
+  /* The transparent border plus padding-box clipping is what insets the thumb: there is
+     no padding property on a scrollbar, and a full-width bar against the rows reads as
+     part of the list rather than a control over it. */
+  background: color-mix(in srgb, var(--nc-violet-500) 45%, transparent);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+.list::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--nc-violet-500) 78%, transparent);
+  background-clip: padding-box;
 }
 .app[data-density='relaxed'] {
   --row-pad: 18px 16px;
