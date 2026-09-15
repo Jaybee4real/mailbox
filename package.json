@@ -1,7 +1,34 @@
 {
-  "name": "mailbox",
+  "name": "@novacraft-engineering/mailbox",
   "version": "0.1.0",
-  "private": true,
+  "description": "A shared webmail app: one codebase, one deployment per mailbox. Threads, a rich composer with signatures, attachments on S3-compatible storage, sharing links, full-text search, web push and PWA install.",
+  "keywords": [
+    "webmail",
+    "email",
+    "mailbox",
+    "nextjs",
+    "sqlite",
+    "self-hosted"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jaybee4real/mailbox.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "app",
+    "lib",
+    "public",
+    "scripts",
+    "tools",
+    "next.config.ts",
+    "tsconfig.json",
+    "eslint.config.mjs",
+    ".env.example",
+    "README.md"
+  ],
   "scripts": {
     "dev": "next dev -p $(perch port 2>/dev/null || echo 4030)",
     "build": "next build",
