@@ -32,6 +32,9 @@ const LS_PASSWORD_KEY = LS('password')
 const LS_THEME_KEY = LS('theme')
 const LS_RAIL_KEY = LS('rail_collapsed')
 const LS_LIST_W_KEY = LS('list_width')
+const LS_SCALE_KEY = LS('ui_scale')
+const SCALE_MIN = 80
+const SCALE_MAX = 140
 const LIST_W_MIN = 280
 const LIST_W_MAX = 720
 const LIST_W_DEFAULT = 400
@@ -292,6 +295,10 @@ type MailSettings = {
   notifications: boolean
   desktopNotifications: boolean
   density: 'compact' | 'relaxed'
+  /** Percent. Scales the whole interface, not only the type. */
+  uiScale: number
+  mobile: string
+  replyAllDefault: boolean
   notifyEmail: string
   fonts: CustomFont[]
   defaultFont: BaseFont
@@ -310,6 +317,9 @@ const DEFAULT_SETTINGS: MailSettings = {
   notifyEmail: '',
   desktopNotifications: false,
   density: 'compact',
+  uiScale: 100,
+  mobile: '',
+  replyAllDefault: false,
   fonts: [],
   defaultFont: EMPTY_FONT,
 }
@@ -1129,6 +1139,7 @@ const ICONS = {
   restore: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>,
   tag: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13.42 20.6a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.2"/></svg>,
   pencil: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>,
+  pin: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17v5"/><path d="M9 10.8V4h6v6.8l2 3.2H7l2-3.2Z"/></svg>,
   menu: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>,
   filter: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>,
   settings: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
@@ -1215,6 +1226,15 @@ export default function DevMailPage() {
   const [readerOpenMobile, setReaderOpenMobile] = useState(false)
   const [railOpen, setRailOpen] = useState(false)
   // Collapsed unless this browser has chosen otherwise, so the mail gets the width by default.
+  // Below this width the reader covers the list, so there is genuinely something behind it.
+  const [listHidden, setListHidden] = useState(false)
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 1100px)')
+    const apply = () => setListHidden(media.matches)
+    apply()
+    media.addEventListener('change', apply)
+    return () => media.removeEventListener('change', apply)
+  }, [])
   const [railCollapsed, setRailCollapsed] = useState(true)
   useEffect(() => {
     try {
@@ -1540,6 +1560,12 @@ export default function DevMailPage() {
     } catch {}
     const storedLayout = localStorage.getItem(LS_LAYOUT_KEY)
     if (storedLayout === 'list' || storedLayout === 'bubbles') setReaderLayout(storedLayout)
+    // Read before the account's settings arrive, so the interface does not resize under
+    // the reader a second after it opens.
+    const storedScale = Number(localStorage.getItem(LS_SCALE_KEY))
+    if (storedScale >= SCALE_MIN && storedScale <= SCALE_MAX) {
+      setMailSettings(current => ({ ...current, uiScale: storedScale }))
+    }
   }, [])
 
   // The signature the firm maintains, which everyone without one of their own sends under.
@@ -1559,6 +1585,16 @@ export default function DevMailPage() {
     }, 600)
     return () => window.clearTimeout(timer)
   }, [isLoggedIn, prefsLoaded, themePref, accent, themeCustom, readerLayout, apiHeaders])
+
+  useEffect(() => {
+    const scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(settings.uiScale || 100)))
+    // zoom rather than a font size: every measurement in this interface is in pixels, and
+    // scaling only the type would leave the type in boxes that no longer fit it.
+    document.documentElement.style.zoom = scale === 100 ? '' : `${scale}%`
+    try {
+      localStorage.setItem(LS_SCALE_KEY, String(scale))
+    } catch {}
+  }, [settings.uiScale])
 
   const chooseLayout = useCallback((layout: 'list' | 'bubbles') => {
     setReaderLayout(layout)
@@ -3050,10 +3086,11 @@ export default function DevMailPage() {
   const identityFor = {
     name: settings.senderName.trim() || account?.name || '',
     email: account?.address || email || '',
+    mobile: settings.mobile.trim(),
   }
   const houseSignature = companySignature.trim()
     ? fillSignature(companySignature, identityFor)
-    : defaultSignature(identityFor.name, identityFor.email, undefined, CLIENT_BRAND)
+    : defaultSignature(identityFor.name, identityFor.email, identityFor.mobile || undefined, CLIENT_BRAND)
   const ownSignature = settings.signature.trim()
   const signatureBody = ownSignature || houseSignature
   // A hand-written signature replaces the house one wholesale, mark included, so the firm's
@@ -3730,7 +3767,7 @@ export default function DevMailPage() {
     const fallback = defaultReplyRecipient(entry)
     // Replying to everyone is the default: a conversation that reached four people is
     // answered to those four, and trimming the list is the deliberate act.
-    const everyone = replyAllRecipients(entry)
+    const everyone = settings.replyAllDefault ? replyAllRecipients(entry) : { to: [], cc: [] }
     return {
       ...EMPTY_COMPOSE,
       to: replyRecipsEdited || replyToList.length
@@ -3756,8 +3793,8 @@ export default function DevMailPage() {
   const toggleReplyRecips = (entry: InboundEmail) => {
     setReplyRecipsOpen(open => {
       if (!open && !replyToList.length) {
-        const { to, cc } = replyAllRecipients(entry)
         const sender = defaultReplyRecipient(entry)
+        const { to, cc } = settings.replyAllDefault ? replyAllRecipients(entry) : { to: [], cc: [] }
         setReplyToList(to.length ? to : sender ? [sender] : [])
         if (cc.length) setReplyCc(cc)
       }
@@ -5111,6 +5148,11 @@ export default function DevMailPage() {
             <button className={styles.actionBtn} onClick={() => replyTo(inbound)}>
               {ICONS.reply} Reply
             </button>
+            {!settings.replyAllDefault && (
+              <button className={styles.actionBtn} onClick={() => replyAllTo(inbound)}>
+                {ICONS.replyAll} Reply all
+              </button>
+            )}
             <button className={styles.actionBtn} onClick={() => forwardEmail(inbound.subject, inbound.html, inbound.text, inbound.id)}>
               {ICONS.forward} Forward
             </button>
@@ -5956,22 +5998,22 @@ export default function DevMailPage() {
       {railOpen && <div className={styles.railScrim} onClick={() => setRailOpen(false)} />}
       <aside className={`${styles.rail} ${railOpen ? styles.railOpen : ''} ${railCollapsed ? styles.railCollapsed : ''}`}>
         <div className={styles.brand}>
+          <span className={styles.brandLogo} role="img" aria-label={CLIENT_BRAND.name} />
+          <span className={styles.brandName}>Mail</span>
+          <span className={styles.brandTag}>{CLIENT_BRAND.name}</span>
           <button
             type="button"
-            className={styles.railToggle}
+            className={`${styles.railToggle} ${railCollapsed ? '' : styles.railToggleOn}`}
             onClick={event => {
               event.currentTarget.blur()
               toggleRail()
             }}
-            aria-label={railCollapsed ? 'Expand menu' : 'Collapse menu'}
-            aria-expanded={!railCollapsed}
-            title={railCollapsed ? 'Expand menu' : 'Collapse menu'}
+            aria-label={railCollapsed ? 'Pin the menu open at full width' : 'Unpin the menu, so it slides out on hover'}
+            aria-pressed={!railCollapsed}
+            title={railCollapsed ? 'Pin the menu open at full width' : 'Unpin the menu, so it slides out on hover'}
           >
-            {ICONS.menu}
+            {ICONS.pin}
           </button>
-          <span className={styles.brandLogo} role="img" aria-label={CLIENT_BRAND.name} />
-          <span className={styles.brandName}>Mail</span>
-          <span className={styles.brandTag}>{CLIENT_BRAND.name}</span>
           <button className={styles.railClose} onClick={() => setRailOpen(false)} aria-label="Close menu">
             {ICONS.close}
           </button>
@@ -6077,7 +6119,12 @@ export default function DevMailPage() {
             className={styles.listMeta}
             title={`${listItems.length.toLocaleString()} ${isInboundFolder ? (listItems.length === 1 ? 'conversation' : 'conversations') : listItems.length === 1 ? 'message' : 'messages'}`}
           >
-            {listItems.length}
+            {listItems.length.toLocaleString()}{' '}
+            <span className={styles.listMetaUnit}>
+              {isInboundFolder
+                ? listItems.length === 1 ? 'conversation' : 'conversations'
+                : listItems.length === 1 ? 'message' : 'messages'}
+            </span>
           </span>
           <button
             className={`${styles.refreshBtn} ${refreshing ? styles.spinning : ''}`}
@@ -6469,10 +6516,15 @@ export default function DevMailPage() {
       </section>
 
       <section className={`${styles.reader} ${readerOpenMobile ? styles.readerMobileOpen : ''} ${selectedIsThread ? styles.readerScroll : ''}`}>
-        {readerOpenMobile && (
+        {(readerOpenMobile || selectedId) && (
           <div className={styles.readerBackBar}>
-            <button className={styles.actionBtn} onClick={() => setReaderOpenMobile(false)}>
-              {ICONS.back} Back
+            {/* The list is behind this panel on a narrow window, so there is somewhere to go
+                back to. On a wide one it is beside us, and the only thing to do is close. */}
+            <button
+              className={styles.actionBtn}
+              onClick={() => (listHidden ? setReaderOpenMobile(false) : setSelectedId(null))}
+            >
+              {listHidden ? <>{ICONS.back} Back</> : <>{ICONS.close} Close</>}
             </button>
           </div>
         )}
@@ -7023,6 +7075,39 @@ export default function DevMailPage() {
               </div>
             </div>
             <div className={styles.settingsField}>
+              <span>Interface size</span>
+              <div className={styles.themeRow}>
+                {([
+                  ['Small', 90],
+                  ['Default', 100],
+                  ['Large', 110],
+                  ['Largest', 125],
+                ] as Array<[string, number]>).map(([label, value]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className={`${styles.themeChip} ${settings.uiScale === value ? styles.themeChipOn : ''}`}
+                    onClick={() => setMailSettings(current => ({ ...current, uiScale: value }))}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className={styles.scaleRow}>
+                <input
+                  type="range"
+                  className={styles.scaleSlider}
+                  min={SCALE_MIN}
+                  max={SCALE_MAX}
+                  step={5}
+                  value={settings.uiScale}
+                  aria-label="Interface size, as a percentage"
+                  onChange={event => setMailSettings(current => ({ ...current, uiScale: Number(event.target.value) }))}
+                />
+                <span className={styles.scaleValue}>{settings.uiScale}%</span>
+              </div>
+            </div>
+            <div className={styles.settingsField}>
               <span>Density</span>
               <div className={styles.themeRow}>
                 {([
@@ -7049,6 +7134,15 @@ export default function DevMailPage() {
                 value={settings.senderName}
                 onChange={event => setMailSettings(current => ({ ...current, senderName: event.target.value }))}
                 placeholder={account?.name || CLIENT_BRAND.name}
+              />
+            </label>
+            <label className={styles.settingsField}>
+              <span>Mobile number</span>
+              <input
+                value={settings.mobile}
+                onChange={event => setMailSettings(current => ({ ...current, mobile: event.target.value }))}
+                placeholder="Shown in your signature, when it asks for one"
+                inputMode="tel"
               />
             </label>
             <div className={styles.settingsField}>
@@ -7291,6 +7385,14 @@ export default function DevMailPage() {
             </>)}
 
             {settingsTab === 'mail' && (<>
+            <label className={styles.settingsToggle}>
+              <input
+                type="checkbox"
+                checked={settings.replyAllDefault}
+                onChange={event => setMailSettings(current => ({ ...current, replyAllDefault: event.target.checked }))}
+              />
+              <span>Reply to everyone in the conversation by default. With this off, a reply goes to the sender and a separate Reply all sits beside it.</span>
+            </label>
             <label className={styles.settingsToggle}>
               <input
                 type="checkbox"
