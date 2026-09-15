@@ -23,6 +23,7 @@ const ATTACH_LIMIT_BYTES = 20 * 1024 * 1024
 const STALL_AFTER_MS = 45_000
 
 import { CLIENT_BRAND, LS, clientSignatureMarkStyle, frameSignatureMark } from '@/lib/brand.client'
+import { accentScale, hexToHsl } from '@/lib/accent-ramp'
 
 const LS_EMAIL_KEY = LS('email')
 const LS_DOMAIN_KEY = LS('domain')
@@ -91,49 +92,9 @@ const BASE_TOKENS: Record<ThemeBase, ThemeCustom> = {
 
 const BASE_PREVIEW = BASE_TOKENS
 
-// Lightness ramps per stop, so any accent hue produces a full scale that keeps the
-// contrast relationships the UI was designed around.
-const ACCENT_RAMP: Record<ThemeBase, Record<string, number>> = {
-  dark: { 100: 92, 200: 84, 300: 73, 400: 62, 500: 52, 600: 44, 700: 37, 800: 25, 900: 16 },
-  dim: { 100: 90, 200: 82, 300: 71, 400: 60, 500: 51, 600: 43, 700: 36, 800: 27, 900: 20 },
-  light: { 100: 34, 200: 40, 300: 46, 400: 46, 500: 46, 600: 55, 700: 70, 800: 93, 900: 96 },
-}
-
-function hexToHsl(hex: string): { h: number; s: number; l: number } | null {
-  const clean = hex.replace('#', '')
-  const full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean
-  if (!/^[0-9a-fA-F]{6}$/.test(full)) return null
-  const red = parseInt(full.slice(0, 2), 16) / 255
-  const green = parseInt(full.slice(2, 4), 16) / 255
-  const blue = parseInt(full.slice(4, 6), 16) / 255
-  const max = Math.max(red, green, blue)
-  const min = Math.min(red, green, blue)
-  const lightness = (max + min) / 2
-  if (max === min) return { h: 0, s: 0, l: lightness * 100 }
-  const delta = max - min
-  const saturation = delta / (1 - Math.abs(2 * lightness - 1))
-  let hue: number
-  if (max === red) hue = ((green - blue) / delta) % 6
-  else if (max === green) hue = (blue - red) / delta + 2
-  else hue = (red - green) / delta + 4
-  return { h: (hue * 60 + 360) % 360, s: saturation * 100, l: lightness * 100 }
-}
-
-/** Turn one accent colour into the --nc-violet-* scale for the active base. */
-function accentVars(hex: string, base: ThemeBase): Record<string, string> {
-  const hsl = hexToHsl(hex)
-  if (!hsl) return {}
-  const saturation = Math.max(28, Math.min(92, hsl.s))
-  const vars: Record<string, string> = {}
-  for (const [stop, lightness] of Object.entries(ACCENT_RAMP[base])) {
-    vars[`--nc-violet-${stop}`] = `hsl(${hsl.h.toFixed(0)} ${saturation.toFixed(0)}% ${lightness}%)`
-  }
-  return vars as Record<string, string>
-}
-
 /** Accent scale + any per-surface overrides, as inline custom properties. */
 function themeVars(accent: string, base: ThemeBase, custom: ThemeCustom): React.CSSProperties {
-  const vars: Record<string, string> = { ...accentVars(accent, base) }
+  const vars: Record<string, string> = { ...accentScale(accent, base) }
   for (const field of THEME_FIELDS) {
     const value = custom[field.key]
     if (value && hexToHsl(value)) for (const cssVar of field.vars) vars[cssVar] = value
@@ -1253,10 +1214,11 @@ export default function DevMailPage() {
   const [inboundAttachments, setInboundAttachments] = useState<Record<string, DownloadAttachment[]>>({})
   const [readerOpenMobile, setReaderOpenMobile] = useState(false)
   const [railOpen, setRailOpen] = useState(false)
-  const [railCollapsed, setRailCollapsed] = useState(false)
+  // Collapsed unless this browser has chosen otherwise, so the mail gets the width by default.
+  const [railCollapsed, setRailCollapsed] = useState(true)
   useEffect(() => {
     try {
-      setRailCollapsed(localStorage.getItem(LS_RAIL_KEY) === '1')
+      setRailCollapsed(localStorage.getItem(LS_RAIL_KEY) !== '0')
     } catch {}
   }, [])
   const [listWidth, setListWidth] = useState(LIST_W_DEFAULT)

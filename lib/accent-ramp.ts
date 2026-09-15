@@ -26,11 +26,29 @@ export function hexToHsl(hex: string): { h: number; s: number; l: number } | nul
   return { h: (hue * 60 + 360) % 360, s: saturation * 100, l: lightness * 100 }
 }
 
-export function accentRampCss(hex: string, base: ThemeBase = 'light'): string {
+/**
+ * The accent scale for one base. The 500 stop is the colour every primary control is
+ * painted in, so it is the configured accent exactly rather than a shade near it; the
+ * other stops slide by the same amount so the scale keeps its shape.
+ */
+export function accentScale(hex: string, base: ThemeBase = 'light'): Record<string, string> {
   const hsl = hexToHsl(hex)
-  if (!hsl) return ''
+  if (!hsl) return {}
   const saturation = Math.max(28, Math.min(92, hsl.s))
-  return Object.entries(ACCENT_RAMP[base])
-    .map(([stop, lightness]) => `--nc-violet-${stop}:hsl(${hsl.h.toFixed(0)} ${saturation.toFixed(0)}% ${lightness}%)`)
+  const shift = hsl.l - ACCENT_RAMP[base][500]
+  const scale: Record<string, string> = {}
+  for (const [stop, lightness] of Object.entries(ACCENT_RAMP[base])) {
+    const shifted = Math.max(4, Math.min(97, lightness + shift))
+    scale[`--nc-violet-${stop}`] =
+      stop === '500'
+        ? `hsl(${hsl.h.toFixed(0)} ${hsl.s.toFixed(0)}% ${hsl.l.toFixed(0)}%)`
+        : `hsl(${hsl.h.toFixed(0)} ${saturation.toFixed(0)}% ${shifted.toFixed(0)}%)`
+  }
+  return scale
+}
+
+export function accentRampCss(hex: string, base: ThemeBase = 'light'): string {
+  return Object.entries(accentScale(hex, base))
+    .map(([name, value]) => `${name}:${value}`)
     .join(';')
 }
