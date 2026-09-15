@@ -2617,10 +2617,13 @@
    all four sides, so you can see where the mail begins and where it ends rather than a
    band of white running into the furniture above it. */
 .threadMsgBody {
-  margin: 0 var(--thread-inset) var(--thread-inset);
+  margin: var(--thread-inset);
   border: 1px solid var(--nc-line-1);
   border-radius: var(--radius-card);
-  background: var(--nc-ink-1);
+  /* The sheet is the paper the mail is printed on, so it is the paper's colour. Left on the
+     card's own tone it vanished into the card, and the only edge you could see was the one
+     the message's own white background drew, square, wherever its markup happened to start. */
+  background: var(--nc-ink-0);
   font-size: var(--row-subject);
   line-height: var(--row-lead);
   overflow: hidden;
