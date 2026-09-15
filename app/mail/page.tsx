@@ -12,7 +12,7 @@ import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages } from '@/lib
 import { BUILTIN_FONTS, EMPTY_FONT, FONT_SIZES, fontFaceCss, fontStack, type BaseFont, type CustomFont } from '@/lib/fonts'
 import MailSelect from './MailSelect'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
-import { defaultSignature, MARK_URL } from '@/lib/default-signature'
+import { defaultSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
 
 // Files up to this size ride along as real email attachments; larger ones are
@@ -22,13 +22,18 @@ const ATTACH_LIMIT_BYTES = 20 * 1024 * 1024
 // No bytes for this long means the connection has gone, however healthy the request looks.
 const STALL_AFTER_MS = 45_000
 
-import { CLIENT_BRAND, LS } from '@/lib/brand.client'
+import { CLIENT_BRAND, LS, clientSignatureMarkStyle, frameSignatureMark } from '@/lib/brand.client'
 
 const LS_EMAIL_KEY = LS('email')
 const LS_DOMAIN_KEY = LS('domain')
 const LS_INBOX_CACHE_KEY = LS('inbox_cache')
 const LS_PASSWORD_KEY = LS('password')
 const LS_THEME_KEY = LS('theme')
+const LS_RAIL_KEY = LS('rail_collapsed')
+const LS_LIST_W_KEY = LS('list_width')
+const LIST_W_MIN = 280
+const LIST_W_MAX = 720
+const LIST_W_DEFAULT = 400
 const LS_LAYOUT_KEY = LS('layout')
 const ROLE_OPTIONS = [
   { value: 'member', label: 'Member' },
@@ -1248,6 +1253,52 @@ export default function DevMailPage() {
   const [inboundAttachments, setInboundAttachments] = useState<Record<string, DownloadAttachment[]>>({})
   const [readerOpenMobile, setReaderOpenMobile] = useState(false)
   const [railOpen, setRailOpen] = useState(false)
+  const [railCollapsed, setRailCollapsed] = useState(false)
+  useEffect(() => {
+    try {
+      setRailCollapsed(localStorage.getItem(LS_RAIL_KEY) === '1')
+    } catch {}
+  }, [])
+  const [listWidth, setListWidth] = useState(LIST_W_DEFAULT)
+  useEffect(() => {
+    try {
+      const saved = Number(localStorage.getItem(LS_LIST_W_KEY))
+      if (saved >= LIST_W_MIN && saved <= LIST_W_MAX) setListWidth(saved)
+    } catch {}
+  }, [])
+  const listPaneRef = useRef<HTMLElement | null>(null)
+  const startListResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const pane = listPaneRef.current
+    if (!pane) return
+    event.preventDefault()
+    const handle = event.currentTarget
+    handle.setPointerCapture(event.pointerId)
+    const left = pane.getBoundingClientRect().left
+    let width = listWidth
+    const move = (moveEvent: PointerEvent) => {
+      width = Math.min(LIST_W_MAX, Math.max(LIST_W_MIN, Math.round(moveEvent.clientX - left)))
+      setListWidth(width)
+    }
+    const stop = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', stop)
+      handle.removeEventListener('pointercancel', stop)
+      try {
+        localStorage.setItem(LS_LIST_W_KEY, String(width))
+      } catch {}
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', stop)
+    handle.addEventListener('pointercancel', stop)
+  }, [listWidth])
+  const toggleRail = useCallback(() => {
+    setRailCollapsed(current => {
+      try {
+        localStorage.setItem(LS_RAIL_KEY, current ? '0' : '1')
+      } catch {}
+      return !current
+    })
+  }, [])
   const [hideForwarded] = useState(true)
   const [showRemote, setShowRemote] = useState(false)
   const [showFullHeaders, setShowFullHeaders] = useState(false)
@@ -1370,6 +1421,7 @@ export default function DevMailPage() {
   const [replyError, setReplyError] = useState('')
   // Collapsed by default: the signature is long, and the composer is for the message.
   const [sigExpanded, setSigExpanded] = useState(false)
+  const [sigPreviewOpen, setSigPreviewOpen] = useState(false)
   /**
    * Measured at the click, not on mount: before the content has settled it reports several
    * times its real height, and the reveal then finishes long before the animation does.
@@ -2137,6 +2189,7 @@ export default function DevMailPage() {
     }, 90000)
     const onWake = () => {
       if (document.visibilityState !== 'visible') return
+      void loadCounts()
       if (Date.now() - lastRefreshAt.current < 20000) return
       setMailboxStale(true)
       void refreshAll()
@@ -2156,7 +2209,7 @@ export default function DevMailPage() {
       window.removeEventListener('focus', onWake)
       navigator.serviceWorker?.removeEventListener('message', onWorkerMessage)
     }
-  }, [isLoggedIn, refreshAll])
+  }, [isLoggedIn, refreshAll, loadCounts])
 
   // Switching mailbox: wipe the view and show skeletons while the new mailbox loads.
   useEffect(() => {
@@ -3000,14 +3053,16 @@ export default function DevMailPage() {
   const houseSignature = defaultSignature(
     settings.senderName.trim() || (account as unknown as { name?: string | null } | null)?.name || '',
     account?.address || email || '',
+    undefined,
+    CLIENT_BRAND,
   )
   const ownSignature = settings.signature.trim()
-  const signatureBody = ownSignature || houseSignature
+  const signatureBody = frameSignatureMark(ownSignature || houseSignature)
   // A hand-written signature replaces the house one wholesale, mark included, so the firm's
   // mark goes back on top unless that signature already carries an image of its own.
-  const signatureMarkSrc = settings.signatureLogo || (/<img\b/i.test(signatureBody) ? '' : MARK_URL)
+  const signatureMarkSrc = settings.signatureLogo || (/<img\b/i.test(signatureBody) ? '' : CLIENT_BRAND.markUrl)
   const signatureLogoHtml = signatureMarkSrc
-    ? `<div style="margin-bottom:12px;"><img src="${absoluteLogo(signatureMarkSrc)}" alt={CLIENT_BRAND.name} width="200" style="width:200px;height:auto;display:block;border:0;" /></div>`
+    ? `<div style="margin-bottom:12px;"><img src="${absoluteLogo(signatureMarkSrc)}" alt="${escapeHtml(CLIENT_BRAND.name)}" width="200" style="${clientSignatureMarkStyle(200)}" /></div>`
     : ''
   const signatureHtml = `<div style="margin-top:26px;padding-top:18px;border-top:1px solid #E8E2F4;">${signatureLogoHtml}${asRichHtml(dropUnreachableImages(signatureBody))}</div>`
   const signatureText = `\n\n${htmlToPlainText(asRichHtml(signatureBody))}`
@@ -3877,7 +3932,7 @@ export default function DevMailPage() {
         </td>
         <td style="vertical-align:top;text-align:right;width:110px;">
           <img src="${PRINT_MARK_URL}" alt="${escapeHtml(CLIENT_BRAND.name)}" width="64" height="46"
-               style="display:inline-block;width:64px;height:auto;padding:8px;border:1px solid ${CLIENT_BRAND.accent};vertical-align:top;" />
+               style="display:inline-block;width:64px;height:auto;border:0;vertical-align:top;" />
           <div style="font-size:11px;color:#6B6480;padding-top:4px;">${CLIENT_BRAND.website}</div>
         </td>
       </tr>
@@ -5720,6 +5775,8 @@ export default function DevMailPage() {
           themePreview?.vars ?? themeCustom,
         ),
         ['--acting-offset' as string]: `${actingBarHeight}px`,
+        ['--brand-mark' as string]: `url('${CLIENT_BRAND.chromeMarkUrl}')`,
+        ['--list-w' as string]: `${listWidth}px`,
       } as React.CSSProperties}
     >
       {actingAs && (
@@ -5877,8 +5934,21 @@ export default function DevMailPage() {
       </div>
       </div>
       {railOpen && <div className={styles.railScrim} onClick={() => setRailOpen(false)} />}
-      <aside className={`${styles.rail} ${railOpen ? styles.railOpen : ''}`}>
+      <aside className={`${styles.rail} ${railOpen ? styles.railOpen : ''} ${railCollapsed ? styles.railCollapsed : ''}`}>
         <div className={styles.brand}>
+          <button
+            type="button"
+            className={styles.railToggle}
+            onClick={event => {
+              event.currentTarget.blur()
+              toggleRail()
+            }}
+            aria-label={railCollapsed ? 'Expand menu' : 'Collapse menu'}
+            aria-expanded={!railCollapsed}
+            title={railCollapsed ? 'Expand menu' : 'Collapse menu'}
+          >
+            {ICONS.menu}
+          </button>
           <span className={styles.brandLogo} role="img" aria-label={CLIENT_BRAND.name} />
           <span className={styles.brandName}>Mail</span>
           <span className={styles.brandTag}>{CLIENT_BRAND.name}</span>
@@ -5888,7 +5958,7 @@ export default function DevMailPage() {
         </div>
         <button className={styles.composeBtn} onClick={() => { openCompose(); setRailOpen(false) }}>
           <span className={styles.composePen}>{ICONS.pencil}</span>
-          Compose
+          <span className={styles.railLabel}>Compose</span>
         </button>
         {(['inbox', 'starred', 'sent', 'scheduled', 'drafts', 'archived', 'trash'] as Folder[]).map(key => {
           const count =
@@ -5918,7 +5988,7 @@ export default function DevMailPage() {
               }}
             >
               {FOLDER_ICONS[key]}
-              {folderTitles[key]}
+              <span className={styles.railLabel}>{folderTitles[key]}</span>
               {/* Unread is a filled pill; the plain number is the folder total. */}
               <span className={styles.folderMeta}>
                 {key === 'inbox' && unreadCount > 0 && (
@@ -5938,11 +6008,11 @@ export default function DevMailPage() {
           )
         })}
         <div className={styles.railFoot}>
-          <button className={styles.railSettings} onClick={() => { setFilesOpen(true); setRailOpen(false) }}>
-            {ICONS.attach} Files
+          <button className={styles.railSettings} onClick={() => { setFilesOpen(true); setRailOpen(false) }} title="Files">
+            {ICONS.attach} <span className={styles.railLabel}>Files</span>
           </button>
-          <button className={styles.railSettings} onClick={() => { setSettingsOpen(true); setRailOpen(false) }}>
-            {ICONS.settings} Settings
+          <button className={styles.railSettings} onClick={() => { setSettingsOpen(true); setRailOpen(false) }} title="Settings">
+            {ICONS.settings} <span className={styles.railLabel}>Settings</span>
           </button>
           <button
             type="button"
@@ -5962,7 +6032,21 @@ export default function DevMailPage() {
         </div>
       </aside>
 
-      <section className={styles.listPane}>
+      <section className={styles.listPane} ref={listPaneRef}>
+        <div
+          className={styles.listResize}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize the message list"
+          title="Drag to resize"
+          onPointerDown={startListResize}
+          onDoubleClick={() => {
+            setListWidth(LIST_W_DEFAULT)
+            try {
+              localStorage.setItem(LS_LIST_W_KEY, String(LIST_W_DEFAULT))
+            } catch {}
+          }}
+        />
         <div className={styles.listHead}>
           <button className={styles.menuBtn} onClick={() => setRailOpen(true)} aria-label="Open menu">
             {ICONS.menu}
@@ -6968,7 +7052,7 @@ export default function DevMailPage() {
                   )}
                 </div>
                 <RichEditor
-                  html={asRichHtml(settings.signature)}
+                  html={asRichHtml(signatureBody)}
                   onChange={next =>
                     setMailSettings(current => ({ ...current, signature: next === '<p></p>' ? '' : dropUnreachableImages(next) }))
                   }
@@ -6981,18 +7065,34 @@ export default function DevMailPage() {
               </div>
               {logoMsg && <p className={styles.pwBad} role="status">{logoMsg}</p>}
               {signatureBody.trim() && (
-                <div className={styles.sigPreview}>
-                  <span className={styles.sigPreviewLabel}>
+                <div className={`${styles.sigPreview} ${sigPreviewOpen ? styles.sigPreviewOpen : ''}`}>
+                  <button
+                    type="button"
+                    className={styles.sigPreviewLabel}
+                    onClick={() => setSigPreviewOpen(open => !open)}
+                    aria-expanded={sigPreviewOpen}
+                  >
                     {ownSignature ? 'Preview' : 'Preview · the default, until you write your own'}
-                  </span>
-                  {settings.signatureLogo && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img className={styles.sigPreviewLogo} src={settings.signatureLogo} alt="" />
-                  )}
-                  <div
-                    className={styles.sigPreviewBody}
-                    dangerouslySetInnerHTML={{ __html: asRichHtml(signatureBody) }}
-                  />
+                    <span className={styles.composeSignatureChevron} aria-hidden>{sigPreviewOpen ? '▾' : '▸'}</span>
+                  </button>
+                  <div className={styles.sigPreviewFold}>
+                    {settings.signatureLogo && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img className={styles.sigPreviewLogo} src={settings.signatureLogo} alt="" />
+                    )}
+                    <div
+                      className={styles.sigPreviewBody}
+                      dangerouslySetInnerHTML={{ __html: asRichHtml(signatureBody) }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.composeSignatureMore}
+                    onClick={() => setSigPreviewOpen(open => !open)}
+                    aria-expanded={sigPreviewOpen}
+                  >
+                    {sigPreviewOpen ? 'Show less' : 'View full signature'}
+                  </button>
                 </div>
               )}
             </div>

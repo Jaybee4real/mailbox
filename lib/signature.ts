@@ -1,4 +1,4 @@
-import { BRAND } from './brand'
+import { BRAND, signatureMarkStyle } from './brand'
 
 export type SignatureIdentity = { name: string; email: string; mobile?: string }
 
@@ -7,7 +7,7 @@ export const SIGNATURE_LOGO_URL = BRAND.markUrl
 const escape = (value: string) => value.replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char] ?? char)
 
 export function signatureLogoHtml(url: string): string {
-  return `<p><img src="${escape(url)}" alt="${escape(BRAND.name)}" width="200" style="width:200px;height:auto;display:block;border:0;"></p>`
+  return `<p><img src="${escape(url)}" alt="${escape(BRAND.name)}" width="200" style="${signatureMarkStyle(200)}"></p>`
 }
 
 /** The company signature, personalised. Editable in the signature editor, so plain paragraphs and spans only. */

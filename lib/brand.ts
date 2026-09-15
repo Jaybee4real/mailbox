@@ -39,6 +39,11 @@ export const BRAND = {
     link: env('BRAND_COLOR_LINK', 'rgb(17, 85, 204)'),
     muted: env('BRAND_COLOR_MUTED', 'rgb(107, 114, 128)'),
   },
+  chromeMarkUrl: env('BRAND_CHROME_MARK_URL', '/brand/mark.png'),
+  signatureMark: {
+    border: env('BRAND_SIGNATURE_MARK_BORDER', 'none'),
+    radius: env('BRAND_SIGNATURE_MARK_RADIUS', '0'),
+  },
   iconUrl: env('BRAND_ICON_URL'),
   appleIconUrl: env('BRAND_APPLE_ICON_URL', env('BRAND_ICON_URL')),
   accentHex: env('BRAND_ACCENT_HEX', env('NEXT_PUBLIC_BRAND_ACCENT', '#6d28d9')),
@@ -61,3 +66,11 @@ export const MAIL_SEATS: MailSeat[] = json<MailSeat[]>('MAIL_SEATS', [])
 export const ADDRESS_ALIASES: Record<string, string> = json<Record<string, string>>('MAIL_ADDRESS_ALIASES', {})
 
 export const brandSlug = BRAND.name.toLowerCase().replace(/[^a-z0-9]+/g, '')
+
+/** Inline style for the mark in a signature: a frame in the accent when the tenant asks for one, nothing otherwise. */
+export function signatureMarkStyle(width: number): string {
+  const { border, radius } = BRAND.signatureMark
+  const colour = border === 'accent' ? BRAND.colors.accent : border
+  const frame = !colour || colour === 'none' ? 'border:0;' : `padding:8px;border:1px solid ${colour};border-radius:${radius}px;`
+  return `display:block;width:${width}px;height:auto;${frame}`
+}

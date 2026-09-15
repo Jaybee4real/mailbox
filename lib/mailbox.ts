@@ -143,7 +143,6 @@ export function ensureMailSchema(): Promise<void> {
         // sort it and then discards all but one page.
         `CREATE INDEX IF NOT EXISTS mail_inbox_list_idx ON mail_inbox (lower(owner), archived, trashed, received_at DESC, id DESC)`,
         `CREATE INDEX IF NOT EXISTS mail_inbox_owner_recent_idx ON mail_inbox (lower(owner), received_at DESC, id DESC)`,
-        `CREATE INDEX IF NOT EXISTS mail_inbox_thread_idx ON mail_inbox (lower(owner), thread_id, received_at DESC, id DESC)`,
         // The folder counts read only these five columns. Without them all in one index
         // SQLite walks the rows themselves, and a row here can carry 50KB of html — which
         // turned a five-number summary into a 37-second scan on the larger mailboxes.
@@ -346,10 +345,10 @@ export function ensureMailSchema(): Promise<void> {
       await sqlRaw('ALTER TABLE mail_inbox ADD COLUMN snippet TEXT').catch(() => {})
       await sqlRaw('ALTER TABLE mail_inbox ADD COLUMN thread_meta TEXT').catch(() => {})
       await sqlRaw('ALTER TABLE mail_inbox ADD COLUMN attach_meta TEXT').catch(() => {})
-      // The two indexes on thread_id are built deliberately by maintenance, not here: a
-      // build walks the whole table, and attempting it on every cold start under a metered
-      // read quota is a bill that never stops coming.
+      // thread_id arrives by migration, so its index has to follow the column rather than
+      // sit in the batch above, where a fresh database has no such column yet.
       await sqlRaw('ALTER TABLE mail_inbox ADD COLUMN thread_id TEXT').catch(() => {})
+      await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_thread_idx ON mail_inbox (lower(owner), thread_id, received_at DESC, id DESC)').catch(() => {})
 
       // Seed the mailboxes this deployment serves — metadata only, never clobber an
       // existing password_hash.

@@ -6,3 +6,8 @@ node_modules
 tools/__pycache__/
 tsconfig.tsbuildinfo
 *.tsbuildinfo
+
+# local dev database
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
