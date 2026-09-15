@@ -324,7 +324,7 @@ const DEFAULT_SETTINGS: MailSettings = {
   defaultFont: EMPTY_FONT,
 }
 
-type SettingsTab = 'profile' | 'appearance' | 'notifications' | 'mail' | 'people' | 'app'
+type SettingsTab = 'profile' | 'signature' | 'appearance' | 'notifications' | 'mail' | 'people' | 'app'
 
 type ShareLink = {
   id: string
@@ -350,10 +350,11 @@ type LibraryFile = {
 }
 
 const SETTINGS_TABS: Array<{ key: SettingsTab; label: string; hint: string; adminOnly?: boolean }> = [
-  { key: 'profile', label: 'Profile', hint: 'Name and signature' },
-  { key: 'appearance', label: 'Appearance', hint: 'Theme, accent, density' },
+  { key: 'profile', label: 'Account', hint: 'Your address, name and password' },
+  { key: 'signature', label: 'Signature', hint: 'What goes at the end of your mail' },
+  { key: 'mail', label: 'Writing & reading', hint: 'Fonts, replies and images' },
+  { key: 'appearance', label: 'Appearance', hint: 'Theme, size and density' },
   { key: 'notifications', label: 'Notifications', hint: 'How you hear about mail' },
-  { key: 'mail', label: 'Sending & reading', hint: 'Confirmations and remote images' },
   { key: 'people', label: 'People with access', hint: 'Mailboxes and roles', adminOnly: true },
   { key: 'app', label: 'Installed app', hint: 'Install, version, sign out' },
 ]
@@ -1162,6 +1163,7 @@ const ICONS = {
 
 const SETTINGS_TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
   profile: ICONS.person,
+  signature: ICONS.pencil,
   appearance: ICONS.palette,
   notifications: ICONS.bell,
   mail: ICONS.pencil,
@@ -1571,6 +1573,8 @@ export default function DevMailPage() {
   // The signature the firm maintains, which everyone without one of their own sends under.
   const [companySignature, setCompanySignature] = useState('')
   const [companySignatureEdited, setCompanySignatureEdited] = useState(false)
+  const [companyLogo, setCompanyLogo] = useState('')
+  const [signatureTab, setSignatureTab] = useState<'personal' | 'company'>('personal')
   const [prefsLoaded, setPrefsLoaded] = useState(false)
   useEffect(() => {
     if (!isLoggedIn || !prefsLoaded) return
@@ -2264,6 +2268,7 @@ export default function DevMailPage() {
       .then(response => response.json())
       .then(data => {
         if (data.ok && typeof data.signature === 'string') setCompanySignature(data.signature)
+        if (data.ok && typeof data.logo === 'string') setCompanyLogo(data.logo)
       })
       .catch(() => {})
     fetch('/api/mail/me', { headers })
@@ -3071,12 +3076,12 @@ export default function DevMailPage() {
       void fetch('/api/mail/company-signature', {
         method: 'PUT',
         headers: apiHeaders(),
-        body: JSON.stringify({ signature: companySignature }),
+        body: JSON.stringify({ signature: companySignature, logo: companyLogo }),
       }).catch(() => {})
       setCompanySignatureEdited(false)
     }
     setSettingsOpen(false)
-  }, [saveSettings, settings, companySignature, companySignatureEdited, apiHeaders])
+  }, [saveSettings, settings, companySignature, companyLogo, companySignatureEdited, apiHeaders])
 
   // Absolute, because the recipient's mail client has no idea what our origin is.
   const absoluteLogo = (path: string) =>
@@ -3095,7 +3100,7 @@ export default function DevMailPage() {
   const signatureBody = ownSignature || houseSignature
   // A hand-written signature replaces the house one wholesale, mark included, so the firm's
   // mark goes back on top unless that signature already carries an image of its own.
-  const signatureMarkSrc = /<img\b/i.test(signatureBody) ? '' : settings.signatureLogo || CLIENT_BRAND.markUrl
+  const signatureMarkSrc = /<img\b/i.test(signatureBody) ? '' : settings.signatureLogo || companyLogo || CLIENT_BRAND.markUrl
   const signatureLogoHtml = signatureMarkSrc
     ? `<div style="margin-bottom:12px;"><img src="${absoluteLogo(signatureMarkSrc)}" alt="${escapeHtml(CLIENT_BRAND.name)}" width="200" style="${clientSignatureMarkStyle(200)}" /></div>`
     : ''
@@ -3160,6 +3165,22 @@ export default function DevMailPage() {
       try {
         const url = await uploadInlineImage(file)
         setMailSettings(current => ({ ...current, signatureLogo: url }))
+      } catch (err) {
+        setLogoMsg(err instanceof Error ? err.message : 'That image could not be stored.')
+      } finally {
+        setLogoBusy(false)
+      }
+    },
+    [uploadInlineImage],
+  )
+
+  const uploadCompanyLogo = useCallback(
+    async (file: File) => {
+      setLogoBusy(true)
+      setLogoMsg('')
+      try {
+        setCompanyLogo(await uploadInlineImage(file))
+        setCompanySignatureEdited(true)
       } catch (err) {
         setLogoMsg(err instanceof Error ? err.message : 'That image could not be stored.')
       } finally {
@@ -6966,6 +6987,15 @@ export default function DevMailPage() {
               </nav>
 
               <div className={styles.settingsBody}>
+            <p className={styles.settingsCrumb}>
+              Settings <span aria-hidden>›</span>{' '}
+              {SETTINGS_TABS.find(tab => tab.key === settingsTab)?.label}
+              {settingsTab === 'signature' && isAdmin && (
+                <>
+                  {' '}<span aria-hidden>›</span> {signatureTab === 'company' ? 'Company' : 'Personal'}
+                </>
+              )}
+            </p>
             {settingsTab === 'appearance' && (<>
             <div className={styles.settingsField}>
               <span>Theme</span>
@@ -7146,6 +7176,68 @@ export default function DevMailPage() {
               />
             </label>
             <div className={styles.settingsField}>
+              <span>Your address</span>
+              <p className={styles.settingsNote}>{account?.address || email || 'Not signed in'}</p>
+            </div>
+
+            <div
+              ref={pwSectionRef}
+              className={`${styles.pwSection} ${pwHighlight ? styles.pwSectionFocus : ''}`}
+            >
+              <p className={styles.pwHeading}>Password</p>
+              <p className={styles.settingsProse}>
+                {account?.defaultPassword
+                  ? 'You are still using the password this mailbox was created with. Anyone who knows your address can guess it.'
+                  : 'Changing this signs out every other device.'}
+              </p>
+              <label className={styles.settingsField}>
+                <span>Current password</span>
+                <input type="password" autoComplete="current-password" value={pwCurrent}
+                  onChange={event => setPwCurrent(event.target.value)} />
+              </label>
+              <label className={styles.settingsField}>
+                <span>New password</span>
+                <input type="password" autoComplete="new-password" value={pwNext}
+                  onChange={event => setPwNext(event.target.value)} />
+              </label>
+              <label className={styles.settingsField}>
+                <span>Repeat new password</span>
+                <input type="password" autoComplete="new-password" value={pwRepeat}
+                  onChange={event => setPwRepeat(event.target.value)} />
+              </label>
+              {pwMsg && (
+                <p className={pwMsg.tone === 'ok' ? styles.pwOk : styles.pwBad} role="status">{pwMsg.text}</p>
+              )}
+              <button
+                type="button"
+                className={styles.pwSubmit}
+                disabled={pwBusy || !pwCurrent || !pwNext || !pwRepeat}
+                onClick={changePassword}
+              >
+                {pwBusy ? 'Changing…' : 'Change password'}
+              </button>
+            </div>
+            </>)}
+
+            {settingsTab === 'signature' && (<>
+            {isAdmin && (
+              <div className={styles.sigTabs} role="tablist" aria-label="Whose signature">
+                {([['personal', 'Personal'], ['company', 'Company']] as Array<['personal' | 'company', string]>).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={signatureTab === key}
+                    className={`${styles.sigTab} ${signatureTab === key ? styles.sigTabOn : ''}`}
+                    onClick={() => setSignatureTab(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {signatureTab === 'personal' && (<>
+            <div className={styles.settingsField}>
               <span>Signature</span>
               <div className={styles.sigState}>
                 <span className={styles.sigStateText}>
@@ -7232,12 +7324,13 @@ export default function DevMailPage() {
                 </div>
               )}
             </div>
-            {isAdmin && (
+            </>)}
+            {isAdmin && signatureTab === 'company' && (
               <div className={styles.settingsField}>
-                <span>Company signature</span>
+                <span>The signature everyone sends under</span>
                 <div className={styles.sigState}>
                   <span className={styles.sigStateText}>
-                    Everyone who has not written their own sends under this. Write
+                    Used by anyone who has not written their own. Write
                     {' '}<code className={styles.sigToken}>{'{{name}}'}</code>,{' '}
                     <code className={styles.sigToken}>{'{{email}}'}</code> or{' '}
                     <code className={styles.sigToken}>{'{{mobile}}'}</code> where the person goes.
@@ -7255,20 +7348,89 @@ export default function DevMailPage() {
                     </button>
                   )}
                 </div>
-                <RichEditor
-                  html={asRichHtml(companySignature || houseSignature)}
-                  onChange={next => {
-                    setCompanySignature(next === '<p></p>' ? '' : dropUnreachableImages(next))
-                    setCompanySignatureEdited(true)
-                  }}
-                  placeholder="The signature everyone sends under"
-                  uploadImage={uploadInlineImage}
-                  fonts={(settings.fonts ?? []).map(font => font.name)}
-                  fontFaceCss={fontCss}
-                  baseFont={defaultFont}
-                />
+                <div className={styles.sigStack}>
+                  <div className={styles.sigLogoRow}>
+                    <span className={styles.sigLogoLabel}>Logo above the signature</span>
+                    {companyLogo && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img className={styles.sigLogoThumb} src={companyLogo} alt="Company signature logo" />
+                    )}
+                    <label className={styles.sigLogoPick}>
+                      {logoBusy ? 'Uploading…' : companyLogo ? 'Replace' : 'Upload image'}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                        disabled={logoBusy}
+                        onChange={event => {
+                          const file = event.target.files?.[0]
+                          event.target.value = ''
+                          if (file) void uploadCompanyLogo(file)
+                        }}
+                      />
+                    </label>
+                    {companyLogo && (
+                      <button
+                        type="button"
+                        className={styles.sigLogoClear}
+                        onClick={() => {
+                          setCompanyLogo('')
+                          setCompanySignatureEdited(true)
+                        }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <RichEditor
+                    html={asRichHtml(companySignature || houseSignature)}
+                    onChange={next => {
+                      setCompanySignature(next === '<p></p>' ? '' : dropUnreachableImages(next))
+                      setCompanySignatureEdited(true)
+                    }}
+                    placeholder="The signature everyone sends under"
+                    uploadImage={uploadInlineImage}
+                    fonts={(settings.fonts ?? []).map(font => font.name)}
+                    fontFaceCss={fontCss}
+                    baseFont={defaultFont}
+                  />
+                </div>
+                {logoMsg && <p className={styles.pwBad} role="status">{logoMsg}</p>}
+                {(companySignature || houseSignature).trim() && (
+                  <div className={`${styles.sigPreview} ${sigPreviewOpen ? styles.sigPreviewOpen : ''}`}>
+                    <button
+                      type="button"
+                      className={styles.sigPreviewLabel}
+                      onClick={() => setSigPreviewOpen(open => !open)}
+                      aria-expanded={sigPreviewOpen}
+                    >
+                      Preview · as a colleague receives it
+                      <span className={styles.composeSignatureChevron} aria-hidden>{sigPreviewOpen ? '▾' : '▸'}</span>
+                    </button>
+                    <div className={styles.sigPreviewFold}>
+                      {companyLogo && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img className={styles.sigPreviewLogo} src={companyLogo} alt="" />
+                      )}
+                      <div
+                        className={styles.sigPreviewBody}
+                        dangerouslySetInnerHTML={{ __html: asRichHtml(companySignature || houseSignature) }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.composeSignatureMore}
+                      onClick={() => setSigPreviewOpen(open => !open)}
+                      aria-expanded={sigPreviewOpen}
+                    >
+                      {sigPreviewOpen ? 'Show less' : 'View full signature'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
+            </>)}
+
+            {settingsTab === 'mail' && (<>
             <div className={styles.settingsField}>
               <span>Default font for new mail</span>
               <div className={styles.fontAdd}>
@@ -7340,51 +7502,6 @@ export default function DevMailPage() {
               </div>
               {fontMsg && <p className={styles.pwBad} role="status">{fontMsg}</p>}
             </div>
-            <div className={styles.settingsField}>
-              <span>Your address</span>
-              <p className={styles.settingsNote}>{account?.address || email || 'Not signed in'}</p>
-            </div>
-
-            <div
-              ref={pwSectionRef}
-              className={`${styles.pwSection} ${pwHighlight ? styles.pwSectionFocus : ''}`}
-            >
-              <p className={styles.pwHeading}>Password</p>
-              <p className={styles.settingsProse}>
-                {account?.defaultPassword
-                  ? 'You are still using the password this mailbox was created with. Anyone who knows your address can guess it.'
-                  : 'Changing this signs out every other device.'}
-              </p>
-              <label className={styles.settingsField}>
-                <span>Current password</span>
-                <input type="password" autoComplete="current-password" value={pwCurrent}
-                  onChange={event => setPwCurrent(event.target.value)} />
-              </label>
-              <label className={styles.settingsField}>
-                <span>New password</span>
-                <input type="password" autoComplete="new-password" value={pwNext}
-                  onChange={event => setPwNext(event.target.value)} />
-              </label>
-              <label className={styles.settingsField}>
-                <span>Repeat new password</span>
-                <input type="password" autoComplete="new-password" value={pwRepeat}
-                  onChange={event => setPwRepeat(event.target.value)} />
-              </label>
-              {pwMsg && (
-                <p className={pwMsg.tone === 'ok' ? styles.pwOk : styles.pwBad} role="status">{pwMsg.text}</p>
-              )}
-              <button
-                type="button"
-                className={styles.pwSubmit}
-                disabled={pwBusy || !pwCurrent || !pwNext || !pwRepeat}
-                onClick={changePassword}
-              >
-                {pwBusy ? 'Changing…' : 'Change password'}
-              </button>
-            </div>
-            </>)}
-
-            {settingsTab === 'mail' && (<>
             <label className={styles.settingsToggle}>
               <input
                 type="checkbox"

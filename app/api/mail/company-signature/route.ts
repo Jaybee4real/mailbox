@@ -11,7 +11,11 @@ export async function GET(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
   const stored = await getSettings(COMPANY)
-  return NextResponse.json({ ok: true, signature: typeof stored.signature === 'string' ? stored.signature : '' })
+  return NextResponse.json({
+    ok: true,
+    signature: typeof stored.signature === 'string' ? stored.signature : '',
+    logo: typeof stored.logo === 'string' ? stored.logo : '',
+  })
 }
 
 export async function PUT(req: Request) {
@@ -19,13 +23,14 @@ export async function PUT(req: Request) {
   if (guard) return guard
   const account = await resolveAccount(req)
   if (account.role !== 'admin') return NextResponse.json({ ok: false, error: 'Admin access required' }, { status: 403 })
-  let body: { signature?: unknown }
+  let body: { signature?: unknown; logo?: unknown }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
   }
   const signature = typeof body.signature === 'string' ? body.signature : ''
-  await setSettings(COMPANY, { signature })
+  const logo = typeof body.logo === 'string' ? body.logo : ''
+  await setSettings(COMPANY, { signature, logo })
   return NextResponse.json({ ok: true })
 }

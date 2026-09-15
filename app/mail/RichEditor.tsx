@@ -500,6 +500,13 @@ function ImageView({ node, updateAttributes, selected, editor }: NodeViewProps) 
                   onClick={() => write({ border: `1px solid ${colour}` })}
                 />
               ))}
+              <label className={styles.rteSwatchCustom} title="Any other border colour">
+                <input
+                  type="color"
+                  aria-label="Choose any border colour"
+                  onChange={event => write({ border: `1px solid ${event.target.value}` })}
+                />
+              </label>
             </>
           )}
           <Btn title="Link this image" active={Boolean(attributes.href) || linkOpen} onClick={() => setLinkOpen(open => !open)} wide>
@@ -677,6 +684,13 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
               onClick={() => editor.chain().focus().setColor(colour).run()}
             />
           ))}
+          <label className={styles.rteSwatchCustom} title="Any other colour">
+            <input
+              type="color"
+              aria-label="Choose any text colour"
+              onChange={event => editor.chain().focus().setColor(event.target.value).run()}
+            />
+          </label>
         </span>
         <span className={styles.rteSwatches} role="group" aria-label="Highlight">
           {HIGHLIGHTS.map(colour => (
@@ -691,6 +705,13 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
               onClick={() => editor.chain().focus().toggleHighlight({ color: colour }).run()}
             />
           ))}
+          <label className={styles.rteSwatchCustom} title="Any other highlight">
+            <input
+              type="color"
+              aria-label="Choose any highlight colour"
+              onChange={event => editor.chain().focus().toggleHighlight({ color: event.target.value }).run()}
+            />
+          </label>
         </span>
         <Btn title="Clear formatting" onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}>
           ✕

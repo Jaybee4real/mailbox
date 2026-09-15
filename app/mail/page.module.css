@@ -292,6 +292,57 @@
   accent-color: var(--nc-violet-500);
   cursor: pointer;
 }
+.settingsCrumb {
+  margin: 0 0 18px;
+  font: 600 11px/1 var(--nc-font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--nc-fg-4);
+}
+.settingsCrumb span { margin: 0 2px; }
+.sigTabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  margin-bottom: 16px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 10px;
+  background: var(--nc-ink-2);
+}
+.sigTab {
+  padding: 7px 16px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--nc-fg-3);
+  font: 600 13px/1 var(--nc-font-sans);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--nc-ease-out), color var(--dur-fast) var(--nc-ease-out);
+}
+.sigTab:hover { color: var(--nc-fg-1); }
+.sigTabOn { background: var(--nc-ink-0); color: var(--nc-fg-1); box-shadow: 0 1px 3px rgba(0,0,0,.18); }
+.rteSwatchCustom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1px solid var(--nc-line-2);
+  background: conic-gradient(#e11d48, #f59e0b, #22c55e, #0ea5e9, #6d28d9, #e11d48);
+  cursor: pointer;
+  overflow: hidden;
+}
+.rteSwatchCustom input {
+  width: 200%;
+  height: 200%;
+  margin: -50%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+}
 .scaleValue {
   min-width: 48px;
   font-family: var(--nc-font-mono);
