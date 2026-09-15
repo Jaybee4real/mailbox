@@ -1096,7 +1096,13 @@
   padding: 10px 0 2px;
 }
 .attachFloatBody .attachGrid { margin: 0 14px 10px; }
-.threadMsgBody .attachGrid { margin: 12px 0 0; }
+/* One column down the sheet: the text is capped and centred for readability, so anything
+   that follows it lines up with it instead of hugging the far left of a wide pane. */
+.threadMsgBody .attachGrid {
+  max-width: none;
+  margin: 0;
+  padding: 0 34px 30px;
+}
 .attachPillWrap {
   position: absolute;
   right: 28px;
@@ -2617,7 +2623,12 @@
    all four sides, so you can see where the mail begins and where it ends rather than a
    band of white running into the furniture above it. */
 .threadMsgBody {
-  margin: var(--thread-inset);
+  /* A page, not a wall: the paper is the width of the column it carries and sits centred in
+     the pane, rather than stretching the full width with the text stranded in the middle. */
+  /* Auto margins on a grid item shrink it to its content, which sized the page to whatever
+     the longest line happened to be. The width is stated, and the margins only centre it. */
+  width: min(868px, calc(100% - var(--thread-inset) * 2));
+  margin: var(--thread-inset) auto;
   border: 1px solid var(--nc-line-1);
   border-radius: var(--radius-card);
   /* The sheet is the paper the mail is printed on, so it is the paper's colour. Left on the
@@ -2639,7 +2650,16 @@
 .threadMsgBody .readerSource {
   height: auto;
   max-height: 640px;
+  /* The sheet is the paper; the text should not paint a second surface on top of it. */
+  background: transparent;
 }
+/* Inside the page the content fills it; the page is what does the centring now. */
+.threadMsgBody .readerText,
+.threadMsgBody .readerSource {
+  max-width: none;
+  margin: 0;
+}
+.threadMsgBody .readerText { padding-bottom: 16px; }
 .threadMsgBody .readerAttach { padding-top: 14px; }
 
 .campaign {
