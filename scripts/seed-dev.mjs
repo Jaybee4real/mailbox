@@ -187,13 +187,19 @@ async function main() {
       attachments = [key ? { filename, contentType, size, key } : { filename, contentType, size }]
     }
 
+    // Deliberately past the first screenful: a folder whose mail all sits below the rows
+    // the client happens to hold is exactly the case that used to render an endless
+    // skeleton, and there is no way to notice it again if the seed never produces one.
+    const trashed = index >= 420 && index % 11 === 0 ? 1 : 0
+    const archived = !trashed && index >= 380 && index % 7 === 0 ? 1 : 0
+
     rows.push([
       id, from, JSON.stringify([DEV_ADDRESS]), '[]', '[]', '[]',
       `${subject} — ${company}`, '',
       `${body}${passwordNote}\n\nRegards,\n${company}`,
       '{}', receivedAt, random() > 0.55 ? 1 : 0,
       JSON.stringify(attachments),
-      random() > 0.9 ? 1 : 0, 0, 0, '[]', DEV_ADDRESS,
+      random() > 0.9 ? 1 : 0, archived, trashed, '[]', DEV_ADDRESS,
     ])
   }
 
@@ -241,6 +247,13 @@ async function main() {
 
   console.log(`\n  ${total.rows[0].n} messages for ${DEV_ADDRESS}`)
   console.log(`  ${withAttachments.rows[0].n} carry attachments (${shares.length} behind links, ${WITH_ATTACHMENTS} ordinary)`)
+  const folders = await db.execute({
+    sql: `SELECT SUM(archived = 1 AND trashed = 0) AS archived, SUM(trashed = 1) AS trashed, SUM(starred = 1 AND trashed = 0) AS starred
+          FROM mail_inbox WHERE lower(owner) = ?`,
+    args: [DEV_ADDRESS],
+  })
+  const folderRow = folders.rows[0]
+  console.log(`  folders: ${folderRow.archived} archived, ${folderRow.trashed} in the bin, ${folderRow.starred} starred`)
   console.log(`  search index rows: ${indexed.rows[0].n}`)
 }
 

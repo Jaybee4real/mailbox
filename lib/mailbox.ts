@@ -143,6 +143,11 @@ export function ensureMailSchema(): Promise<void> {
         // sort it and then discards all but one page.
         `CREATE INDEX IF NOT EXISTS mail_inbox_list_idx ON mail_inbox (lower(owner), archived, trashed, received_at DESC, id DESC)`,
         `CREATE INDEX IF NOT EXISTS mail_inbox_owner_recent_idx ON mail_inbox (lower(owner), received_at DESC, id DESC)`,
+        // Trash and Starred cannot use the list index: archived sits ahead of trashed in it
+        // and is unconstrained for those two folders, so SQLite fell back to walking the
+        // mailbox in date order — 45,000 rows read to find the 52 that were in the bin.
+        `CREATE INDEX IF NOT EXISTS mail_inbox_owner_trash_idx ON mail_inbox (lower(owner), trashed, received_at DESC, id DESC)`,
+        `CREATE INDEX IF NOT EXISTS mail_inbox_owner_starred_idx ON mail_inbox (lower(owner), starred, trashed, received_at DESC, id DESC)`,
         // The folder counts read only these five columns. Without them all in one index
         // SQLite walks the rows themselves, and a row here can carry 50KB of html — which
         // turned a five-number summary into a 37-second scan on the larger mailboxes.

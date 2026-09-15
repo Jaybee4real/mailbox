@@ -1779,12 +1779,13 @@ export default function DevMailPage() {
       // Only the first page is ever asked for twice on mount. Paging must never be
       // suppressed: a page that is skipped is a page that never arrives, and the cursor
       // stops advancing with it.
-      const key = cursor ? null : `${mailboxQuery}|${search.trim()}`
+      const key = cursor ? null : `${mailboxQuery}|${threadFolder}|${search.trim()}`
       if (key && inboxFetch.current === key) return
       if (key) inboxFetch.current = key
       try {
         const params = new URLSearchParams(mailboxQuery.replace(/^\?/, ''))
         params.set('limit', String(INBOX_PAGE))
+        params.set('folder', threadFolder)
         // A cursor asks for the page after a known row; without one this is the first page.
         if (cursor) params.set('cursor', cursor)
         const text = search.trim()
@@ -1813,7 +1814,7 @@ export default function DevMailPage() {
         if (!cursor) setSearching(false)
       }
     },
-    [apiHeaders, mailboxQuery, search],
+    [apiHeaders, mailboxQuery, search, threadFolder],
   )
 
   /**
@@ -1826,12 +1827,13 @@ export default function DevMailPage() {
     // A search re-runs when it is typed; re-running it on every poll tick charged the
     // full-text scan again for a result set that was not changing.
     if (search.trim()) return
-    const key = `${mailboxQuery}|${search.trim()}`
+    const key = `${mailboxQuery}|${threadFolder}|${search.trim()}`
     if (inboxFetch.current === key) return
     inboxFetch.current = key
     try {
       const params = new URLSearchParams(mailboxQuery.replace(/^\?/, ''))
       params.set('limit', String(INBOX_PAGE))
+      params.set('folder', threadFolder)
       const text = search.trim()
       if (text) params.set('q', text)
       const response = await fetch(`/api/mail/inbox?${params.toString()}`, { headers: apiHeaders() })
@@ -1863,7 +1865,7 @@ export default function DevMailPage() {
     } finally {
       if (inboxFetch.current === key) inboxFetch.current = null
     }
-  }, [apiHeaders, mailboxQuery, search])
+  }, [apiHeaders, mailboxQuery, search, threadFolder])
 
   /**
    * Folder totals come from the database rather than from the rows on hand: counting what
@@ -1933,8 +1935,9 @@ export default function DevMailPage() {
       if (saved?.counts) setServerCounts(current => current ?? saved.counts!)
       const rows = Array.isArray(saved?.rows) ? saved.rows : null
       if (!rows?.length) return
+      if (saved.folder !== threadFolder) return
       setInboxEmails(current => (current.length ? current : rows))
-      if (saved.folder === threadFolder && Array.isArray(saved.threads) && saved.threads.length) {
+      if (Array.isArray(saved.threads) && saved.threads.length) {
         setThreads(current => (current.length ? current : saved.threads!))
       }
       setMailboxLoading(false)
@@ -1972,7 +1975,7 @@ export default function DevMailPage() {
     return () => window.clearTimeout(timer)
     // loadInbox changes identity on every keystroke; depending on it would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, mailboxQuery])
+  }, [search, mailboxQuery, threadFolder])
 
   // A ref, not state: one page must be in flight at a time, and the check has to see the
   // current value synchronously — two observer callbacks can fire in the same tick.
