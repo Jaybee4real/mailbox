@@ -547,13 +547,19 @@ function decodeCursor(value?: string | null): { receivedAt: string; id: string }
   }
 }
 
-export type FolderCounts = {
+export type FolderTally = {
   inbox: number
   unread: number
   starred: number
   archived: number
   trashed: number
 }
+
+/**
+ * `conversations` is null when threads are not live, because `mail_threads` is then either
+ * empty or half-built and counting it would report a mailbox smaller than it is.
+ */
+export type FolderCounts = FolderTally & { conversations: FolderTally | null }
 
 /**
  * Folder totals for a whole mailbox.
@@ -582,7 +588,9 @@ export async function countFoldersCached(owner: string): Promise<FolderCounts> {
   const row = hit[0]
   if (row && Date.now() - Date.parse(String(row.computed_at)) < COUNTS_CACHE_MS) {
     const parsed = parseJson<FolderCounts | null>(row.counts, null)
-    if (parsed) return parsed
+    // A row cached before conversations were counted has no such key; recompute rather
+    // than serve a shape the caller will read as "threads are not live".
+    if (parsed && 'conversations' in parsed) return parsed
   }
   const fresh = await countFolders(owner)
   await sql`
@@ -613,12 +621,42 @@ export async function countFolders(owner?: string): Promise<FolderCounts> {
   )
   const row = rows[0] ?? {}
   const value = (key: string) => Number((row[key] as number) ?? 0)
+
+  // The list shows one row per conversation, so the figure beside a folder has to be
+  // conversations too. Counted in messages it disagreed with the list header by three to
+  // one on the larger mailboxes, and the unread badge could exceed the folder total.
+  // The predicates are the ones listThreads pages by; they must not drift apart.
+  let conversations: FolderTally | null = null
+  if (threadsLive() && owner) {
+    const threadRows = await tagged(
+      sql,
+      `SELECT
+         SUM(CASE WHEN inbox_count > 0 THEN 1 ELSE 0 END) AS inbox,
+         SUM(CASE WHEN inbox_count > 0 AND unread_count > 0 THEN 1 ELSE 0 END) AS unread,
+         SUM(CASE WHEN starred_count > 0 THEN 1 ELSE 0 END) AS starred,
+         SUM(CASE WHEN archived_count > 0 THEN 1 ELSE 0 END) AS archived,
+         SUM(CASE WHEN trashed_count > 0 THEN 1 ELSE 0 END) AS trashed
+       FROM mail_threads WHERE owner = ?`,
+      [owner.toLowerCase()],
+    )
+    const threadRow = threadRows[0] ?? {}
+    const threadValue = (key: string) => Number((threadRow[key] as number) ?? 0)
+    conversations = {
+      inbox: threadValue('inbox'),
+      unread: threadValue('unread'),
+      starred: threadValue('starred'),
+      archived: threadValue('archived'),
+      trashed: threadValue('trashed'),
+    }
+  }
+
   return {
     inbox: value('inbox'),
     unread: value('unread'),
     starred: value('starred'),
     archived: value('archived'),
     trashed: value('trashed'),
+    conversations,
   }
 }
 

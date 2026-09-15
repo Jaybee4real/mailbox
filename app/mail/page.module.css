@@ -652,6 +652,52 @@
   cursor: progress;
 }
 
+/* Floats over the list rather than in it, so it does not move as rows load. The pane is
+   the positioning context; the list itself scrolls underneath. */
+.toTop {
+  position: absolute;
+  right: 16px;
+  bottom: 18px;
+  z-index: 4;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 999px;
+  background: var(--nc-danger);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.toTop svg {
+  width: 18px;
+  height: 18px;
+  /* The only chevron in the set points down. */
+  transform: rotate(180deg);
+}
+.toTopOn {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.toTop:hover {
+  background: var(--nc-danger-soft);
+}
+.toTop:focus-visible {
+  outline: 2px solid var(--nc-danger);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toTop {
+    transition: none;
+  }
+}
+
 .list {
   flex: 1;
   min-height: 0;
@@ -6258,6 +6304,12 @@
   .fab {
     right: calc(18px + env(safe-area-inset-right, 0px));
     bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+  /* Above the compose button, which appears at this width in the same corner: 54px tall
+     sitting 18px off the bottom, so anything below 84px is underneath it. */
+  .toTop {
+    right: calc(18px + env(safe-area-inset-right, 0px));
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   }
   .list {
     padding-left: calc(10px + env(safe-area-inset-left, 0px));

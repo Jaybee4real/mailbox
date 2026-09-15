@@ -1210,7 +1210,8 @@ export default function DevMailPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [inboxCursor, setInboxCursor] = useState<string | null>(null)
   const inboxFetch = useRef<string | null>(null)
-  const [serverCounts, setServerCounts] = useState<{ inbox: number; unread: number; starred: number; archived: number; trashed: number } | null>(null)
+  type FolderTally = { inbox: number; unread: number; starred: number; archived: number; trashed: number }
+  const [serverCounts, setServerCounts] = useState<(FolderTally & { conversations: FolderTally | null }) | null>(null)
   const [countsLoading, setCountsLoading] = useState(false)
   const [composeExpanded, setComposeExpanded] = useState(true)
   const pwSectionRef = useRef<HTMLDivElement | null>(null)
@@ -2016,6 +2017,30 @@ export default function DevMailPage() {
     return () => node.removeEventListener('scroll', check)
   }, [moreCursor])
 
+  // Far enough down that the button is wanted, not so far that it appears on a nudge.
+  const TO_TOP_AFTER = 400
+  const [listScrolled, setListScrolled] = useState(false)
+  // Keyed on the sign-in, not on mount: the list does not exist until then, so an effect
+  // that ran once on mount attached its listener to nothing and the button never appeared.
+  useEffect(() => {
+    const node = listRef.current
+    if (!node) return
+    const check = () => setListScrolled(node.scrollTop > TO_TOP_AFTER)
+    check()
+    node.addEventListener('scroll', check, { passive: true })
+    return () => node.removeEventListener('scroll', check)
+  }, [isLoggedIn])
+
+  const scrollListToTop = useCallback(() => {
+    listRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
+
+  // Every folder starts at the top, so the button must not linger from the last one.
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: 0 })
+    setListScrolled(false)
+  }, [folder])
+
   const loadEvents = useCallback(async () => {
     try {
       const response = await fetch('/api/mail/events', { headers: apiHeaders() })
@@ -2320,31 +2345,50 @@ export default function DevMailPage() {
   // Server figure when there is one: counting loaded rows undercounts a mailbox this size,
   // and counted unread messages against grouped conversations, which is how an unread
   // badge came to read higher than the folder total beside it.
-  const unreadCount = serverCounts?.unread ?? 0
+  // Conversations when the server counted them, because that is what the list shows a row
+  // for. Falling back to messages keeps a mailbox whose threads are not live readable.
+  const countsTally = serverCounts?.conversations ?? serverCounts ?? null
+  const countsAreConversations = Boolean(serverCounts?.conversations)
+  const unreadCount = countsTally?.unread ?? 0
 
   // Without a search the list total is the folder's own count, which the sidebar has
   // already fetched; asking the list query to count the same rows again is wasted work.
   useEffect(() => {
     if (search.trim() || !serverCounts) return
-    const folder = mailboxQuery.includes('folder=archive')
+    const total = threadFolder === 'archive'
       ? serverCounts.archived
-      : mailboxQuery.includes('folder=trash')
+      : threadFolder === 'trash'
         ? serverCounts.trashed
-        : mailboxQuery.includes('folder=starred')
+        : threadFolder === 'starred'
           ? serverCounts.starred
           : serverCounts.inbox
-    setInboxTotal(folder)
-  }, [serverCounts, search, mailboxQuery])
+    setInboxTotal(total)
+  }, [serverCounts, search, threadFolder])
 
   const folderCounts = useMemo(
     () => ({
-      inbox: serverCounts?.inbox ?? 0,
-      starred: serverCounts?.starred ?? 0,
-      archived: serverCounts?.archived ?? 0,
-      trashed: serverCounts?.trashed ?? 0,
+      inbox: countsTally?.inbox ?? 0,
+      starred: countsTally?.starred ?? 0,
+      archived: countsTally?.archived ?? 0,
+      trashed: countsTally?.trashed ?? 0,
     }),
-    [serverCounts],
+    [countsTally],
   )
+
+  /**
+   * What the folder holds, not what has been fetched. The header counted loaded rows, so a
+   * mailbox of 14,974 conversations opened on "500 conversations" — the thread page size
+   * showing through — and climbed as you scrolled. A search has no such total: the rows
+   * are the result.
+   */
+  const folderConversationTotal = useMemo(() => {
+    if (!countsAreConversations || search.trim()) return null
+    if (folder === 'archived') return folderCounts.archived
+    if (folder === 'trash') return folderCounts.trashed
+    if (folder === 'starred') return folderCounts.starred
+    if (folder === 'inbox') return folderCounts.inbox
+    return null
+  }, [countsAreConversations, search, folder, folderCounts])
 
   const eventsByEmail = useMemo(() => {
     const map: Record<string, MailEvent[]> = {}
@@ -2735,6 +2779,22 @@ export default function DevMailPage() {
   const listRefreshing = !listSettling && (mailboxStale || mailboxLoading || !threadsResolved)
 
   const inboxFolder = folder === 'inbox' || folder === 'starred' || folder === 'archived' || folder === 'trash'
+
+  // Sent, drafts and scheduled really are lists of messages, so only the threaded folders
+  // count in conversations. Where the folder total is known and the list has not reached
+  // it, say both figures rather than let one grow silently towards the other.
+  const loadedRows = listItems.length
+  const listCountPaging = folderConversationTotal != null && loadedRows < folderConversationTotal
+  const listCountFigure = listCountPaging
+    ? `${loadedRows.toLocaleString()} of ${folderConversationTotal!.toLocaleString()}`
+    : (folderConversationTotal ?? loadedRows).toLocaleString()
+  const listCountUnit = !isInboundFolder
+    ? loadedRows === 1 ? 'message' : 'messages'
+    : listCountPaging
+      ? 'conversations loaded'
+      : (folderConversationTotal ?? loadedRows) === 1 ? 'conversation' : 'conversations'
+  const listCountTitle = `${listCountFigure} ${listCountUnit}`
+
   const selectedInbound = selectedId ? inboxEmails.find(entry => entry.id === selectedId) ?? null : null
   const selectedSent = selectedId && !selectedInbound ? sentEmails.find(entry => entry.id === selectedId) ?? null : null
   const selectedDetail = selectedSent ? detailCache[selectedSent.id] ?? null : null
@@ -6151,16 +6211,9 @@ export default function DevMailPage() {
             {ICONS.menu}
           </button>
           <h1 className={styles.listTitle}>{folderTitles[folder]}</h1>
-          <span
-            className={styles.listMeta}
-            title={`${listItems.length.toLocaleString()} ${isInboundFolder ? (listItems.length === 1 ? 'conversation' : 'conversations') : listItems.length === 1 ? 'message' : 'messages'}`}
-          >
-            {listItems.length.toLocaleString()}{' '}
-            <span className={styles.listMetaUnit}>
-              {isInboundFolder
-                ? listItems.length === 1 ? 'conversation' : 'conversations'
-                : listItems.length === 1 ? 'message' : 'messages'}
-            </span>
+          <span className={styles.listMeta} title={listCountTitle}>
+            {listCountFigure}{' '}
+            <span className={styles.listMetaUnit}>{listCountUnit}</span>
           </span>
           <button
             className={`${styles.refreshBtn} ${refreshing ? styles.spinning : ''}`}
@@ -6322,6 +6375,17 @@ export default function DevMailPage() {
             <span className={styles.srOnly}>Checking for new mail</span>
           </div>
         )}
+        <button
+          type="button"
+          className={`${styles.toTop} ${listScrolled ? styles.toTopOn : ''}`}
+          onClick={scrollListToTop}
+          aria-label="Back to the top of the list"
+          title="Back to top"
+          tabIndex={listScrolled ? 0 : -1}
+          aria-hidden={!listScrolled}
+        >
+          {ICONS.chevron}
+        </button>
         <div className={styles.list} ref={listRef}>
           {listSettling ? (
             Array.from({ length: 7 }).map((_, index) => (
@@ -6537,15 +6601,11 @@ export default function DevMailPage() {
               <div className={styles.listEnd}>
                 {!isInboundFolder
                   ? `${listItems.length.toLocaleString()} ${listItems.length === 1 ? 'message' : 'messages'}`
-                  : threads.length > 0 && !search.trim()
-                    ? `${threads.length.toLocaleString()} conversations`
-                    : !inboxTotal
-                      ? `${inboxEmails.length.toLocaleString()} loaded`
-                      : inboxEmails.length >= inboxTotal
-                        ? listItems.length < inboxTotal
-                          ? `All ${inboxTotal.toLocaleString()} messages, in ${listItems.length.toLocaleString()} conversations`
-                          : `All ${inboxTotal.toLocaleString()} messages`
-                        : `${inboxEmails.length.toLocaleString()} of ${inboxTotal.toLocaleString()} messages`}
+                  : search.trim() && inboxTotal
+                    // A search knows how many messages it matched but not how many
+                    // conversations they fall into, so say both rather than neither.
+                    ? `${listItems.length.toLocaleString()} ${listItems.length === 1 ? 'conversation' : 'conversations'} from ${inboxTotal.toLocaleString()} matching ${inboxTotal === 1 ? 'message' : 'messages'}`
+                    : `All ${listItems.length.toLocaleString()} ${listItems.length === 1 ? 'conversation' : 'conversations'} loaded`}
               </div>
             )}
         </div>
