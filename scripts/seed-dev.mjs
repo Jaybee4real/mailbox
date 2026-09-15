@@ -7,7 +7,7 @@
  */
 
 import { createClient } from '@libsql/client'
-import { createHash, randomBytes, scrypt } from 'node:crypto'
+import { randomBytes, scrypt } from 'node:crypto'
 import { promisify } from 'node:util'
 import { readFileSync } from 'node:fs'
 
@@ -72,10 +72,15 @@ function seededRandom(seed) {
   }
 }
 
-async function ensureDevAccount() {
+/** The shape lib/password.ts verifies. A bare digest is not it, and never matched. */
+async function hashPassword(plain) {
   const salt = randomBytes(16)
-  const key = await scryptAsync(DEV_ADDRESS, salt, 64, { N: 16384 })
-  const hash = `scrypt$16384$${salt.toString('hex')}$${key.toString('hex')}`
+  const key = await scryptAsync(plain, salt, 64, { N: 16384 })
+  return `scrypt$16384$${salt.toString('hex')}$${key.toString('hex')}`
+}
+
+async function ensureDevAccount() {
+  const hash = await hashPassword(DEV_ADDRESS)
   await db.execute({
     sql: `INSERT INTO mail_accounts (email, role, name, address, status, created_at, password_hash, password_is_default)
           VALUES (?, 'member', 'Dev Test', ?, 'active', ?, ?, 1)
@@ -161,11 +166,11 @@ async function main() {
     if (index < WITH_HEAVY) {
       const [filename, size, contentType] = heavyFiles[index]
       const shareId = `devshare${String(index).padStart(2, '0')}`
-      const locked = index % 2 === 0
+      const locked = index % 4 === 0
       shares.push([shareId, `shares/dev/${filename}`, filename, contentType, size, locked])
       attachments = [{ filename, contentType, size, shareId }]
       passwordNote = locked
-        ? `\n\nThe file is too large to attach, so it is behind a link. The password is ${SHARE_PASSWORD}.`
+        ? `\n\nThe file is too large to attach, so it is behind a link. The password is "${SHARE_PASSWORD}".`
         : '\n\nThe file is too large to attach, so it is behind a link. No password is needed.'
     } else if (index < WITH_HEAVY + WITH_ATTACHMENTS) {
       const [filename, size, contentType, key] = smallFiles[(index - WITH_HEAVY) % smallFiles.length]
@@ -189,7 +194,7 @@ async function main() {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id, key, filename, contentType, size,
-        locked ? createHash('sha256').update(SHARE_PASSWORD).digest('hex') : null,
+        locked ? await hashPassword(SHARE_PASSWORD) : null,
         DEV_ADDRESS, new Date().toISOString(),
         new Date(now + 30 * 86400_000).toISOString(), null,
       ],
