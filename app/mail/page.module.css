@@ -357,18 +357,38 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  right: -4px;
-  width: 8px;
+  right: -5px;
+  width: 10px;
   cursor: col-resize;
   z-index: 5;
   touch-action: none;
+}
+/* A grip that is always on screen: a divider you can only discover by hovering is a
+   divider nobody drags. */
+.listResize::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 1px;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--nc-line-2);
+  background-color: var(--nc-ink-3);
+  background-image: radial-gradient(circle at center, var(--nc-fg-3) 1.1px, transparent 1.6px);
+  background-size: 100% 7px;
+  background-repeat: repeat-y;
+  transition:
+    background-color var(--dur-fast) var(--nc-ease-out),
+    border-color var(--dur-fast) var(--nc-ease-out);
 }
 .listResize::after {
   content: '';
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 3px;
+  left: 4px;
   width: 2px;
   background: var(--nc-violet-500);
   opacity: 0;
@@ -376,6 +396,11 @@
 }
 .listResize:hover::after,
 .listResize:active::after { opacity: 1; }
+.listResize:hover::before,
+.listResize:active::before {
+  border-color: var(--nc-violet-500);
+  background-color: var(--nc-ink-1);
+}
 @media (max-width: 1100px) {
   .listResize { display: none; }
 }

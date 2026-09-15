@@ -8,6 +8,18 @@ multi-accessor accounts with roles, and password reset.
 Extracted verbatim from the Metroperil mailbox, with every tenant-specific
 value moved behind configuration.
 
+## Deploying — read this first
+
+**Never deploy, and never `git push`, unless the person you are working with asks
+for it in that same request.** This is a standing rule for every agent and every
+session. A granted deploy covers that one deploy only; it is not permission for
+the next one.
+
+Here, pushing *is* deploying. Coolify auto-deploys `master` on push, and a single
+push updates **both** live mailboxes at once — Metroperil
+(mail.metroperilinsbrokers.com) and Novacraft (mail.novacraft.africa). Finish the
+work, commit locally, leave it unpushed, and say plainly that it is waiting.
+
 ## Standing up a new mailbox
 
 1. Copy `.env.example` and fill it in. Nothing is hardcoded to a tenant.

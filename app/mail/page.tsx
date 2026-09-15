@@ -5979,6 +5979,7 @@ export default function DevMailPage() {
             <button
               key={key}
               className={`${styles.folder} ${folder === key ? styles.folderActive : ''}`}
+              title={folderTitles[key]}
               onClick={() => {
                 setFolder(key)
                 setSelectedId(null)

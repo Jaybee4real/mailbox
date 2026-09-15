@@ -1,5 +1,9 @@
 # Brand assets
 
+> **Never deploy or `git push` unless asked for it in that request.** Pushing
+> `master` auto-deploys both live mailboxes. See the deploying section in the
+> root [README](../README.md).
+
 Each tenant keeps its three files under `tenants/<slug>/` and points the `*_MARK_URL`
 variables at them (or at any other host). Nothing else in the app is tenant-specific.
 
