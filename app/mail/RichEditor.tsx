@@ -685,13 +685,6 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
               onClick={() => editor.chain().focus().toggleHighlight({ color: colour }).run()}
             />
           ))}
-          <label className={styles.rteSwatchCustom} title="Any other highlight">
-            <input
-              type="color"
-              aria-label="Choose any highlight colour"
-              onChange={event => editor.chain().focus().toggleHighlight({ color: event.target.value }).run()}
-            />
-          </label>
         </span>
         <Btn title="Clear formatting" onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}>
           ✕
