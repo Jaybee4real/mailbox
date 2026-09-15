@@ -2254,9 +2254,10 @@ export default function DevMailPage() {
       .then(data => {
         if (data.ok && data.settings) {
           const stored = data.settings as MailSettings & { density?: string }
-          // "Comfortable" was the old name for a setting that changed nothing; it maps onto
-          // the roomy one now that the two actually differ.
-          const density: MailSettings['density'] = stored.density === 'compact' ? 'compact' : stored.density ? 'relaxed' : 'compact'
+          // Only the roomy setting is named; anything else — unset, or the retired
+          // "comfortable" — is the default. Treating every unrecognised value as roomy put
+          // six of the seven mailboxes into a reduced reader none of them had asked for.
+          const density: MailSettings['density'] = stored.density === 'relaxed' ? 'relaxed' : 'compact'
           setMailSettings(current => ({ ...current, ...data.settings, density }))
           const prefs = (data.settings as MailSettings).prefs
           if (prefs?.theme) { setThemePref(prefs.theme); localStorage.setItem(LS_THEME_KEY, prefs.theme) }
