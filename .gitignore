@@ -11,3 +11,6 @@ tsconfig.tsbuildinfo
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# One lockfile only — yarn is authoritative
+package-lock.json
