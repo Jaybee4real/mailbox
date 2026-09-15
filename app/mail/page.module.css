@@ -6178,6 +6178,95 @@
   font: inherit;
   outline: none;
 }
-.rteSizeSelect .selectInput { padding-left: 8px; }
+/* Wide enough for the word it actually shows: at 3.5em "Default" arrived as "Defi". */
+.rteSizeSelect .selectInput { padding-left: 8px; width: 6em; }
 .selectChevronBtn { display: inline-flex; align-items: center; padding: 0 4px; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .mailboxDomainSelect.selectBtn { padding: 4px 6px; background: transparent; border: 0; }
+
+/* ── Installed on a phone ────────────────────────────────────
+   Standalone, the app owns the whole screen: the status bar sits over the top of it and
+   the home indicator over the bottom, so every edge has to keep clear of them. Touch also
+   has no hover, so anything you can press has to be big enough to press. */
+@media (max-width: 720px) {
+  .listHead {
+    padding-top: calc(18px + env(safe-area-inset-top, 0px));
+    padding-left: calc(18px + env(safe-area-inset-left, 0px));
+    padding-right: calc(18px + env(safe-area-inset-right, 0px));
+  }
+  .topRight {
+    top: calc(14px + var(--acting-offset, 0px) + env(safe-area-inset-top, 0px));
+    right: calc(18px + env(safe-area-inset-right, 0px));
+  }
+  .readerBackBar {
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    padding-left: calc(18px + env(safe-area-inset-left, 0px));
+    padding-right: calc(18px + env(safe-area-inset-right, 0px));
+  }
+  .rail {
+    padding-top: calc(20px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(14px + env(safe-area-inset-left, 0px));
+  }
+  .fab {
+    right: calc(18px + env(safe-area-inset-right, 0px));
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+  .list {
+    padding-left: calc(10px + env(safe-area-inset-left, 0px));
+    padding-right: calc(10px + env(safe-area-inset-right, 0px));
+  }
+  /* A notice that floated in the corner was clipped by the edge of a phone. Sat on the
+     bottom it reads as something to deal with, and nothing is cut off. */
+  .pwNotice {
+    position: fixed;
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    z-index: 445;
+  }
+  /* Forty-four pixels is the smallest thing a thumb finds reliably. */
+  .itemStar,
+  .iconBtn,
+  .actionBtn,
+  .threadMsgToolBtn,
+  .themeToggle,
+  .railClose,
+  .pwNoticeDismiss,
+  .pwNoticeGo,
+  .folder,
+  .railSettings {
+    min-height: 44px;
+  }
+  .itemStar,
+  .iconBtn,
+  .threadMsgToolBtn,
+  .themeToggle,
+  .railClose,
+  .menuBtn,
+  .refreshBtn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .railLink { min-height: 44px; }
+  .composeBtn { padding: 15px 16px; }
+  .item { padding: 14px 12px; }
+  .item input[type='checkbox'] {
+    width: 22px;
+    height: 22px;
+  }
+  .settingsCard {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .compose {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  /* The image controls float beside the image, which on a narrow screen means off it. */
+  .rteImageBar {
+    left: 0;
+    right: 0;
+    max-width: none;
+  }
+}
