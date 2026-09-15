@@ -665,7 +665,7 @@
   place-items: center;
   border: none;
   border-radius: 999px;
-  background: var(--nc-danger);
+  background: var(--nc-violet-500);
   color: #fff;
   cursor: pointer;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
@@ -686,10 +686,10 @@
   pointer-events: auto;
 }
 .toTop:hover {
-  background: var(--nc-danger-soft);
+  background: var(--nc-violet-400);
 }
 .toTop:focus-visible {
-  outline: 2px solid var(--nc-danger);
+  outline: 2px solid var(--nc-violet-500);
   outline-offset: 2px;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -822,9 +822,9 @@
   color: var(--nc-success);
   border-color: color-mix(in srgb, var(--nc-success) 40%, transparent);
 }
-.chipScheduled { color: var(--nc-warn); border-color: rgba(251,191,36,.3); }
+.chipScheduled { color: var(--nc-warn); border-color: color-mix(in srgb, var(--nc-warn) 30%, transparent); }
 .chipDelivered { color: var(--nc-success); border-color: rgba(52,211,153,.3); }
-.chipBounced { color: var(--nc-danger); border-color: rgba(248,113,113,.3); }
+.chipBounced { color: var(--nc-danger); border-color: color-mix(in srgb, var(--nc-danger) 30%, transparent); }
 .chipDraft { color: var(--nc-violet-200); border-color: rgba(165,120,255,.3); }
 
 .emptyList {
@@ -964,8 +964,8 @@
 }
 .actionBtn:hover { color: var(--nc-fg-1); border-color: var(--nc-line-2); background: var(--nc-ink-2); }
 .actionBtn svg { width: 13px; height: 13px; }
-.actionDanger { color: var(--nc-danger); border-color: rgba(248,113,113,.3); }
-.actionDanger:hover { color: var(--nc-danger-soft); border-color: rgba(248,113,113,.55); background: rgba(248,113,113,.06); }
+.actionDanger { color: var(--nc-danger); border-color: color-mix(in srgb, var(--nc-danger) 30%, transparent); }
+.actionDanger:hover { color: var(--nc-danger-soft); border-color: color-mix(in srgb, var(--nc-danger) 55%, transparent); background: color-mix(in srgb, var(--nc-danger) 6%, transparent); }
 .countdownChip {
   display: inline-flex;
   align-items: center;
@@ -974,7 +974,7 @@
   font-size: 12px;
   color: var(--nc-warn);
   padding: 8px 12px;
-  border: 1px solid rgba(251,191,36,.3);
+  border: 1px solid color-mix(in srgb, var(--nc-warn) 30%, transparent);
   border-radius: 9px;
 }
 .activity {
@@ -1903,7 +1903,7 @@
   padding: 0 2px;
 }
 .addrChip button:hover { color: var(--nc-danger); }
-.addrChipBad { border-color: rgba(248,113,113,.5); color: var(--nc-danger-soft); }
+.addrChipBad { border-color: color-mix(in srgb, var(--nc-danger) 50%, transparent); color: var(--nc-danger-soft); }
 
 .toolbar {
   display: flex;
@@ -2075,7 +2075,7 @@
   border-radius: 7px;
   transition: color var(--dur-fast) var(--nc-ease-out), background-color var(--dur-fast) var(--nc-ease-out);
 }
-.tplDelete:hover { color: var(--nc-danger); background: rgba(248, 113, 113, .08); }
+.tplDelete:hover { color: var(--nc-danger); background: color-mix(in srgb, var(--nc-danger) 8%, transparent); }
 .tplSaveRow {
   display: flex;
   gap: 6px;
@@ -2612,8 +2612,8 @@
   vertical-align: middle;
   white-space: nowrap;
 }
-.linkBadgeWarn { color: var(--nc-warn); border: 1px solid rgba(251,191,36,.4); }
-.linkBadgeBad { color: var(--nc-danger); border: 1px solid rgba(248,113,113,.45); }
+.linkBadgeWarn { color: var(--nc-warn); border: 1px solid color-mix(in srgb, var(--nc-warn) 40%, transparent); }
+.linkBadgeBad { color: var(--nc-danger); border: 1px solid color-mix(in srgb, var(--nc-danger) 45%, transparent); }
 .orderDivider {
   width: 1px;
   height: 16px;
@@ -3143,9 +3143,9 @@
   flex-direction: column;
   gap: 7px;
   padding: 11px 13px;
-  border: 1px solid rgba(248, 113, 113, .32);
+  border: 1px solid color-mix(in srgb, var(--nc-danger) 32%, transparent);
   border-radius: var(--radius-control);
-  background: rgba(248, 113, 113, .07);
+  background: color-mix(in srgb, var(--nc-danger) 7%, transparent);
 }
 .loginError {
   font: 500 13px/1.45 var(--nc-font-sans);
@@ -3414,8 +3414,8 @@
   margin: 0 28px 14px;
   padding: 10px 14px;
   border-radius: 10px;
-  border: 1px solid rgba(251,191,36,.3);
-  background: rgba(251,191,36,.06);
+  border: 1px solid color-mix(in srgb, var(--nc-warn) 30%, transparent);
+  background: color-mix(in srgb, var(--nc-warn) 6%, transparent);
   color: var(--nc-fg-2);
   font: 500 13px/1.4 var(--nc-font-sans);
 }

@@ -4,6 +4,11 @@ import { CLIENT_BRAND } from '@/lib/brand.client'
 import { use, useCallback, useEffect, useState } from 'react'
 import styles from './share.module.css'
 
+// The download page is the one screen a recipient outside the company ever sees, and it
+// was painted in two brands at once: a purple button that turned Metroperil's red on
+// hover, and a purple focus ring glowing red. Both come from the tenant now.
+const brandStyle = { '--brand-accent': CLIENT_BRAND.accent } as React.CSSProperties
+
 type Meta = {
   filename: string
   size: number
@@ -90,7 +95,7 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
 
   if (gone) {
     return (
-      <main className={styles.wrap}>
+      <main className={styles.wrap} style={brandStyle}>
         <div className={styles.card}>
           <span className={styles.mark} aria-hidden />
           <h1 className={styles.title}>This link is no longer available</h1>
@@ -105,7 +110,7 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
 
   if (!meta) {
     return (
-      <main className={styles.wrap}>
+      <main className={styles.wrap} style={brandStyle}>
         <div className={styles.card}>
           <span className={styles.skelMark} />
           <span className={styles.skelLine} />
@@ -116,7 +121,7 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
   }
 
   return (
-    <main className={styles.wrap}>
+    <main className={styles.wrap} style={brandStyle}>
       <div className={styles.card}>
         <span className={styles.mark} aria-hidden />
         <p className={styles.eyebrow}>{CLIENT_BRAND.legalName}</p>
