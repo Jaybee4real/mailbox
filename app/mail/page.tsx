@@ -662,6 +662,27 @@ function describeHttp(status: number): string {
   return `The mail server refused the request (${status}).`
 }
 
+function ReaderSkeleton() {
+  return (
+    <div className={styles.readerSkeleton} role="status" aria-label="Opening conversation">
+      <span className={`${styles.skelBar} ${styles.skelSubject}`} />
+      <div className={styles.skelHeadRow}>
+        <span className={styles.skelAvatar} />
+        <div className={styles.skelHeadLines}>
+          <span className={styles.skelBar} />
+          <span className={styles.skelBar} />
+        </div>
+      </div>
+      <div className={styles.skelActions}>
+        <span className={styles.skelBar} />
+        <span className={styles.skelBar} />
+        <span className={styles.skelBar} />
+      </div>
+      <BodySkeleton />
+    </div>
+  )
+}
+
 function BodySkeleton() {
   return (
     <div className={styles.bodySkeleton} role="status" aria-label="Loading email">
@@ -2438,6 +2459,7 @@ export default function DevMailPage() {
     }
     setMailboxLoading(true)
     setMailboxStale(false)
+    cancelThreadOpen()
     setSelectedId(null)
     setReaderOpenMobile(false)
     setSelectedBulk(new Set())
@@ -3111,12 +3133,49 @@ export default function DevMailPage() {
     }
   }, [selectedInbound, threadMembers, inboundAttachments, apiHeaders])
 
+  /**
+   * Every selection bumps this. A conversation fetch that finishes after a later selection
+   * finds the number moved on and does nothing — otherwise clicking B while A was still
+   * loading showed A's skeleton over B and then replaced B with A when A arrived.
+   */
+  const openSeq = useRef(0)
+  const openController = useRef<AbortController | null>(null)
+  const cancelThreadOpen = () => {
+    openSeq.current += 1
+    openController.current?.abort()
+    openController.current = null
+    setThreadOpening(null)
+  }
+
+  // Failing to open is worth a word. It used to go through loadError, which only renders
+  // when the list itself is empty, so on a phone the pane slid in and out and said nothing.
+  const [openError, setOpenError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!openError) return
+    const timer = window.setTimeout(() => setOpenError(null), 4500)
+    return () => window.clearTimeout(timer)
+  }, [openError])
+
   const openThread = async (threadId: string, latestId: string) => {
     if (!inboxEmails.some(entry => entry.id === latestId)) {
+      const seq = ++openSeq.current
+      // Whatever the phone showed before the tap is what a failed open goes back to: the
+      // list if they were on the list, the message if one was open. selectedId is the
+      // wrong proxy for that, because Back on a phone hides the pane and leaves it set.
+      // A pane still sliding in for an earlier tap does not count as open.
+      const wasOpen = readerOpenMobile && !threadOpening
       setThreadOpening(threadId)
+      setReaderOpenMobile(true)
+      const controller = new AbortController()
+      openController.current = controller
+      const giveUp = window.setTimeout(() => controller.abort(), 15000)
       try {
-        const response = await fetch(`/api/mail/inbox?thread=${encodeURIComponent(threadId)}&limit=200`, { headers: apiHeaders() })
+        const response = await fetch(`/api/mail/inbox?thread=${encodeURIComponent(threadId)}&limit=200`, {
+          headers: apiHeaders(),
+          signal: controller.signal,
+        })
         const data = await response.json().catch(() => null)
+        if (seq !== openSeq.current) return
         if (data?.ok && Array.isArray(data.emails)) {
           const fresh = data.emails as InboundEmail[]
           setInboxEmails(current => {
@@ -3125,14 +3184,20 @@ export default function DevMailPage() {
           })
         } else {
           setThreadOpening(null)
-          setLoadError('Could not open that conversation')
+          setReaderOpenMobile(wasOpen)
+          setOpenError('Could not open that conversation')
           return
         }
       } catch (err) {
+        if (seq !== openSeq.current) return
         console.warn('[mail] thread load failed', err)
         setThreadOpening(null)
-        setLoadError('Could not open that conversation')
+        setReaderOpenMobile(wasOpen)
+        setOpenError('Could not open that conversation')
         return
+      } finally {
+        window.clearTimeout(giveUp)
+        if (openController.current === controller) openController.current = null
       }
       setThreadOpening(null)
     }
@@ -3140,6 +3205,7 @@ export default function DevMailPage() {
   }
 
   const openInbound = (id: string) => {
+    cancelThreadOpen()
     // Reading and writing share the same panel, so the composer has to give it up.
     // Closed through closeCompose rather than just hidden, so the draft is kept.
     if (composeOpen) closeCompose()
@@ -3541,6 +3607,7 @@ export default function DevMailPage() {
   }
 
   const openDraft = (id: string) => {
+    cancelThreadOpen()
     const draft = drafts.find(entry => entry.id === id)
     if (!draft) return
     openCompose(draft.data, draft.id)
@@ -4357,6 +4424,7 @@ export default function DevMailPage() {
         if (composeOpen) closeCompose()
         else if (filesOpen) setFilesOpen(false)
         else if (settingsOpen) closeSettings()
+        else if (threadOpening) { cancelThreadOpen(); setReaderOpenMobile(false) }
         else if (readerOpenMobile) setReaderOpenMobile(false)
         else if (selectedId) setSelectedId(null)
         return
@@ -5398,6 +5466,7 @@ export default function DevMailPage() {
   }
 
   const reader = (() => {
+    if (threadOpening) return <ReaderSkeleton />
     if (selectedInbound) {
       const inbound = selectedInbound
       const inboundMembers = threadMembers(inbound.id)
@@ -6417,6 +6486,7 @@ export default function DevMailPage() {
               className={`${styles.folder} ${folder === key ? styles.folderActive : ''}`}
               title={folderTitles[key]}
               onClick={() => {
+                cancelThreadOpen()
                 setFolder(key)
                 setSelectedId(null)
                 setReaderOpenMobile(false)
@@ -6770,6 +6840,7 @@ export default function DevMailPage() {
                     if ('threadId' in item && item.threadId) void openThread(item.threadId, item.id)
                     else openInbound(item.id)
                   } else {
+                    cancelThreadOpen()
                     setSelectedId(item.id)
                     setReaderOpenMobile(true)
                   }
@@ -6939,7 +7010,7 @@ export default function DevMailPage() {
                 back to. On a wide one it is beside us, and the only thing to do is close. */}
             <button
               className={styles.actionBtn}
-              onClick={() => (listHidden ? setReaderOpenMobile(false) : setSelectedId(null))}
+              onClick={() => { cancelThreadOpen(); if (listHidden) setReaderOpenMobile(false); else setSelectedId(null) }}
             >
               {listHidden ? <>{ICONS.back} Back</> : <>{ICONS.close} Close</>}
             </button>
@@ -6948,7 +7019,7 @@ export default function DevMailPage() {
         {/* Keyed so React rebuilds it when the selection changes, which is what lets the
             animation replay: switching threads swapped the panel with no sign that
             anything had happened. */}
-        <div className={styles.readerSwap} key={selectedId ?? 'empty'}>
+        <div className={styles.readerSwap} key={threadOpening ? `opening:${threadOpening}` : (selectedId ?? 'empty')}>
           {reader}
         </div>
       </section>
@@ -8346,6 +8417,11 @@ export default function DevMailPage() {
           <button className={styles.toastUndo} onClick={undoSend} type="button">
             Undo
           </button>
+        </div>
+      )}
+      {openError && !undo && (
+        <div className={`${styles.toast} ${styles.toastError}`} role="alert">
+          {openError}
         </div>
       )}
       {sentFlash && !undo && (

@@ -1271,12 +1271,11 @@
   padding: 10px 0 2px;
 }
 .attachFloatBody .attachGrid { margin: 0 14px 10px; }
-/* One column down the sheet: the text is capped and centred for readability, so anything
-   that follows it lines up with it instead of hugging the far left of a wide pane. */
+/* Tiles sit in the sheet's own bottom-left corner, flush with its border, the way they
+   did before the sheet became a centred page. The page stays centred; only the tiles
+   went back to the corner. */
 .threadMsgBody .attachGrid {
-  max-width: none;
-  margin: 0;
-  padding: 0 34px 30px;
+  margin: 12px 0 0;
 }
 .attachPillWrap {
   position: absolute;
@@ -3189,6 +3188,11 @@
   font: 500 14px/1 var(--nc-font-sans);
   color: var(--nc-fg-1);
 }
+.toastError {
+  border-color: color-mix(in srgb, var(--nc-danger) 45%, transparent);
+  color: var(--nc-danger);
+}
+
 .toastCount {
   font-family: var(--nc-font-mono);
   color: var(--nc-warn);
@@ -3942,6 +3946,41 @@
   flex-direction: column;
   gap: 15px;
   padding: var(--thread-pad);
+}
+/* The whole reader, drawn as shapes, for the moment between clicking a conversation and
+   its messages arriving. It stands in for the header as well as the body, because that is
+   what is missing: the pane otherwise keeps showing "Nothing open" or the last message. */
+.readerSkeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  /* The real header, actions and thread all sit 28px in; anything else makes the page
+     jump sideways the moment it replaces the skeleton. */
+  padding: 22px 28px 0;
+}
+/* Scoped under the skeleton so they outrank the plain .skelBar rule, which comes later in
+   the file and would otherwise flatten the subject back to a 13px line. */
+.readerSkeleton .skelSubject {
+  height: 22px;
+  width: 62%;
+  border-radius: 8px;
+}
+.skelActions {
+  display: flex;
+  gap: 10px;
+}
+.skelActions .skelBar {
+  width: 96px;
+  height: 40px;
+  border-radius: var(--radius-control);
+}
+.readerSkeleton .bodySkeleton {
+  padding: 0;
+}
+/* The block placeholder is ink-2, which is white in the light theme — the same white the
+   reader is painted on, so it vanished. ink-3 is a visible step in all three themes. */
+.readerSkeleton .skelBlock {
+  background: var(--nc-ink-3);
 }
 .skelHeadRow {
   display: flex;
