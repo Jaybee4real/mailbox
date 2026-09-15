@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { EditorContent, useEditor, type Editor } from '@tiptap/react'
+import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type Editor, type NodeViewProps } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
@@ -259,9 +259,34 @@ function TablePopover({ editor, close }: { editor: Editor; close: () => void }) 
  * the image editable at all.
  */
 const StyledImage = Image.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(ImageView)
+  },
+  renderHTML({ HTMLAttributes }) {
+    const { href, ...rest } = HTMLAttributes as Record<string, unknown> & { href?: string | null }
+    const image: [string, Record<string, unknown>] = ['img', rest]
+    if (!href) return image
+    const anchor: [string, Record<string, unknown>, typeof image] = [
+      'a',
+      { href, target: '_blank', rel: 'noopener noreferrer' },
+      image,
+    ]
+    return anchor
+  },
   addAttributes() {
     return {
       ...this.parent?.(),
+      href: {
+        default: null,
+        // Read off the anchor the image was saved inside, since the node itself is the image.
+        parseHTML: element => element.closest('a')?.getAttribute('href') ?? null,
+        renderHTML: attributes => (attributes.href ? { href: attributes.href } : {}),
+      },
+      align: {
+        default: null,
+        parseHTML: element => element.getAttribute('data-align'),
+        renderHTML: attributes => (attributes.align ? { 'data-align': attributes.align } : {}),
+      },
       width: {
         default: null,
         parseHTML: element => element.getAttribute('width'),
@@ -298,82 +323,232 @@ function styleText(pairs: Record<string, string>): string {
     .join(';')
 }
 
-function ImageTools({ editor }: { editor: Editor }) {
-  const attributes = editor.getAttributes('image') as { width?: string | number | null; style?: string | null }
-  const current = stylePairs(attributes.style)
-  const width = parseInt(String(current.width ?? attributes.width ?? ''), 10)
-  const radius = parseInt(current['border-radius'] ?? '', 10)
-  const framed = Boolean(current.border) && !['none', '0', '0px'].includes(current.border)
+const GRIPS = [
+  { corner: 'nw', direction: -1, className: 'rteImageGripNW' },
+  { corner: 'ne', direction: 1, className: 'rteImageGripNE' },
+  { corner: 'sw', direction: -1, className: 'rteImageGripSW' },
+  { corner: 'se', direction: 1, className: 'rteImageGripSE' },
+] as const
+
+const ALIGNMENTS = [
+  { key: 'left', label: 'Align left', glyph: '\u21e4' },
+  { key: 'center', label: 'Centre', glyph: '\u2194' },
+  { key: 'right', label: 'Align right', glyph: '\u21e5' },
+] as const
+
+function reactStyle(pairs: Record<string, string>): React.CSSProperties {
+  return Object.fromEntries(
+    Object.entries(pairs).map(([name, value]) => [name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase()), value]),
+  ) as React.CSSProperties
+}
+
+/**
+ * The image is edited where it sits: selected with an outline, resized by its corners, and
+ * given a border, an alignment or a link from a bar anchored to it. A row of number boxes at
+ * the top of the toolbar was correct and undiscoverable.
+ */
+function ImageView({ node, updateAttributes, selected, editor }: NodeViewProps) {
+  const attributes = node.attrs as {
+    src: string
+    alt: string | null
+    width: string | null
+    style: string | null
+    href: string | null
+    align: string | null
+  }
+  const declared = stylePairs(attributes.style)
+  const framed = Boolean(declared.border) && !['none', '0', '0px'].includes(declared.border)
+  const radius = parseInt(declared['border-radius'] ?? '', 10)
+  const align = attributes.align ?? 'left'
+  const imageRef = useRef<HTMLImageElement | null>(null)
+  const [dragWidth, setDragWidth] = useState<number | null>(null)
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [href, setHref] = useState(attributes.href ?? '')
+  const width = dragWidth ?? parseInt(String(declared.width ?? attributes.width ?? ''), 10)
+  const live = Boolean(selected && editor.isEditable)
 
   // A mail client reads the width attribute; a browser reads the style. Write both.
   const write = (patch: Record<string, string>) => {
-    const next = { ...current, ...patch }
+    const next = { ...declared, ...patch }
     const pixels = parseInt(next.width ?? '', 10)
-    editor
-      .chain()
-      .focus()
-      .updateAttributes('image', {
-        style: styleText(next) || null,
-        width: Number.isFinite(pixels) ? String(pixels) : null,
-      })
-      .run()
+    updateAttributes({ style: styleText(next) || null, width: Number.isFinite(pixels) ? String(pixels) : null })
+  }
+
+  // One history entry per drag rather than one per pixel: the width is held here while the
+  // pointer is down and committed once it is released.
+  const startResize = (event: React.PointerEvent<HTMLSpanElement>, direction: 1 | -1) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const handle = event.currentTarget
+    handle.setPointerCapture(event.pointerId)
+    const startX = event.clientX
+    const startWidth = imageRef.current?.getBoundingClientRect().width ?? 200
+    let latest = Math.round(startWidth)
+    const move = (moveEvent: PointerEvent) => {
+      latest = Math.round(Math.min(800, Math.max(24, startWidth + direction * (moveEvent.clientX - startX))))
+      setDragWidth(latest)
+    }
+    const stop = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', stop)
+      handle.removeEventListener('pointercancel', stop)
+      setDragWidth(null)
+      write({ width: `${latest}px`, height: 'auto' })
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', stop)
+    handle.addEventListener('pointercancel', stop)
+  }
+
+  const applyLink = () => {
+    const target = href.trim() ? safeHref(href) : null
+    if (href.trim() && !target) return
+    updateAttributes({ href: target })
+    setLinkOpen(false)
   }
 
   return (
-    <Group>
-      <span className={styles.rteGridLabel}>Image</span>
-      <input
-        className={styles.rteSizeSelect}
-        type="number"
-        min={24}
-        max={800}
-        step={10}
-        title="Width in pixels"
-        aria-label="Image width in pixels"
-        value={Number.isFinite(width) ? width : ''}
-        onChange={event => write({ width: event.target.value ? `${event.target.value}px` : '', height: 'auto' })}
-      />
-      <Btn
-        title={framed ? 'Remove the border' : 'Add a border'}
-        active={framed}
-        onClick={() =>
-          write(
-            framed
-              ? { border: '', padding: '', 'border-radius': '' }
-              : { border: `1px solid ${CLIENT_BRAND.accent}`, padding: '8px', 'border-radius': '8px' },
-          )
-        }
-        wide
-      >
-        Border
-      </Btn>
-      {framed && (
-        <>
+    <NodeViewWrapper className={styles.rteImageWrap} data-align={align}>
+      <span className={`${styles.rteImageBox} ${live ? styles.rteImageBoxOn : ''}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          ref={imageRef}
+          src={attributes.src}
+          alt={attributes.alt ?? ''}
+          draggable={false}
+          style={{ ...reactStyle(declared), ...(dragWidth ? { width: `${dragWidth}px`, height: 'auto' } : {}) }}
+        />
+        {live &&
+          GRIPS.map(grip => (
+            <span
+              key={grip.corner}
+              className={`${styles.rteImageGrip} ${styles[grip.className]}`}
+              role="presentation"
+              onPointerDown={event => startResize(event, grip.direction)}
+            />
+          ))}
+      </span>
+      {live && (
+        <div className={styles.rteImageBar} contentEditable={false}>
+          <span className={styles.rteGridLabel}>W</span>
           <input
             className={styles.rteSizeSelect}
             type="number"
-            min={0}
-            max={200}
-            title="Corner radius in pixels"
-            aria-label="Corner radius in pixels"
-            value={Number.isFinite(radius) ? radius : 0}
-            onChange={event => write({ 'border-radius': `${event.target.value || 0}px` })}
+            min={24}
+            max={800}
+            step={10}
+            title="Width in pixels"
+            aria-label="Image width in pixels"
+            value={Number.isFinite(width) ? width : ''}
+            onChange={event => write({ width: event.target.value ? `${event.target.value}px` : '', height: 'auto' })}
           />
-          {[CLIENT_BRAND.accent, ...TEXT_COLOURS].map(colour => (
-            <button
-              key={colour}
-              type="button"
-              className={styles.rteSwatch}
-              style={{ background: colour }}
-              title={`Border colour ${colour}`}
-              aria-label={`Border colour ${colour}`}
-              onMouseDown={event => event.preventDefault()}
-              onClick={() => write({ border: `1px solid ${colour}` })}
-            />
+          {ALIGNMENTS.map(option => (
+            <Btn
+              key={option.key}
+              title={option.label}
+              active={align === option.key}
+              onClick={() =>
+                updateAttributes({
+                  align: option.key,
+                  style: styleText({
+                    ...declared,
+                    'margin-left': option.key === 'left' ? '' : 'auto',
+                    'margin-right': option.key === 'right' ? '' : 'auto',
+                  }),
+                })
+              }
+            >
+              {option.glyph}
+            </Btn>
           ))}
-        </>
+          <Btn
+            title={framed ? 'Remove the border' : 'Add a border'}
+            active={framed}
+            onClick={() =>
+              write(
+                framed
+                  ? { border: '', padding: '', 'border-radius': '' }
+                  : { border: `1px solid ${CLIENT_BRAND.accent}`, padding: '8px', 'border-radius': '8px' },
+              )
+            }
+            wide
+          >
+            Border
+          </Btn>
+          {framed && (
+            <>
+              <span className={styles.rteGridLabel}>R</span>
+              <input
+                className={styles.rteSizeSelect}
+                type="number"
+                min={0}
+                max={200}
+                title="Corner radius in pixels"
+                aria-label="Corner radius in pixels"
+                value={Number.isFinite(radius) ? radius : 0}
+                onChange={event => write({ 'border-radius': `${event.target.value || 0}px` })}
+              />
+              {[...new Set([CLIENT_BRAND.accent, ...TEXT_COLOURS])].map(colour => (
+                <button
+                  key={colour}
+                  type="button"
+                  className={styles.rteSwatch}
+                  style={{ background: colour }}
+                  title={`Border colour ${colour}`}
+                  aria-label={`Border colour ${colour}`}
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => write({ border: `1px solid ${colour}` })}
+                />
+              ))}
+            </>
+          )}
+          <Btn title="Link this image" active={Boolean(attributes.href) || linkOpen} onClick={() => setLinkOpen(open => !open)} wide>
+            Link
+          </Btn>
+          {linkOpen && (
+            <>
+              <input
+                className={styles.rteImageLink}
+                value={href}
+                placeholder={CLIENT_BRAND.websiteUrl}
+                aria-label="Address this image opens"
+                onChange={event => setHref(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') applyLink()
+                }}
+              />
+              <Btn
+                title="Use the company website"
+                onClick={() => {
+                  setHref(CLIENT_BRAND.websiteUrl)
+                  updateAttributes({ href: CLIENT_BRAND.websiteUrl })
+                  setLinkOpen(false)
+                }}
+                wide
+              >
+                Website
+              </Btn>
+              <Btn title="Apply the address" onClick={applyLink} wide>
+                Apply
+              </Btn>
+              {attributes.href && (
+                <Btn
+                  title="Remove the link"
+                  onClick={() => {
+                    setHref('')
+                    updateAttributes({ href: null })
+                    setLinkOpen(false)
+                  }}
+                  wide
+                >
+                  Unlink
+                </Btn>
+              )}
+            </>
+          )}
+        </div>
       )}
-    </Group>
+    </NodeViewWrapper>
   )
 }
 
@@ -571,7 +746,6 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
       </div>
 
       {editor.isActive('table') && <TableTools editor={editor} />}
-      {editor.isActive('image') && <ImageTools editor={editor} />}
 
       <Group>
         <Btn title="Undo" onClick={() => editor.chain().focus().undo().run()}>

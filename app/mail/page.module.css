@@ -1384,6 +1384,79 @@
   font: 400 13px/1.5 var(--nc-font-mono);
 }
 .rteSurface img { max-width: 100%; height: auto; }
+.rteImageWrap { position: relative; margin: 0 0 14px; }
+.rteImageWrap[data-align='center'] { text-align: center; }
+.rteImageWrap[data-align='right'] { text-align: right; }
+.rteImageBox {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
+.rteImageBoxOn { outline: 2px solid var(--nc-violet-500); outline-offset: 3px; }
+.rteImageGrip {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid #fff;
+  background: var(--nc-violet-500);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+  touch-action: none;
+}
+.rteImageGripNW { top: -7px; left: -7px; cursor: nwse-resize; }
+.rteImageGripNE { top: -7px; right: -7px; cursor: nesw-resize; }
+.rteImageGripSW { bottom: -7px; left: -7px; cursor: nesw-resize; }
+.rteImageGripSE { bottom: -7px; right: -7px; cursor: nwse-resize; }
+/* Anchored under the image rather than over it: above, the editor's own top edge clips it. */
+.rteImageBar {
+  position: absolute;
+  z-index: 6;
+  top: calc(100% + 8px);
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: min(520px, 100%);
+  padding: 6px 8px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 10px;
+  background: var(--nc-ink-1);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .28);
+  text-align: left;
+}
+.rteImageLink {
+  width: 170px;
+  padding: 5px 8px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 7px;
+  background: var(--nc-ink-2);
+  color: var(--nc-fg-1);
+  font: 500 12px/1.2 var(--nc-font-sans);
+}
+.sigState {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -2px 0 8px;
+}
+.sigStateText {
+  font: 500 12px/1 var(--nc-font-sans);
+  color: var(--nc-fg-3);
+}
+.sigReset {
+  margin-left: auto;
+  padding: 5px 10px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--nc-fg-2);
+  font: 500 12px/1 var(--nc-font-sans);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--nc-ease-out), border-color var(--dur-fast) var(--nc-ease-out);
+}
+.sigReset:hover { color: var(--nc-violet-500); border-color: var(--nc-violet-500); }
 .rteSurface table { border-collapse: collapse; margin: 0 0 14px; width: 100%; }
 .rteSurface td, .rteSurface th {
   border: 1px solid var(--nc-line-2);

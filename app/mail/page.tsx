@@ -8,7 +8,7 @@ import { parseQuery, matchesQuery } from './search'
 import { useConfirm } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
 import RichEditor from './RichEditor'
-import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages } from '@/lib/email-html'
+import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages } from '@/lib/email-html'
 import { BUILTIN_FONTS, EMPTY_FONT, FONT_SIZES, fontFaceCss, fontStack, type BaseFont, type CustomFont } from '@/lib/fonts'
 import MailSelect from './MailSelect'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
@@ -493,7 +493,7 @@ function buildEmailHtml(data: ComposeData, signatureHtml: string, fontCss = '', 
   const body = data.bodyHtml.trim() ? data.bodyHtml : markdownToHtml(data.markdown)
   const inner = body + (data.useSignature ? signatureHtml : '')
   const fonts = fontCss ? `<style>${fontCss}</style>` : ''
-  return `${fonts}<div style="font-family:${fontStack(base.family)};font-size:${base.size || '15px'};line-height:1.65;color:#030712;">${inlineEmailStyles(inner, base)}</div>${data.quoteHtml ?? ''}`
+  return `${fonts}<div style="font-family:${fontStack(base.family)};font-size:${base.size || '15px'};line-height:1.65;color:#030712;">${outlookSafeImages(inlineEmailStyles(inner, base))}</div>${data.quoteHtml ?? ''}`
 }
 
 function buildEmailText(data: ComposeData, signatureText: string): string {
@@ -3002,6 +3002,17 @@ export default function DevMailPage() {
     [apiHeaders],
   )
 
+  const resetSignature = useCallback(async () => {
+    const agreed = await confirm({
+      title: 'Use the company signature?',
+      body: <>Your own wording is replaced by the signature the firm maintains, which then follows any change to its details.</>,
+      confirmLabel: 'Use the company one',
+      danger: true,
+    })
+    if (!agreed) return
+    setMailSettings(current => ({ ...current, signature: '' }))
+  }, [confirm])
+
   const closeSettings = useCallback(() => {
     saveSettings(settings)
     setSettingsOpen(false)
@@ -3022,7 +3033,7 @@ export default function DevMailPage() {
   const signatureBody = ownSignature || houseSignature
   // A hand-written signature replaces the house one wholesale, mark included, so the firm's
   // mark goes back on top unless that signature already carries an image of its own.
-  const signatureMarkSrc = settings.signatureLogo || (/<img\b/i.test(signatureBody) ? '' : CLIENT_BRAND.markUrl)
+  const signatureMarkSrc = /<img\b/i.test(signatureBody) ? '' : settings.signatureLogo || CLIENT_BRAND.markUrl
   const signatureLogoHtml = signatureMarkSrc
     ? `<div style="margin-bottom:12px;"><img src="${absoluteLogo(signatureMarkSrc)}" alt="${escapeHtml(CLIENT_BRAND.name)}" width="200" style="${clientSignatureMarkStyle(200)}" /></div>`
     : ''
@@ -6984,6 +6995,16 @@ export default function DevMailPage() {
             </label>
             <div className={styles.settingsField}>
               <span>Signature</span>
+              <div className={styles.sigState}>
+                <span className={styles.sigStateText}>
+                  {ownSignature ? 'Your own signature' : 'The company signature, until you change it'}
+                </span>
+                {ownSignature && (
+                  <button type="button" className={styles.sigReset} onClick={resetSignature}>
+                    Use the company signature
+                  </button>
+                )}
+              </div>
               <div className={styles.sigStack}>
                 <div className={styles.sigLogoRow}>
                   <span className={styles.sigLogoLabel}>Logo above the signature</span>

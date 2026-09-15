@@ -115,3 +115,52 @@ export function stripCidPlaceholders(text: string): string {
     .replace(/[ \t]+$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
 }
+
+function declarations(style: string): Record<string, string> {
+  return Object.fromEntries(
+    style
+      .split(';')
+      .map(part => part.split(':'))
+      .filter(pair => pair.length === 2)
+      .map(([name, value]) => [name.trim().toLowerCase(), value.trim()]),
+  )
+}
+
+function declarationText(pairs: Record<string, string>): string {
+  return Object.entries(pairs)
+    .filter(([, value]) => value)
+    .map(([name, value]) => `${name}:${value}`)
+    .join(';')
+}
+
+const FRAMELESS = ['none', '0', '0px']
+
+/**
+ * Outlook on Windows lays mail out with Word, which ignores padding and borders on an image
+ * and centres nothing. A framed or centred image is therefore emitted as a one-cell table,
+ * which Word does honour, with the image plain inside it. Everything else is left alone.
+ */
+export function outlookSafeImages(html: string): string {
+  return html.replace(/(<a[^>]*>)?\s*(<img[^>]*>)\s*(<\/a>)?/gi, (whole, open: string | undefined, tag: string, close: string | undefined) => {
+    const anchored = Boolean(open && close)
+    const image = anchored ? tag : whole
+    const style = declarations(/style="([^"]*)"/i.exec(image)?.[1] ?? '')
+    const align = (/data-align="(left|center|right)"/i.exec(image)?.[1] ?? 'left').toLowerCase()
+    const framed = Boolean(style.border) && !FRAMELESS.includes(style.border)
+    const stripped = image.replace(/\sdata-align="[^"]*"/i, '')
+    // Nothing to protect this one from: leave it byte for byte as the writer left it.
+    if (!framed && align === 'left') return anchored ? `${open}${stripped}${close}` : stripped
+    const plain = stripped.replace(
+      /\sstyle="[^"]*"/i,
+      ` style="${declarationText({ display: 'block', width: style.width ?? '', height: 'auto', border: '0' })}"`,
+    )
+    const inner = anchored ? `${open}${plain}${close}` : plain
+    const cell = declarationText({
+      border: framed ? style.border : '',
+      'border-radius': framed ? (style['border-radius'] ?? '') : '',
+      padding: framed ? (style.padding ?? '0') : '0',
+    })
+    const outer = align === 'center' ? 'margin:0 auto;' : align === 'right' ? 'margin-left:auto;' : ''
+    return `<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="${align}" style="border-collapse:separate;${outer}"><tr><td style="${cell}">${inner}</td></tr></table>`
+  })
+}
