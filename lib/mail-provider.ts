@@ -3,11 +3,14 @@
  * file speaks these types; everything vendor-specific lives below. Switching providers
  * is then a config change plus one adapter, not a rewrite.
  *
- * Selected with MAIL_PROVIDER=brevo|resend (defaults to resend so nothing changes until
- * the switch is deliberate).
+ * Selected with MAIL_PROVIDER=ses|brevo|resend (defaults to resend so nothing changes
+ * until the switch is deliberate).
  */
 
-export type MailProvider = 'resend' | 'brevo'
+import { randomBytes } from 'node:crypto'
+import { sesSendRaw } from './ses-send'
+
+export type MailProvider = 'resend' | 'brevo' | 'ses'
 
 export type SendAttachment = { filename: string; content: string; contentType?: string }
 
@@ -45,7 +48,9 @@ export type NormalizedInbound = {
 }
 
 export function activeProvider(): MailProvider {
-  return process.env.MAIL_PROVIDER === 'brevo' ? 'brevo' : 'resend'
+  const configured = process.env.MAIL_PROVIDER
+  if (configured === 'brevo' || configured === 'ses') return configured
+  return 'resend'
 }
 
 function splitAddress(raw: string): { email: string; name?: string } {
@@ -110,8 +115,48 @@ async function sendViaBrevo(payload: SendPayload): Promise<SendResult> {
   return { id: result.messageId ? String(result.messageId).replace(/^<|>$/g, '') : null }
 }
 
+function encodeHeaderWord(value: string): string {
+  return /^[\x20-\x7E]*$/.test(value) ? value : `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=`
+}
+
+function buildRawMime(payload: SendPayload): string {
+  const boundary = `nc_${randomBytes(12).toString('hex')}`
+  const sender = payload.fromName ? `${encodeHeaderWord(payload.fromName)} <${payload.from}>` : payload.from
+  const lines = [
+    `From: ${sender}`,
+    `To: ${payload.to.join(', ')}`,
+    ...(payload.cc?.length ? [`Cc: ${payload.cc.join(', ')}`] : []),
+    ...(payload.replyTo ? [`Reply-To: ${payload.replyTo}`] : []),
+    `Subject: ${encodeHeaderWord(payload.subject)}`,
+    'MIME-Version: 1.0',
+    ...Object.entries(payload.headers ?? {}).map(([name, value]) => `${name}: ${value}`),
+  ]
+
+  const text = payload.text ?? ''
+  const html = payload.html ?? ''
+  if (html && text) {
+    lines.push(`Content-Type: multipart/alternative; boundary="${boundary}"`, '',
+      `--${boundary}`, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '',
+      Buffer.from(text, 'utf8').toString('base64'), '',
+      `--${boundary}`, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '',
+      Buffer.from(html, 'utf8').toString('base64'), '', `--${boundary}--`, '')
+  } else {
+    lines.push(`Content-Type: text/${html ? 'html' : 'plain'}; charset=UTF-8`, 'Content-Transfer-Encoding: base64', '',
+      Buffer.from(html || text, 'utf8').toString('base64'), '')
+  }
+  return lines.join('\r\n')
+}
+
+async function sendViaSes(payload: SendPayload): Promise<SendResult> {
+  return { id: await sesSendRaw(buildRawMime(payload)) }
+}
+
 export function sendMail(payload: SendPayload): Promise<SendResult> {
-  return activeProvider() === 'brevo' ? sendViaBrevo(payload) : sendViaResend(payload)
+  switch (activeProvider()) {
+    case 'ses': return sendViaSes(payload)
+    case 'brevo': return sendViaBrevo(payload)
+    default: return sendViaResend(payload)
+  }
 }
 
 // ── Receiving ───────────────────────────────────────────────────

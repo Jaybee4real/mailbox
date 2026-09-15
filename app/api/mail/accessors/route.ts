@@ -1,7 +1,7 @@
 import { BRAND, ADDRESS_DOMAINS as BRAND_ADDRESS_DOMAINS } from '@/lib/brand'
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { Resend } from 'resend'
+import { sendMail } from '@/lib/mail-provider'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import {
   listAccounts,
@@ -102,29 +102,28 @@ export async function POST(req: Request) {
   const token = randomBytes(32).toString('hex')
   await createResetToken(email, token, Date.now() + INVITE_TTL_MS)
 
-  const apiKey = process.env.RESEND_API_KEY
-  if (apiKey) {
-    const from = (process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '')
-    const origin = process.env.MAIL_PUBLIC_URL?.replace(/\/$/, '') || new URL(req.url).origin
-    const inviteUrl = `${origin}/mail/reset?token=${token}&invite=1`
-    const resend = new Resend(apiKey)
-    try {
-      const { data } = await resend.emails.send({
-        from: `${BRAND.name} Mail <${from}>`,
-        to: [email],
-        subject: `You've been invited to ${BRAND.name} Mail`,
-        text: `${inviter.email} invited you to ${BRAND.name} Mail.\n\nSet your password to get started: ${inviteUrl}\n\nThis link expires in 7 days.`,
-        html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#1A1030;">
+  const from = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
+  const origin = process.env.MAIL_PUBLIC_URL?.replace(/\/$/, '') || new URL(req.url).origin
+  const inviteUrl = `${origin}/mail/reset?token=${token}&invite=1`
+  try {
+    const { id } = await sendMail({
+      from,
+      fromName: `${BRAND.name} Mail`,
+      to: [email],
+      subject: `You've been invited to ${BRAND.name} Mail`,
+      text: `${inviter.email} invited you to ${BRAND.name} Mail.\n\nSet your password to get started: ${inviteUrl}\n\nThis link expires in 7 days.`,
+      html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#1A1030;">
           <p style="margin:0 0 12px;color:${BRAND.colors.accent};font-weight:600;">You've been invited to ${BRAND.name} Mail</p>
           <p style="margin:0 0 16px;">${name ? `Hi ${name}, ` : ''}you've been given access to ${BRAND.name} Mail. Set a password to get started.</p>
           <a href="${inviteUrl}" style="display:inline-block;background:${BRAND.colors.accent};color:#fff;text-decoration:none;font-weight:600;padding:11px 20px;border-radius:8px;">Set your password</a>
           <p style="margin:16px 0 0;color:#8E84A8;font-size:13px;">This invite link expires in 7 days.</p>
         </div>`,
-      })
-      if (data?.id) await recordSentMeta(data.id, null, true).catch(() => {})
-    } catch (err) {
-      console.warn('[mail] invite email failed:', err)
-    }
+    })
+    if (id) await recordSentMeta(id, null, true).catch(() => {})
+  } catch (err) {
+    // The account row already exists; say the invite did not go out rather than imply it did.
+    console.error('[mail] invite email failed:', err)
+    return NextResponse.json({ ok: false, error: 'Account created, but the invite email could not be sent', email, address, role }, { status: 502 })
   }
 
   return NextResponse.json({ ok: true, email, address, role })
