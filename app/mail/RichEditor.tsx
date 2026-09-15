@@ -6,6 +6,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
 import Image from '@tiptap/extension-image'
+import { CLIENT_BRAND } from '@/lib/brand.client'
 import TextAlign from '@tiptap/extension-text-align'
 import { FontFamily, FontSize, TextStyle } from '@tiptap/extension-text-style'
 import { BUILTIN_FONTS, FONT_SIZES, fontStack, type BaseFont } from '@/lib/fonts'
@@ -252,6 +253,130 @@ function TablePopover({ editor, close }: { editor: Editor; close: () => void }) 
   )
 }
 
+/**
+ * Tiptap's image keeps only src and alt, so any width or border a signature carries was
+ * dropped the moment it passed through the editor. Preserving the attributes is what makes
+ * the image editable at all.
+ */
+const StyledImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      width: {
+        default: null,
+        parseHTML: element => element.getAttribute('width'),
+        renderHTML: attributes => (attributes.width ? { width: attributes.width } : {}),
+      },
+      height: {
+        default: null,
+        parseHTML: element => element.getAttribute('height'),
+        renderHTML: attributes => (attributes.height ? { height: attributes.height } : {}),
+      },
+      style: {
+        default: null,
+        parseHTML: element => element.getAttribute('style'),
+        renderHTML: attributes => (attributes.style ? { style: attributes.style } : {}),
+      },
+    }
+  },
+})
+
+function stylePairs(value: string | null | undefined): Record<string, string> {
+  return Object.fromEntries(
+    (value ?? '')
+      .split(';')
+      .map(part => part.split(':'))
+      .filter(pair => pair.length === 2)
+      .map(([name, entry]) => [name.trim(), entry.trim()]),
+  )
+}
+
+function styleText(pairs: Record<string, string>): string {
+  return Object.entries(pairs)
+    .filter(([, entry]) => entry)
+    .map(([name, entry]) => `${name}:${entry}`)
+    .join(';')
+}
+
+function ImageTools({ editor }: { editor: Editor }) {
+  const attributes = editor.getAttributes('image') as { width?: string | number | null; style?: string | null }
+  const current = stylePairs(attributes.style)
+  const width = parseInt(String(current.width ?? attributes.width ?? ''), 10)
+  const radius = parseInt(current['border-radius'] ?? '', 10)
+  const framed = Boolean(current.border) && !['none', '0', '0px'].includes(current.border)
+
+  // A mail client reads the width attribute; a browser reads the style. Write both.
+  const write = (patch: Record<string, string>) => {
+    const next = { ...current, ...patch }
+    const pixels = parseInt(next.width ?? '', 10)
+    editor
+      .chain()
+      .focus()
+      .updateAttributes('image', {
+        style: styleText(next) || null,
+        width: Number.isFinite(pixels) ? String(pixels) : null,
+      })
+      .run()
+  }
+
+  return (
+    <Group>
+      <span className={styles.rteGridLabel}>Image</span>
+      <input
+        className={styles.rteSizeSelect}
+        type="number"
+        min={24}
+        max={800}
+        step={10}
+        title="Width in pixels"
+        aria-label="Image width in pixels"
+        value={Number.isFinite(width) ? width : ''}
+        onChange={event => write({ width: event.target.value ? `${event.target.value}px` : '', height: 'auto' })}
+      />
+      <Btn
+        title={framed ? 'Remove the border' : 'Add a border'}
+        active={framed}
+        onClick={() =>
+          write(
+            framed
+              ? { border: '', padding: '', 'border-radius': '' }
+              : { border: `1px solid ${CLIENT_BRAND.accent}`, padding: '8px', 'border-radius': '8px' },
+          )
+        }
+        wide
+      >
+        Border
+      </Btn>
+      {framed && (
+        <>
+          <input
+            className={styles.rteSizeSelect}
+            type="number"
+            min={0}
+            max={200}
+            title="Corner radius in pixels"
+            aria-label="Corner radius in pixels"
+            value={Number.isFinite(radius) ? radius : 0}
+            onChange={event => write({ 'border-radius': `${event.target.value || 0}px` })}
+          />
+          {[CLIENT_BRAND.accent, ...TEXT_COLOURS].map(colour => (
+            <button
+              key={colour}
+              type="button"
+              className={styles.rteSwatch}
+              style={{ background: colour }}
+              title={`Border colour ${colour}`}
+              aria-label={`Border colour ${colour}`}
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => write({ border: `1px solid ${colour}` })}
+            />
+          ))}
+        </>
+      )}
+    </Group>
+  )
+}
+
 function TableTools({ editor }: { editor: Editor }) {
   return (
     <Group>
@@ -446,6 +571,7 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
       </div>
 
       {editor.isActive('table') && <TableTools editor={editor} />}
+      {editor.isActive('image') && <ImageTools editor={editor} />}
 
       <Group>
         <Btn title="Undo" onClick={() => editor.chain().focus().undo().run()}>
@@ -520,7 +646,7 @@ export default function RichEditor({
       Color,
       Highlight.configure({ multicolor: true }),
       Link.configure({ openOnClick: false, autolink: true }),
-      Image.configure({ inline: false }),
+      StyledImage.configure({ inline: false }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Table.configure({ resizable: false }),
       TableRow,

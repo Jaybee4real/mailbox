@@ -50,15 +50,3 @@ export function clientSignatureMarkStyle(width: number): string {
   const frame = !colour || colour === 'none' ? 'border:0;' : `padding:8px;border:1px solid ${colour};border-radius:${radius}px;`
   return `display:block;width:${width}px;height:auto;${frame}`
 }
-
-/** Re-applies the tenant's frame to the brand mark wherever it appears in signature HTML; the editor drops inline styles on images. */
-export function frameSignatureMark(html: string): string {
-  const mark = CLIENT_BRAND.markUrl
-  if (!mark || !html.includes('<img')) return html
-  return html.replace(/<img\b([^>]*?)\s*\/?>/g, (tag, attrs: string) => {
-    if (!attrs.includes(mark)) return tag
-    const width = Number(/\bwidth="?(\d+)/.exec(attrs)?.[1]) || 200
-    const cleaned = attrs.replace(/\sstyle="[^"]*"/, '')
-    return `<img${cleaned} style="${clientSignatureMarkStyle(width)}" />`
-  })
-}

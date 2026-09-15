@@ -22,7 +22,7 @@ const ATTACH_LIMIT_BYTES = 20 * 1024 * 1024
 // No bytes for this long means the connection has gone, however healthy the request looks.
 const STALL_AFTER_MS = 45_000
 
-import { CLIENT_BRAND, LS, clientSignatureMarkStyle, frameSignatureMark } from '@/lib/brand.client'
+import { CLIENT_BRAND, LS, clientSignatureMarkStyle } from '@/lib/brand.client'
 import { accentScale, hexToHsl } from '@/lib/accent-ramp'
 
 const LS_EMAIL_KEY = LS('email')
@@ -303,7 +303,7 @@ const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const DEFAULT_SETTINGS: MailSettings = {
   signature: '',
   signatureLogo: '',
-  senderName: CLIENT_BRAND.name,
+  senderName: '',
   confirmSend: false,
   showRemoteImages: true,
   notifications: false,
@@ -3019,7 +3019,7 @@ export default function DevMailPage() {
     CLIENT_BRAND,
   )
   const ownSignature = settings.signature.trim()
-  const signatureBody = frameSignatureMark(ownSignature || houseSignature)
+  const signatureBody = ownSignature || houseSignature
   // A hand-written signature replaces the house one wholesale, mark included, so the firm's
   // mark goes back on top unless that signature already carries an image of its own.
   const signatureMarkSrc = settings.signatureLogo || (/<img\b/i.test(signatureBody) ? '' : CLIENT_BRAND.markUrl)
@@ -6979,7 +6979,7 @@ export default function DevMailPage() {
               <input
                 value={settings.senderName}
                 onChange={event => setMailSettings(current => ({ ...current, senderName: event.target.value }))}
-                placeholder={CLIENT_BRAND.name}
+                placeholder={(account as unknown as { name?: string | null } | null)?.name || CLIENT_BRAND.name}
               />
             </label>
             <div className={styles.settingsField}>
