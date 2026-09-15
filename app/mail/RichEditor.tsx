@@ -19,13 +19,6 @@ import styles from './page.module.css'
 
 const TEXT_COLOURS = ['#030712', '#b91c1c', '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#6b7280']
 const HIGHLIGHTS = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FBCFE8', '#FED7AA']
-const SIZES: Array<{ label: string; level: 1 | 2 | 3 | null }> = [
-  { label: 'Body', level: null },
-  { label: 'Heading 1', level: 1 },
-  { label: 'Heading 2', level: 2 },
-  { label: 'Heading 3', level: 3 },
-]
-
 function Group({ children }: { children: React.ReactNode }) {
   return <div className={styles.rteGroup}>{children}</div>
 }
@@ -615,19 +608,6 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
   return (
     <div className={styles.rteToolbar} role="toolbar" aria-label="Formatting">
       <Group>
-        <MailSelect
-          buttonClassName={styles.rteSelect}
-          ariaLabel="Text style"
-          value={SIZES.find(size => size.level && editor.isActive('heading', { level: size.level }))?.label ?? 'Body'}
-          options={SIZES.map(size => ({ value: size.label, label: size.label }))}
-          onChange={label => {
-            const size = SIZES.find(entry => entry.label === label)
-            if (!size) return
-            const chain = editor.chain().focus()
-            if (size.level) chain.setHeading({ level: size.level }).run()
-            else chain.setParagraph().run()
-          }}
-        />
         <MailSelect
           buttonClassName={styles.rteSelect}
           ariaLabel="Font"

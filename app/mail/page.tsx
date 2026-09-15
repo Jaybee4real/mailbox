@@ -7221,14 +7221,14 @@ export default function DevMailPage() {
 
             {settingsTab === 'signature' && (<>
             {isAdmin && (
-              <div className={styles.sigTabs} role="tablist" aria-label="Whose signature">
+              <div className={styles.sigTabRow} role="tablist" aria-label="Whose signature">
                 {([['personal', 'Personal'], ['company', 'Company']] as Array<['personal' | 'company', string]>).map(([key, label]) => (
                   <button
                     key={key}
                     type="button"
                     role="tab"
                     aria-selected={signatureTab === key}
-                    className={`${styles.sigTab} ${signatureTab === key ? styles.sigTabOn : ''}`}
+                    className={`${styles.themeChip} ${signatureTab === key ? styles.themeChipOn : ''}`}
                     onClick={() => setSignatureTab(key)}
                   >
                     {label}

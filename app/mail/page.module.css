@@ -300,27 +300,11 @@
   color: var(--nc-fg-4);
 }
 .settingsCrumb span { margin: 0 2px; }
-.sigTabs {
-  display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  margin-bottom: 16px;
-  border: 1px solid var(--nc-line-1);
-  border-radius: 10px;
-  background: var(--nc-ink-2);
+.sigTabRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
 }
-.sigTab {
-  padding: 7px 16px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--nc-fg-3);
-  font: 600 13px/1 var(--nc-font-sans);
-  cursor: pointer;
-  transition: background-color var(--dur-fast) var(--nc-ease-out), color var(--dur-fast) var(--nc-ease-out);
-}
-.sigTab:hover { color: var(--nc-fg-1); }
-.sigTabOn { background: var(--nc-ink-0); color: var(--nc-fg-1); box-shadow: 0 1px 3px rgba(0,0,0,.18); }
 .rteSwatchCustom {
   display: inline-flex;
   align-items: center;
