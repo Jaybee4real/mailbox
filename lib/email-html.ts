@@ -160,7 +160,10 @@ export function outlookSafeImages(html: string): string {
       'border-radius': framed ? (style['border-radius'] ?? '') : '',
       padding: framed ? (style.padding ?? '0') : '0',
     })
+    // align="left" on a table is a float in HTML, and the signature then wrapped itself
+    // around the logo. Only centring and right alignment name an alignment at all.
+    const aligned = align === 'left' ? '' : ` align="${align}"`
     const outer = align === 'center' ? 'margin:0 auto;' : align === 'right' ? 'margin-left:auto;' : ''
-    return `<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="${align}" style="border-collapse:separate;${outer}"><tr><td style="${cell}">${inner}</td></tr></table>`
+    return `<table role="presentation" border="0" cellpadding="0" cellspacing="0"${aligned} style="border-collapse:separate;${outer}"><tr><td style="${cell}">${inner}</td></tr></table>`
   })
 }

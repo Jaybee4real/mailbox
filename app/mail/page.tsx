@@ -12,7 +12,7 @@ import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeI
 import { BUILTIN_FONTS, EMPTY_FONT, FONT_SIZES, fontFaceCss, fontStack, type BaseFont, type CustomFont } from '@/lib/fonts'
 import MailSelect from './MailSelect'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
-import { defaultSignature } from '@/lib/default-signature'
+import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
 
 // Files up to this size ride along as real email attachments; larger ones are
@@ -101,7 +101,7 @@ function themeVars(accent: string, base: ThemeBase, custom: ThemeCustom): React.
   }
   return vars as React.CSSProperties
 }
-type MailAccountInfo = { email: string; address: string | null; role: 'admin' | 'member'; defaultPassword?: boolean }
+type MailAccountInfo = { email: string; address: string | null; name?: string | null; role: 'admin' | 'member'; defaultPassword?: boolean }
 type Accessor = {
   email: string
   name: string | null
@@ -1542,6 +1542,9 @@ export default function DevMailPage() {
     if (storedLayout === 'list' || storedLayout === 'bubbles') setReaderLayout(storedLayout)
   }, [])
 
+  // The signature the firm maintains, which everyone without one of their own sends under.
+  const [companySignature, setCompanySignature] = useState('')
+  const [companySignatureEdited, setCompanySignatureEdited] = useState(false)
   const [prefsLoaded, setPrefsLoaded] = useState(false)
   useEffect(() => {
     if (!isLoggedIn || !prefsLoaded) return
@@ -2221,10 +2224,16 @@ export default function DevMailPage() {
         setPrefsLoaded(true)
       })
       .catch(() => {})
+    fetch('/api/mail/company-signature', { headers })
+      .then(response => response.json())
+      .then(data => {
+        if (data.ok && typeof data.signature === 'string') setCompanySignature(data.signature)
+      })
+      .catch(() => {})
     fetch('/api/mail/me', { headers })
       .then(response => response.json())
       .then(data => {
-        if (data.ok) setAccount({ email: data.email, address: data.address ?? null, role: data.role, defaultPassword: Boolean(data.defaultPassword) })
+        if (data.ok) setAccount({ email: data.email, address: data.address ?? null, name: data.name ?? null, role: data.role, defaultPassword: Boolean(data.defaultPassword) })
       })
       .catch(() => {})
   }, [isLoggedIn, apiHeaders])
@@ -3022,20 +3031,29 @@ export default function DevMailPage() {
 
   const closeSettings = useCallback(() => {
     saveSettings(settings)
+    if (companySignatureEdited) {
+      void fetch('/api/mail/company-signature', {
+        method: 'PUT',
+        headers: apiHeaders(),
+        body: JSON.stringify({ signature: companySignature }),
+      }).catch(() => {})
+      setCompanySignatureEdited(false)
+    }
     setSettingsOpen(false)
-  }, [saveSettings, settings])
+  }, [saveSettings, settings, companySignature, companySignatureEdited, apiHeaders])
 
   // Absolute, because the recipient's mail client has no idea what our origin is.
   const absoluteLogo = (path: string) =>
     path.startsWith('http') ? path : `${typeof window === 'undefined' ? '' : window.location.origin}${path}`
   // Nobody should send mail signed as "the team". A mailbox with nothing written of its
   // own gets the house signature under its own name, in the form the firm already uses.
-  const houseSignature = defaultSignature(
-    settings.senderName.trim() || (account as unknown as { name?: string | null } | null)?.name || '',
-    account?.address || email || '',
-    undefined,
-    CLIENT_BRAND,
-  )
+  const identityFor = {
+    name: settings.senderName.trim() || account?.name || '',
+    email: account?.address || email || '',
+  }
+  const houseSignature = companySignature.trim()
+    ? fillSignature(companySignature, identityFor)
+    : defaultSignature(identityFor.name, identityFor.email, undefined, CLIENT_BRAND)
   const ownSignature = settings.signature.trim()
   const signatureBody = ownSignature || houseSignature
   // A hand-written signature replaces the house one wholesale, mark included, so the firm's
@@ -3046,6 +3064,14 @@ export default function DevMailPage() {
     : ''
   const signatureHtml = `<div style="margin-top:26px;padding-top:18px;border-top:1px solid #E8E2F4;">${signatureLogoHtml}${asRichHtml(dropUnreachableImages(signatureBody))}</div>`
   const signatureText = `\n\n${htmlToPlainText(asRichHtml(signatureBody))}`
+  // Airy is not only more room: it is the setting for someone who never wants to see the
+  // source of a message or how it was authenticated.
+  const plainSpoken = settings.density === 'relaxed'
+  useEffect(() => {
+    if (!plainSpoken) return
+    setReaderMode(current => (current === 'html' || current === 'raw' ? 'preview' : current))
+    setReplyMode(current => (current === 'html' || current === 'raw' ? 'write' : current))
+  }, [plainSpoken])
   const fontCss = fontFaceCss(settings.fonts ?? [], CLIENT_BRAND.publicUrl)
   const defaultFont = settings.defaultFont ?? EMPTY_FONT
 
@@ -4216,7 +4242,7 @@ export default function DevMailPage() {
     }
   }
 
-  const accountName = (account as unknown as { name?: string | null } | null)?.name ?? null
+  const accountName = account?.name ?? null
   const identityName =
     settings.senderName.trim() || accountName || (account?.address || email || '').split('@')[0] || 'Not signed in'
   const identityInitial = identityName.trim().charAt(0).toUpperCase() || '?'
@@ -5057,7 +5083,7 @@ export default function DevMailPage() {
                 {inbound.replyTo.length > 0 && <div><dt>Reply-To</dt><dd>{inbound.replyTo.join(', ')}</dd></div>}
                 <div><dt>Date</dt><dd>{new Date(inbound.receivedAt).toUTCString()}</dd></div>
                 <div><dt>Message ID</dt><dd>{headerValue(inbound, 'message-id') || inbound.id}</dd></div>
-                {authSummary(inbound) && <div><dt>Security</dt><dd>{authSummary(inbound)}</dd></div>}
+                {!plainSpoken && authSummary(inbound) && <div><dt>Security</dt><dd>{authSummary(inbound)}</dd></div>}
                 {inbound.labels.length > 0 && <div><dt>Labels</dt><dd>{inbound.labels.join(', ')}</dd></div>}
               </dl>
             )}
@@ -5151,12 +5177,12 @@ export default function DevMailPage() {
           </div>
           <div className={styles.readerModeBar}>
             <div className={styles.readerModeTabs}>
-              {([
+              {(([
                 ['preview', 'Preview'],
                 ['plain', 'Plain text'],
                 ['html', 'HTML'],
                 ['raw', 'Raw'],
-              ] as const).map(([mode, label]) => (
+              ] as const).filter(([mode]) => !plainSpoken || mode === 'preview' || mode === 'plain')).map(([mode, label]) => (
                 <button
                   key={mode}
                   className={`${styles.modeTab} ${readerMode === mode ? styles.modeTabActive : ''}`}
@@ -5370,13 +5396,13 @@ export default function DevMailPage() {
                   Sig
                 </button>
                 <div className={styles.modeTabs}>
-                  {([
+                  {(([
                     ['write', 'Write'],
                     ['preview', 'Preview'],
                     ['plain', 'Plain text'],
                     ['html', 'HTML'],
                     ['raw', 'Raw'],
-                  ] as [ReplyMode, string][]).map(([mode, label]) => (
+                  ] as [ReplyMode, string][]).filter(([mode]) => !plainSpoken || mode === 'write' || mode === 'preview')).map(([mode, label]) => (
                     <button
                       key={mode}
                       type="button"
@@ -6380,7 +6406,9 @@ export default function DevMailPage() {
               </button>
             ))
           )}
-          {moreCursor && (
+          {/* Nothing to load more of when nothing is listed: the skeleton under an empty
+              folder read as a mailbox that never finished loading. */}
+          {moreCursor && listItems.length > 0 && (
             <div className={styles.listSentinel} aria-busy={loadingMore}>
               {[0, 1, 2].map(row => (
                 <div key={row} className={styles.rowSkeleton} aria-hidden>
@@ -6466,9 +6494,11 @@ export default function DevMailPage() {
                   onClick={() => setComposeExpanded(open => !open)}
                   type="button"
                   aria-pressed={composeExpanded}
-                  title={composeExpanded ? 'Shrink to a panel' : 'Fill the pane'}
+                  aria-label={composeExpanded ? 'Shrink back to a panel' : 'Open full width'}
+                  title={composeExpanded ? 'Shrink back to a panel' : 'Open full width'}
                 >
-                  {composeExpanded ? 'Shrink' : 'Expand'}
+                  <span className={styles.composeExpandGlyph} aria-hidden>{composeExpanded ? '\u21f2' : '\u21f1'}</span>
+                  {composeExpanded ? 'Shrink' : 'Full width'}
                 </button>
                 <button className={styles.composeDiscard} onClick={discardCompose}>
                   Discard
@@ -6992,7 +7022,7 @@ export default function DevMailPage() {
               <input
                 value={settings.senderName}
                 onChange={event => setMailSettings(current => ({ ...current, senderName: event.target.value }))}
-                placeholder={(account as unknown as { name?: string | null } | null)?.name || CLIENT_BRAND.name}
+                placeholder={account?.name || CLIENT_BRAND.name}
               />
             </label>
             <div className={styles.settingsField}>
@@ -7082,6 +7112,43 @@ export default function DevMailPage() {
                 </div>
               )}
             </div>
+            {isAdmin && (
+              <div className={styles.settingsField}>
+                <span>Company signature</span>
+                <div className={styles.sigState}>
+                  <span className={styles.sigStateText}>
+                    Everyone who has not written their own sends under this. Write
+                    {' '}<code className={styles.sigToken}>{'{{name}}'}</code>,{' '}
+                    <code className={styles.sigToken}>{'{{email}}'}</code> or{' '}
+                    <code className={styles.sigToken}>{'{{mobile}}'}</code> where the person goes.
+                  </span>
+                  {companySignature.trim() && (
+                    <button
+                      type="button"
+                      className={styles.sigReset}
+                      onClick={() => {
+                        setCompanySignature('')
+                        setCompanySignatureEdited(true)
+                      }}
+                    >
+                      Back to the built-in one
+                    </button>
+                  )}
+                </div>
+                <RichEditor
+                  html={asRichHtml(companySignature || houseSignature)}
+                  onChange={next => {
+                    setCompanySignature(next === '<p></p>' ? '' : dropUnreachableImages(next))
+                    setCompanySignatureEdited(true)
+                  }}
+                  placeholder="The signature everyone sends under"
+                  uploadImage={uploadInlineImage}
+                  fonts={(settings.fonts ?? []).map(font => font.name)}
+                  fontFaceCss={fontCss}
+                  baseFont={defaultFont}
+                />
+              </div>
+            )}
             <div className={styles.settingsField}>
               <span>Default font for new mail</span>
               <div className={styles.fontAdd}>

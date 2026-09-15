@@ -58,7 +58,8 @@ assert.equal(outlookSafeImages(plainImage), plainImage)
 
 // A framed one becomes a one-cell table, because Word ignores borders on an image.
 const framed = outlookSafeImages('<img src="https://x.test/m.png" style="display:block;width:140px;border:1px solid #a90317;padding:8px;border-radius:8px;">')
-assert.match(framed, /<table[^>]+align="left"/, 'framed image is wrapped in a table')
+assert.match(framed, /<table[^>]*>/, 'framed image is wrapped in a table')
+assert.ok(!framed.includes('align="left"'), 'and never floated, which would wrap the signature around it')
 assert.match(framed, /<td style="[^"]*border:1px solid #a90317/, 'the border moves to the cell')
 assert.match(framed, /<td style="[^"]*padding:8px/, 'so does the padding')
 assert.match(framed, /<img[^>]+style="display:block;width:140px;height:auto;border:0"/, 'the image itself is left plain')

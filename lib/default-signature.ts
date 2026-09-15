@@ -55,3 +55,14 @@ export function defaultSignature(name: string | null | undefined, address: strin
     `<p><span style="font-size: 8pt; color: ${muted};">${escapeHtml(brand.disclaimer)}</span></p>`,
   ].join('')
 }
+
+/**
+ * Put a person into the signature the firm wrote. The placeholders are the only thing the
+ * editor of that signature has to know about, so they are spelled the way people expect.
+ */
+export function fillSignature(template: string, who: { name: string; email: string; mobile?: string }): string {
+  return template
+    .replace(/\{\{\s*name\s*\}\}/gi, escapeHtml(who.name))
+    .replace(/\{\{\s*email\s*\}\}/gi, escapeHtml(who.email))
+    .replace(/\{\{\s*mobile\s*\}\}/gi, escapeHtml(who.mobile ?? ''))
+}

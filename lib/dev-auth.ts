@@ -201,18 +201,18 @@ export async function authenticate(req: Request): Promise<string | null> {
  */
 export async function resolveAccount(
   req: Request,
-): Promise<{ email: string; address: string | null; role: MailRole }> {
+): Promise<{ email: string; address: string | null; name: string | null; role: MailRole }> {
   const identity = (await authenticate(req)) ?? ''
   if (identity) {
     const account = await getAccount(identity)
-    if (account) return { email: account.email, address: account.address, role: account.role }
-    return { email: identity, address: null, role: 'member' }
+    if (account) return { email: account.email, address: account.address, name: account.name ?? null, role: account.role }
+    return { email: identity, address: null, name: null, role: 'member' }
   }
 
   // No session means no identity, on localhost as anywhere else. Standing in for the
   // admin owner here meant that signing in as one person and losing the session for any
   // reason silently showed you the shared inbox instead of theirs.
-  return { email: '', address: null, role: 'member' }
+  return { email: '', address: null, name: null, role: 'member' }
 }
 
 /** Guard for mail routes: a valid session or credential headers, localhost included. */

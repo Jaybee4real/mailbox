@@ -1479,6 +1479,15 @@
   transition: color var(--dur-fast) var(--nc-ease-out), border-color var(--dur-fast) var(--nc-ease-out);
 }
 .sigReset:hover { color: var(--nc-violet-500); border-color: var(--nc-violet-500); }
+.sigStateText { max-width: 60ch; line-height: 1.5; }
+.sigToken {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--nc-ink-3);
+  font-family: var(--nc-font-mono);
+  font-size: 11px;
+  color: var(--nc-fg-2);
+}
 .rteSurface table { border-collapse: collapse; margin: 0 0 14px; width: 100%; }
 .rteSurface td, .rteSurface th {
   border: 1px solid var(--nc-line-2);
@@ -1498,6 +1507,7 @@
   cursor: pointer;
 }
 .composeExpandBtn:hover { border-color: var(--nc-violet-500); color: var(--nc-fg-1); }
+.composeExpandGlyph { font-size: 13px; line-height: 1; }
 
 /* What will be appended on send, shown so the composer does not look signature-less. */
 .composeSignature {
