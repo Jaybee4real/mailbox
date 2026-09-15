@@ -291,7 +291,7 @@ type MailSettings = {
   showRemoteImages: boolean
   notifications: boolean
   desktopNotifications: boolean
-  density: 'comfortable' | 'compact'
+  density: 'compact' | 'relaxed'
   notifyEmail: string
   fonts: CustomFont[]
   defaultFont: BaseFont
@@ -309,7 +309,7 @@ const DEFAULT_SETTINGS: MailSettings = {
   notifications: false,
   notifyEmail: '',
   desktopNotifications: false,
-  density: 'comfortable',
+  density: 'compact',
   fonts: [],
   defaultFont: EMPTY_FONT,
 }
@@ -1412,6 +1412,8 @@ export default function DevMailPage() {
   const [replyCc, setReplyCc] = useState<string[]>([])
   const [replyBcc, setReplyBcc] = useState<string[]>([])
   const [replyRecipsOpen, setReplyRecipsOpen] = useState(false)
+  // Once the recipients have been touched they are the writer's, including when emptied.
+  const [replyRecipsEdited, setReplyRecipsEdited] = useState(false)
   const quickReplyRef = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
     setQuickReply('')
@@ -1423,6 +1425,7 @@ export default function DevMailPage() {
     setReplyCc([])
     setReplyBcc([])
     setReplyRecipsOpen(false)
+    setReplyRecipsEdited(false)
   }, [selectedId])
   // Grow the reply box to fit its content; the CSS max-height caps it (8 lines) and scrolls past it.
   useEffect(() => {
@@ -2204,7 +2207,11 @@ export default function DevMailPage() {
       .then(response => response.json())
       .then(data => {
         if (data.ok && data.settings) {
-          setMailSettings(current => ({ ...current, ...data.settings }))
+          const stored = data.settings as MailSettings & { density?: string }
+          // "Comfortable" was the old name for a setting that changed nothing; it maps onto
+          // the roomy one now that the two actually differ.
+          const density: MailSettings['density'] = stored.density === 'compact' ? 'compact' : stored.density ? 'relaxed' : 'compact'
+          setMailSettings(current => ({ ...current, ...data.settings, density }))
           const prefs = (data.settings as MailSettings).prefs
           if (prefs?.theme) { setThemePref(prefs.theme); localStorage.setItem(LS_THEME_KEY, prefs.theme) }
           if (prefs?.accent && hexToHsl(prefs.accent)) { setAccent(prefs.accent); localStorage.setItem(LS_ACCENT_KEY, prefs.accent) }
@@ -3695,10 +3702,19 @@ export default function DevMailPage() {
   const buildReplyDraft = (entry: InboundEmail): ComposeData => {
     const target = quickReplyTarget(entry)
     const fallback = defaultReplyRecipient(entry)
+    // Replying to everyone is the default: a conversation that reached four people is
+    // answered to those four, and trimming the list is the deliberate act.
+    const everyone = replyAllRecipients(entry)
     return {
       ...EMPTY_COMPOSE,
-      to: replyToList.length ? replyToList : fallback ? [fallback] : [],
-      cc: replyCc,
+      to: replyRecipsEdited || replyToList.length
+        ? replyToList
+        : everyone.to.length
+          ? everyone.to
+          : fallback
+            ? [fallback]
+            : [],
+      cc: replyRecipsEdited || replyCc.length ? replyCc : everyone.cc,
       bcc: replyBcc,
       subject: target.subject.startsWith('Re:') ? target.subject : `Re: ${target.subject}`,
       markdown: quickReply,
@@ -3709,19 +3725,15 @@ export default function DevMailPage() {
     }
   }
 
-  const applyReplyAll = (entry: InboundEmail) => {
-    const { to, cc } = replyAllRecipients(entry)
-    setReplyToList(to)
-    setReplyCc(cc)
-    setReplyRecipsOpen(true)
-  }
-
-  // Seed the To field with the sender the first time the recipients panel is opened.
+  // Fill the fields with everyone the reply is already going to, so opening the panel shows
+  // what will happen rather than an empty box.
   const toggleReplyRecips = (entry: InboundEmail) => {
     setReplyRecipsOpen(open => {
       if (!open && !replyToList.length) {
+        const { to, cc } = replyAllRecipients(entry)
         const sender = defaultReplyRecipient(entry)
-        if (sender) setReplyToList([sender])
+        setReplyToList(to.length ? to : sender ? [sender] : [])
+        if (cc.length) setReplyCc(cc)
       }
       return !open
     })
@@ -5054,9 +5066,6 @@ export default function DevMailPage() {
             <button className={styles.actionBtn} onClick={() => replyTo(inbound)}>
               {ICONS.reply} Reply
             </button>
-            <button className={styles.actionBtn} onClick={() => replyAllTo(inbound)}>
-              {ICONS.replyAll} Reply all
-            </button>
             <button className={styles.actionBtn} onClick={() => forwardEmail(inbound.subject, inbound.html, inbound.text, inbound.id)}>
               {ICONS.forward} Forward
             </button>
@@ -5324,28 +5333,20 @@ export default function DevMailPage() {
                     <span className={styles.replyRecipsChevron}>{ICONS.chevron}</span>
                     <span className={styles.replyRecipsSummary}>{recipSummary}</span>
                   </button>
-                  <button
-                    type="button"
-                    className={styles.replyAllChip}
-                    onClick={() => applyReplyAll(inbound)}
-                    title="Add everyone in the conversation"
-                  >
-                    {ICONS.replyAll} Reply all
-                  </button>
                 </div>
                 {replyRecipsOpen && (
                   <div className={styles.replyRecipsFields}>
                     <div className={styles.replyRecipRow}>
                       <span className={styles.replyRecipLabel}>To</span>
-                      <ChipField chips={replyToList} onChange={setReplyToList} placeholder="someone@example.com" suggest={suggestContacts} />
+                      <ChipField chips={replyToList} onChange={next => { setReplyRecipsEdited(true); setReplyToList(next) }} placeholder="someone@example.com" suggest={suggestContacts} />
                     </div>
                     <div className={styles.replyRecipRow}>
                       <span className={styles.replyRecipLabel}>Cc</span>
-                      <ChipField chips={replyCc} onChange={setReplyCc} placeholder="cc@example.com" suggest={suggestContacts} />
+                      <ChipField chips={replyCc} onChange={next => { setReplyRecipsEdited(true); setReplyCc(next) }} placeholder="cc@example.com" suggest={suggestContacts} />
                     </div>
                     <div className={styles.replyRecipRow}>
                       <span className={styles.replyRecipLabel}>Bcc</span>
-                      <ChipField chips={replyBcc} onChange={setReplyBcc} placeholder="bcc@example.com" suggest={suggestContacts} />
+                      <ChipField chips={replyBcc} onChange={next => { setReplyRecipsEdited(true); setReplyBcc(next) }} placeholder="bcc@example.com" suggest={suggestContacts} />
                     </div>
                   </div>
                 )}
@@ -5739,6 +5740,7 @@ export default function DevMailPage() {
   return (
     <div
       className={styles.app}
+      data-density={settings.density === 'relaxed' ? 'relaxed' : 'compact'}
       data-mail-theme={themePreview?.base ?? resolvedTheme}
       data-lenis-prevent
       style={{
@@ -6968,8 +6970,8 @@ export default function DevMailPage() {
               <span>Density</span>
               <div className={styles.themeRow}>
                 {([
-                  ['comfortable', 'Comfortable'],
                   ['compact', 'Compact'],
+                  ['relaxed', 'Airy'],
                 ] as Array<[MailSettings['density'], string]>).map(([value, label]) => (
                   <button
                     key={value}
