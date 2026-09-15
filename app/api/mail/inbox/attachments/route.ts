@@ -33,7 +33,19 @@ export async function GET(req: Request) {
       contentType: typeof entry.contentType === 'string' ? entry.contentType : undefined,
       downloadUrl: `/api/mail/inbox/attachments/download?id=${encodeURIComponent(id)}&index=${index}`,
     }))
-  if (stored.length) return NextResponse.json({ ok: true, attachments: stored })
+  // A file too big to send was put behind a share page instead. We hold no bytes for it,
+  // but it is not lost: it has somewhere to go, and a tile with nowhere to go is a dead end.
+  const shared = held
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => typeof entry.shareId === 'string' && entry.shareId && !entry.key)
+    .map(({ entry }) => ({
+      filename: String(entry.filename ?? 'attachment'),
+      size: Number(entry.size ?? 0),
+      contentType: typeof entry.contentType === 'string' ? entry.contentType : undefined,
+      shareId: String(entry.shareId),
+      downloadUrl: `/share/${encodeURIComponent(String(entry.shareId))}`,
+    }))
+  if (stored.length || shared.length) return NextResponse.json({ ok: true, attachments: [...stored, ...shared] })
 
   // Nothing of ours yet: this message predates the copy-on-arrival. Pull the bytes from
   // the provider now and keep them, so the next reader is served from here and the file

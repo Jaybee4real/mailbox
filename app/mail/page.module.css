@@ -6183,6 +6183,12 @@
 .selectChevronBtn { display: inline-flex; align-items: center; padding: 0 4px; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .mailboxDomainSelect.selectBtn { padding: 4px 6px; background: transparent; border: 0; }
 
+.attachGone {
+  font: 500 12px/1 var(--nc-font-sans);
+  color: var(--nc-fg-4);
+  padding: 6px 2px;
+}
+
 /* ── Installed on a phone ────────────────────────────────────
    Standalone, the app owns the whole screen: the status bar sits over the top of it and
    the home indicator over the bottom, so every edge has to keep clear of them. Touch also

@@ -930,6 +930,9 @@ const attachMeta = (attachments: Array<Record<string, unknown>> | undefined) =>
       filename: entry.filename,
       contentType: entry.contentType,
       size: entry.size,
+      // Without this the list forgets the file was a shared link, and the tile it draws
+      // offers neither a preview nor anywhere to go.
+      ...(entry.shareId ? { shareId: entry.shareId } : {}),
     })),
   )
 

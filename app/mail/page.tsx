@@ -4553,6 +4553,10 @@ export default function DevMailPage() {
     setThreadExpanded(isOpen ? new Set() : new Set([message.id]))
   }
 
+  /** Only some kinds open in the lightbox; a zip has nothing to show, so it only downloads. */
+  const previewable = (attachment: DownloadAttachment) =>
+    ['image', 'pdf', 'text', 'video', 'audio'].includes(attachmentKind(attachment.filename))
+
   // Attachment strip: thumbnail (images) or typed card, each with Preview + Download.
   const renderAttachmentTiles = (fullList: DownloadAttachment[]) => {
     const embedded = fullList.filter(isEmbeddedImage)
@@ -4581,6 +4585,7 @@ export default function DevMailPage() {
                 type="button"
                 className={styles.attachThumb}
                 disabled={!usable && !attachment.shareId}
+                title={usable || attachment.shareId ? undefined : 'This file is no longer stored'}
                 onClick={() =>
                   attachment.shareId
                     ? window.open(attachment.downloadUrl, '_blank', 'noopener')
@@ -4613,22 +4618,24 @@ export default function DevMailPage() {
                   <a className={styles.attachAction} href={attachment.downloadUrl} target="_blank" rel="noopener noreferrer">
                     Open link
                   </a>
-                ) : (
+                ) : usable ? (
                   <>
-                    <button
-                      type="button"
-                      className={styles.attachAction}
-                      disabled={!usable}
-                      onClick={() => usable && setPreview({ items: ready, index: Math.max(0, previewIndex) })}
-                    >
-                      Preview
-                    </button>
-                    {usable && (
-                      <a className={styles.attachAction} href={attachment.downloadUrl} target="_blank" rel="noopener noreferrer">
-                        Download
-                      </a>
+                    {previewable(attachment) && (
+                      <button
+                        type="button"
+                        className={styles.attachAction}
+                        onClick={() => setPreview({ items: ready, index: Math.max(0, previewIndex) })}
+                      >
+                        Preview
+                      </button>
                     )}
+                    <a className={styles.attachAction} href={attachment.downloadUrl} target="_blank" rel="noopener noreferrer">
+                      Download
+                    </a>
                   </>
+                ) : (
+                  // No bytes and no link: say so, rather than offer a button that does nothing.
+                  <span className={styles.attachGone}>Not available</span>
                 )}
               </div>
             </div>
