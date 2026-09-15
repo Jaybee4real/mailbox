@@ -1,6 +1,6 @@
 import { BRAND } from '@/lib/brand'
 import type { Metadata, Viewport } from 'next'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -24,7 +24,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body
+        style={{ ['--brand-mark' as string]: `url('${BRAND.chromeMarkUrl}')` } as CSSProperties}
+      >
+        {children}
+      </body>
     </html>
   )
 }
