@@ -89,7 +89,7 @@ export function parseQuery(raw: string): ParsedQuery {
 }
 
 /** "7d" / "2w" / "3m" / "1y" -> milliseconds. */
-function duration(value: string): number | null {
+export function duration(value: string): number | null {
   const match = value.match(/^(\d+)\s*([dwmy])$/)
   if (!match) return null
   const amount = Number(match[1])

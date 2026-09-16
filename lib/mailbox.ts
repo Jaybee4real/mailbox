@@ -11,6 +11,7 @@ import { ADDRESS_ALIASES, MAIL_SEATS, type MailRole } from './brand'
 import { d1, d1Batch, d1Query } from './d1'
 import { stripCidPlaceholders } from './email-html'
 import { hashPassword } from './password'
+import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
 import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
 
@@ -1562,14 +1563,121 @@ export async function recordSentMessage(message: SentMessage): Promise<void> {
     ON CONFLICT (id) DO NOTHING`
 }
 
-export async function readSentArchive(): Promise<SentMessage[]> {
+/**
+ * Which columns a search term can narrow in SQL. The precise decision is still made by
+ * matchesQuery on the rows that come back; this only keeps the scan from reading every
+ * body in the archive. A term it cannot express leaves its group unnarrowed rather than
+ * narrowing it wrongly.
+ */
+const SENT_SEARCH_COLUMNS: Record<string, string> = {
+  to: 's.to_addrs',
+  cc: 's.cc',
+  bcc: 's.bcc',
+  from: 's.from_addr',
+  subject: 's.subject',
+  // Must match the substr the exact matcher is handed, or a deep hit passes SQL then drops.
+  body: "substr(coalesce(s.body_text, ''), 1, 4000)",
+}
+
+/** A LIKE pattern for a literal term: its own wildcards are made literal too. */
+function likeLiteral(value: string): string {
+  return `%${value.replace(/[\\%_]/g, char => `\\${char}`)}%`
+}
+
+function sentSearchPrefilter(query: ParsedQuery): { clauses: string[]; args: unknown[] } {
+  const clauses: string[] = []
+  const args: unknown[] = []
+  for (const group of query.groups) {
+    const ors: string[] = []
+    const groupArgs: unknown[] = []
+    let expressible = true
+    for (const term of group) {
+      // SQLite's lower() folds ASCII only; leave such terms to the exact matcher.
+      if (/[^\x00-\x7f]/.test(term.value)) { expressible = false; break }
+      const column = term.field ? SENT_SEARCH_COLUMNS[term.field] : null
+      if (column) {
+        ors.push(`lower(coalesce(${column}, '')) ${term.negated ? 'NOT LIKE' : 'LIKE'} ? ESCAPE '\\'`)
+        groupArgs.push(likeLiteral(term.value))
+        continue
+      }
+      if (!term.field) {
+        if (term.negated) { expressible = false; break }
+        const columns = ['s.to_addrs', 's.cc', 's.from_addr', 's.subject', "substr(coalesce(s.body_text, ''), 1, 4000)"]
+        ors.push(`(${columns.map(col => `lower(coalesce(${col}, '')) LIKE ? ESCAPE '\\'`).join(' OR ')})`)
+        groupArgs.push(...columns.map(() => likeLiteral(term.value)))
+        continue
+      }
+      if (term.field === 'before' || term.field === 'after') {
+        const at = Date.parse(term.value)
+        if (Number.isNaN(at)) { expressible = false; break }
+        ors.push(`s.created_at ${term.field === 'before' ? '<' : '>'} ?`)
+        groupArgs.push(new Date(at).toISOString())
+        continue
+      }
+      if (term.field === 'older_than' || term.field === 'newer_than') {
+        const span = duration(term.value)
+        if (span == null) { expressible = false; break }
+        ors.push(`s.created_at ${term.field === 'older_than' ? '<' : '>'} ?`)
+        groupArgs.push(new Date(Date.now() - span).toISOString())
+        continue
+      }
+      expressible = false
+      break
+    }
+    if (expressible && ors.length) {
+      clauses.push(`(${ors.join(' OR ')})`)
+      args.push(...groupArgs)
+    }
+  }
+  return { clauses, args }
+}
+
+/**
+ * The sent archive for one mailbox, newest first. Unscoped, the newest 500 rows of the
+ * whole table were read and then filtered by owner, so each person saw their share of the
+ * company's last 500 sends — a quiet mailbox could see a dozen. The owner is matched on
+ * the assignment in mail_sent_meta, else on the sender address; the caller still applies
+ * its exact attribution on top.
+ *
+ * With a query, the search runs here over the whole archive instead of over whatever the
+ * client happened to have loaded, and returns the body text the matcher needs.
+ */
+export async function readSentArchive(options: {
+  ownerAddress?: string | null
+  sharedAddress?: string | null
+  query?: ParsedQuery | null
+  limit?: number
+} = {}): Promise<SentMessage[]> {
   await ensureMailSchema()
   const sql = db()
+  const limit = Math.min(Math.max(options.limit ?? 500, 1), 1000)
+  const where: string[] = ['coalesce(m.is_auto, 0) = 0']
+  const args: unknown[] = []
+
+  const owner = options.ownerAddress?.trim().toLowerCase()
+  if (owner && owner !== options.sharedAddress?.toLowerCase()) {
+    where.push(`(lower(m.owner) = ? OR ((m.owner IS NULL OR m.owner = '') AND lower(s.from_addr) LIKE ? ESCAPE '\\'))`)
+    args.push(owner, likeLiteral(owner))
+  }
+  if (options.query && !options.query.isEmpty) {
+    const prefilter = sentSearchPrefilter(options.query)
+    where.push(...prefilter.clauses)
+    args.push(...prefilter.args)
+  }
+
   // The list never shows a body, and 500 bodies is tens of megabytes — the Sent folder
-  // took half a minute to open once an archive had been imported.
-  const rows = await sql`
-    SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, created_at, last_event
-    FROM mail_sent ORDER BY created_at DESC LIMIT 500`
+  // took half a minute to open once an archive had been imported. A search needs some of
+  // it to decide bare terms, so it gets the first few thousand characters and no more.
+  const textColumn = options.query ? "substr(coalesce(s.body_text, ''), 1, 4000)" : 'NULL'
+  const rows = await tagged(
+    sql,
+    `SELECT s.id, s.from_addr, s.to_addrs, s.cc, s.bcc, s.reply_to, s.subject, s.created_at, s.last_event,
+            ${textColumn} AS text
+     FROM mail_sent s LEFT JOIN mail_sent_meta m ON m.email_id = s.id
+     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+     ORDER BY s.created_at DESC LIMIT ?`,
+    [...args, limit],
+  )
   return rows.map(row => ({
     id: String(row.id),
     from: (row.from_addr as string) ?? '',
@@ -1579,7 +1687,7 @@ export async function readSentArchive(): Promise<SentMessage[]> {
     replyTo: parseArray(row.reply_to),
     subject: (row.subject as string) ?? '',
     html: null,
-    text: null,
+    text: row.text == null ? null : String(row.text),
     createdAt: isoOrNull(row.created_at) ?? new Date(0).toISOString(),
     lastEvent: (row.last_event as string) ?? null,
   }))
@@ -1646,16 +1754,32 @@ export async function readSentMeta(emailIds?: string[]): Promise<Record<string, 
   // The caller only ever needs rows for the messages it is about to return. Unscoped,
   // this read the whole table — thirty-odd thousand rows — on every poll of every tab,
   // which is most of a month's read quota on its own.
-  const safe = (emailIds ?? []).filter(id => /^[A-Za-z0-9._:+@-]{1,200}$/.test(id))
-  const scope = emailIds ? ` WHERE email_id IN (${safe.map(id => `'${id}'`).join(',') || "''"})` : ''
-  const rows = await sql`SELECT email_id, owner, is_auto, in_reply_to FROM mail_sent_meta${scope}`
+  // The sql tag binds every interpolation as a parameter; a spliced WHERE became `... ?`,
+  // a syntax error the callers swallowed, so every lookup came back empty.
   const out: Record<string, SentMeta> = {}
-  for (const row of rows) {
-    out[String(row.email_id)] = {
-      owner: (row.owner as string) ?? null,
-      isAuto: Boolean(row.is_auto),
-      inReplyTo: (row.in_reply_to as string) ?? null,
+  const collect = (rows: Record<string, unknown>[]) => {
+    for (const row of rows) {
+      out[String(row.email_id)] = {
+        owner: (row.owner as string) ?? null,
+        isAuto: Boolean(row.is_auto),
+        inReplyTo: (row.in_reply_to as string) ?? null,
+      }
     }
+  }
+  if (!emailIds) {
+    collect(await sql`SELECT email_id, owner, is_auto, in_reply_to FROM mail_sent_meta`)
+    return out
+  }
+  for (let i = 0; i < emailIds.length; i += 200) {
+    const chunk = emailIds.slice(i, i + 200)
+    if (!chunk.length) break
+    collect(
+      await tagged(
+        sql,
+        `SELECT email_id, owner, is_auto, in_reply_to FROM mail_sent_meta WHERE email_id IN (${chunk.map(() => '?').join(',')})`,
+        chunk,
+      ),
+    )
   }
   return out
 }

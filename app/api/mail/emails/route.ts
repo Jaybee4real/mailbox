@@ -1,5 +1,6 @@
 import { BRAND } from '@/lib/brand'
 import { NextResponse } from 'next/server'
+import { matchesQuery, parseQuery } from '@/app/mail/search'
 import { FORWARD_RECIPIENTS, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { readSentFlags, setSentFlags, readPixelOpens, readSentMeta, setSentMetaOwner, listAccounts, readSentArchive, type SentFlags } from '@/lib/mailbox'
 
@@ -35,10 +36,19 @@ export async function GET(req: Request) {
   if (guard) return guard
 
   const account = await resolveAccount(req)
+  const rawQuery = new URL(req.url).searchParams.get('q')?.trim() ?? ''
+  const parsedQuery = rawQuery ? parseQuery(rawQuery) : null
+  const query = parsedQuery && !parsedQuery.isEmpty ? parsedQuery : null
+  const SEARCH_LIMIT = 400
   // Read our own archive rather than the provider's list: the history stays ours across
   // a provider switch, and every send is written here at send time.
   // Meta is looked up only for the archive rows being returned, so fetch those first.
-  const archive = await readSentArchive().catch(() => [])
+  const archive = await readSentArchive({
+    ownerAddress: account.address ?? null,
+    sharedAddress: SHARED_ADDRESS,
+    query,
+    limit: query ? SEARCH_LIMIT : 500,
+  }).catch(() => [])
   const [flags, opens, sentMeta, accounts] = await Promise.all([
     readSentFlags().catch(() => ({})),
     readPixelOpens().catch(() => ({})),
@@ -46,6 +56,8 @@ export async function GET(req: Request) {
     listAccounts().catch(() => []),
   ])
 
+  const archiveById = new Map(archive.map(item => [item.id, item]))
+  const flagOf = flags as Record<string, { starred?: boolean; archived?: boolean; trashed?: boolean }>
   const all: SentEmail[] = archive.map(item => ({
     id: item.id,
     from: item.from,
@@ -81,8 +93,28 @@ export async function GET(req: Request) {
       return true
     })
     .map(email => ({ ...email, owner: sentOwner(email), inReplyTo: metaMap[email.id]?.inReplyTo ?? null }))
+    .filter(email =>
+      !query ||
+      matchesQuery(query, {
+        from: email.from,
+        to: email.to.join(' '),
+        cc: (archiveById.get(email.id)?.cc ?? []).join(' '),
+        bcc: (archiveById.get(email.id)?.bcc ?? []).join(' '),
+        subject: email.subject,
+        body: archiveById.get(email.id)?.text ?? '',
+        filenames: '',
+        date: new Date(email.createdAt).getTime(),
+        size: null,
+        read: true,
+        starred: Boolean(flagOf[email.id]?.starred),
+        hasAttachment: false,
+        labels: [],
+        folder: flagOf[email.id]?.trashed ? 'trash' : flagOf[email.id]?.archived ? 'archive' : 'sent',
+      }),
+    )
 
-  return NextResponse.json({ ok: true, emails, flags, opens })
+  const truncated = Boolean(query) && archive.length >= SEARCH_LIMIT
+  return NextResponse.json({ ok: true, emails, flags, opens, searched: Boolean(query), truncated })
 }
 
 export async function PATCH(req: Request) {
