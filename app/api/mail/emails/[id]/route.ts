@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import { mailAuthGuard } from '@/lib/dev-auth'
+import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { mayReadSent } from '@/lib/sent-access'
 import { getSentAttachments, readSentMessage } from '@/lib/mailbox'
 
 export const runtime = 'nodejs'
@@ -52,6 +53,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const guard = await mailAuthGuard(req)
   if (guard) return guard
   const { id } = await params
+  if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   const resend = getResend()
 
   if (id.startsWith('mbox-') || !resend) {
@@ -103,6 +105,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!resend) return NextResponse.json({ ok: false, error: 'RESEND_API_KEY not configured' }, { status: 500 })
 
   const { id } = await params
+  if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   let body: { scheduledAt?: string }
   try {
     body = await req.json()
@@ -125,6 +128,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (!resend) return NextResponse.json({ ok: false, error: 'RESEND_API_KEY not configured' }, { status: 500 })
 
   const { id } = await params
+  if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   const { error } = await resend.emails.cancel(id)
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 502 })
   return NextResponse.json({ ok: true })

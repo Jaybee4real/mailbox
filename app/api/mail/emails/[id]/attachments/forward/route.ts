@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { mailAuthGuard } from '@/lib/dev-auth'
+import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { mayReadSent } from '@/lib/sent-access'
 import { getSentAttachments } from '@/lib/mailbox'
 import { getObject, putObject } from '@/lib/r2'
 
@@ -21,6 +22,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (guard) return guard
 
   const { id } = await context.params
+  if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   const copied: Array<{ filename: string; size: number; contentType?: string; key: string }> = []
 
   const mint = (filename: string) =>

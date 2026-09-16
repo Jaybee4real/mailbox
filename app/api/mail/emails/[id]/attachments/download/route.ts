@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { mailAuthGuard } from '@/lib/dev-auth'
+import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { mayReadSent } from '@/lib/sent-access'
 import { getSentAttachments } from '@/lib/mailbox'
 import { getObject } from '@/lib/r2'
 
@@ -18,6 +19,7 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   if (guard) return guard
 
   const { id } = await context.params
+  if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   const params = new URL(req.url).searchParams
   const index = Number(params.get('index') ?? 0)
   const inline = params.get('inline') === '1'

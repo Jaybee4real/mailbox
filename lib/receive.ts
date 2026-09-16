@@ -57,7 +57,7 @@ export type ReceivedEmail = {
 // lives on Resend and must be pulled from the receiving endpoint, or the inbox stores blanks.
 export async function fetchReceivedEmail(emailId: string, apiKey: string): Promise<ReceivedEmail | null> {
   try {
-    const response = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
+    const response = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(emailId)}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
     if (!response.ok) return null
@@ -118,7 +118,7 @@ async function rehostAttachments(
 
 async function fetchAttachmentBytes(emailId: string, apiKey: string): Promise<SendAttachment[]> {
   try {
-    const response = await fetch(`https://api.resend.com/emails/receiving/${emailId}/attachments`, {
+    const response = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(emailId)}/attachments`, {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
     if (!response.ok) return []
