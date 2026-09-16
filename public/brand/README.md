@@ -26,6 +26,10 @@ NEXT_PUBLIC_BRAND_CHROME_MARK_URL=/brand/mark.png
 Any of these may instead be a URL on a host the tenant already owns; nothing in
 the app requires the files to be served from here.
 
+Until a tenant supplies them, `/brand/mark.png`, `/brand/mark-email.png` and
+`/brand/logo.png` answer with the same neutral envelope as the app icons, so a
+fresh install carries no other tenant's mark.
+
 ## App icons
 
 `public/icon-192.png`, `public/icon-512.png`, `public/icon-maskable-512.png`,
