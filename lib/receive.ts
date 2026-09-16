@@ -1,5 +1,6 @@
 import { BRAND } from '@/lib/brand'
 import { sendPush } from '@/lib/push'
+import { stripOwnPixel } from '@/lib/email-html'
 import { FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-auth'
 import { ADDRESS_ALIASES, appendInbound, getAccountByAddress, inboundExists, recordContact, recordSentMeta } from '@/lib/mailbox'
 import { sendMail } from '@/lib/mail-provider'
@@ -177,7 +178,7 @@ export async function forwardToAccounts(
       replyTo: inbound.from || undefined,
       subject: inbound.subject.startsWith('Fwd:') ? inbound.subject : `Fwd: ${inbound.subject}`,
       text: inbound.text?.trim() || snippet(inbound.html, inbound.text) || ' ',
-      ...(inbound.html ? { html: `${header}${inbound.html}` } : {}),
+      ...(inbound.html ? { html: `${header}${stripOwnPixel(inbound.html)}` } : {}),
       ...(attachments.length ? { attachments } : {}),
     })
     // Tag as automated so this "Fwd:" copy never shows up in the Sent folder.

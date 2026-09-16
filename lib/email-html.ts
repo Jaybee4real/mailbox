@@ -171,3 +171,7 @@ export function outlookSafeImages(html: string): string {
     return `<table role="presentation" border="0" cellpadding="0" cellspacing="0"${aligned} style="border-collapse:separate;${outer}"><tr><td style="${cell}">${inner}</td></tr></table>`
   })
 }
+
+/** The open-tracking pixel this app appends to outgoing mail, at its current and its former path. */
+export const OWN_PIXEL = /<img[^>]*\/api\/(?:dev\/)?mail\/pixel\/[^>]*>/gi
+export const stripOwnPixel = (html: string) => html.replace(OWN_PIXEL, '')

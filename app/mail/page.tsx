@@ -8,7 +8,7 @@ import { parseQuery, matchesQuery } from './search'
 import { useConfirm } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
 import RichEditor from './RichEditor'
-import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages } from '@/lib/email-html'
+import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel } from '@/lib/email-html'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect from './MailSelect'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
@@ -841,10 +841,6 @@ function pastedMarkdown(event: React.ClipboardEvent): string | null {
 
 // Reading our own sent mail must not register as the recipient opening it, so the
 // tracking pixel is removed before the message is ever rendered in this app.
-function stripOwnPixel(html: string): string {
-  return html.replace(/<img[^>]*\/api\/dev\/mail\/pixel\/[^>]*>/gi, '')
-}
-
 /**
  * Our own hosts stay allowed even with remote images off. Blocking a sender's images
  * is what that setting is for; the mark in our own signature is not a tracking pixel,
