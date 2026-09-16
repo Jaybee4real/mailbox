@@ -18,7 +18,6 @@ const KNOWN_AUTO_SUBJECTS = new Set([`Reset your ${BRAND.name} Mail password`])
 
 /** Heuristic for pre-existing automated sends that predate owner/auto tagging. */
 function looksAutomated(email: SentEmail): boolean {
-  if (email.subject.startsWith('Fwd:')) return true
   if (KNOWN_AUTO_SUBJECTS.has(email.subject)) return true
   const internal = new Set(
     [...FORWARD_RECIPIENTS, ...(process.env.RESEND_TO ?? '').split(',')]
