@@ -1706,6 +1706,7 @@
   color: var(--nc-fg-3);
 }
 .rteSurface pre {
+  margin: 0 0 var(--rte-gap, 8px);
   background: var(--nc-ink-3);
   padding: 12px 14px;
   border-radius: 6px;
@@ -1795,7 +1796,7 @@
   font-size: 11px;
   color: var(--nc-fg-2);
 }
-.rteSurface table { border-collapse: collapse; margin: 0 0 14px; width: 100%; }
+.rteSurface table { border-collapse: collapse; margin: 0 0 var(--rte-gap, 8px); width: 100%; }
 .rteSurface td, .rteSurface th {
   border: 1px solid var(--nc-line-2);
   padding: 7px 10px;

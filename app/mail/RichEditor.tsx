@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type Editor, type NodeViewProps } from '@tiptap/react'
+import { EditorContent, Extension, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type Editor, type NodeViewProps } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
@@ -9,7 +9,7 @@ import Image from '@tiptap/extension-image'
 import { CLIENT_BRAND } from '@/lib/brand.client'
 import TextAlign from '@tiptap/extension-text-align'
 import { FontFamily, FontSize, TextStyle } from '@tiptap/extension-text-style'
-import { BUILTIN_FONTS, FONT_SIZES, fontStack, lineSpacingOf, paragraphGap, type BaseFont } from '@/lib/fonts'
+import { LINE_SPACINGS, BUILTIN_FONTS, FONT_SIZES, fontStack, lineSpacingOf, paragraphGap, type BaseFont } from '@/lib/fonts'
 import MailSelect from './MailSelect'
 import { Color } from '@tiptap/extension-color'
 import Highlight from '@tiptap/extension-highlight'
@@ -633,6 +633,19 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
             else if (/^\d+(\.\d+)?(px|pt|em|rem|%)$/.test(size)) editor.chain().focus().setFontSize(size).run()
           }}
         />
+        <MailSelect
+          buttonClassName={`${styles.rteSelect} ${styles.rteSizeSelect}`}
+          ariaLabel="Line spacing"
+          placeholder="Spacing"
+          editable
+          value={editor.getAttributes('paragraph').lineSpacing ? String(editor.getAttributes('paragraph').lineSpacing) : ''}
+          options={[{ value: '', label: 'Default' }, ...LINE_SPACINGS.map(spacing => ({ value: String(spacing), label: String(spacing) }))]}
+          onChange={raw => {
+            const spacing = parseFloat(raw)
+            if (!raw.trim() || raw === 'Default') editor.chain().focus().updateAttributes('paragraph', { lineSpacing: null }).run()
+            else if (isSpacing(spacing)) editor.chain().focus().updateAttributes('paragraph', { lineSpacing: spacing }).run()
+          }}
+        />
       </Group>
 
       <Group>
@@ -753,6 +766,32 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
   )
 }
 
+const isSpacing = (value: number) => Number.isFinite(value) && value >= 0.8 && value <= 3
+
+const LineSpacing = Extension.create({
+  name: 'lineSpacing',
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['paragraph'],
+        attributes: {
+          lineSpacing: {
+            default: null,
+            parseHTML: (element: HTMLElement) => {
+              const value = parseFloat(element.style.lineHeight)
+              return isSpacing(value) ? value : null
+            },
+            renderHTML: (attributes: Record<string, unknown>) => {
+              const value = attributes.lineSpacing as number | null
+              return value ? { style: `line-height:${value};margin:0 0 ${paragraphGap(value)};` } : {}
+            },
+          },
+        },
+      },
+    ]
+  },
+})
+
 export default function RichEditor({
   html,
   onChange,
@@ -811,6 +850,7 @@ export default function RichEditor({
       TextStyle,
       FontFamily,
       FontSize,
+      LineSpacing,
       Color,
       Highlight.configure({ multicolor: true }),
       Link.configure({ openOnClick: false, autolink: true }),

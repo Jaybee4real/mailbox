@@ -8083,23 +8083,33 @@ export default function DevMailPage() {
                     setMailSettings(current => ({ ...current, defaultFont: { ...(current.defaultFont ?? EMPTY_FONT), size } }))
                   }}
                 />
+              </div>
+              <p className={styles.settingsNote}>Applied to everything you write; a font or size picked in the editor still wins for that text.</p>
+            </div>
+            <div className={styles.settingsField}>
+              <span>Line spacing</span>
+              <div className={styles.fontAdd}>
                 <MailSelect
                   ariaLabel="Line spacing"
                   editable
                   placeholder={String(DEFAULT_LINE_SPACING)}
                   value={settings.defaultFont?.lineSpacing ? String(settings.defaultFont.lineSpacing) : ''}
                   options={[
-                    { value: '', label: `${DEFAULT_LINE_SPACING} spacing (standard)` },
-                    ...LINE_SPACINGS.filter(spacing => spacing !== DEFAULT_LINE_SPACING).map(spacing => ({ value: String(spacing), label: `${spacing} spacing` })),
+                    { value: '', label: `${DEFAULT_LINE_SPACING} (standard)` },
+                    ...LINE_SPACINGS.filter(spacing => spacing !== DEFAULT_LINE_SPACING).map(spacing => ({ value: String(spacing), label: String(spacing) })),
                   ]}
                   onChange={raw => {
-                    const spacing = raw.trim() === '' ? undefined : Number(raw)
-                    if (spacing !== undefined && !(Number.isFinite(spacing) && spacing >= 0.8 && spacing <= 3)) return
+                    const spacing = parseFloat(raw)
+                    if (raw.trim() === '' || raw.startsWith(`${DEFAULT_LINE_SPACING} (`)) {
+                      setMailSettings(current => ({ ...current, defaultFont: { ...(current.defaultFont ?? EMPTY_FONT), lineSpacing: undefined } }))
+                      return
+                    }
+                    if (!(Number.isFinite(spacing) && spacing >= 0.8 && spacing <= 3)) return
                     setMailSettings(current => ({ ...current, defaultFont: { ...(current.defaultFont ?? EMPTY_FONT), lineSpacing: spacing } }))
                   }}
                 />
               </div>
-              <p className={styles.settingsNote}>Applied to everything you write; a font or size picked in the editor still wins for that text. Line spacing sets the space between lines and paragraphs, in the editor and in what recipients see.</p>
+              <p className={styles.settingsNote}>The space between lines and paragraphs in everything you write, in the editor and as recipients see it. 1 is single, 2 is double. The Spacing control in the editor overrides it for the paragraphs you pick.</p>
             </div>
             <div className={styles.settingsField}>
               <span>Fonts</span>
