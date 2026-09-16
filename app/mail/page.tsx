@@ -3557,11 +3557,9 @@ export default function DevMailPage() {
   // loading for the recipient long after any signed link would have expired.
   const uploadInlineImage = useCallback(
     async (file: File) => {
-      const response = await fetch('/api/mail/signature-logo', {
-        method: 'POST',
-        headers: { ...apiHeaders(), 'content-type': file.type },
-        body: file,
-      })
+      const headers = new Headers(apiHeaders())
+      headers.set('Content-Type', file.type || 'application/octet-stream')
+      const response = await fetch('/api/mail/signature-logo', { method: 'POST', headers, body: file })
       const data = await response.json().catch(() => null)
       if (!response.ok || !data?.ok) throw new Error(data?.error || 'That image could not be stored.')
       return data.url as string
