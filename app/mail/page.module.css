@@ -1689,18 +1689,18 @@
   min-height: 260px;
   padding: 20px 22px;
   outline: none;
-  font: 400 var(--rte-size, 15px)/1.65 var(--rte-font, Arial, Helvetica, sans-serif);
+  font: 400 var(--rte-size, 15px)/var(--rte-lead, 1.3) var(--rte-font, Arial, Helvetica, sans-serif);
   color: var(--nc-fg-1);
 }
-.rteSurface p { margin: 0 0 14px; }
+.rteSurface p { margin: 0 0 var(--rte-gap, 8px); }
 .rteSurface h1 { font-size: 24px; margin: 22px 0 12px; }
 .rteSurface h2 { font-size: 20px; margin: 20px 0 10px; }
 .rteSurface h3 { font-size: 17px; margin: 18px 0 8px; }
-.rteSurface ul, .rteSurface ol { margin: 0 0 14px; padding-left: 22px; }
+.rteSurface ul, .rteSurface ol { margin: 0 0 var(--rte-gap, 8px); padding-left: 22px; }
 .rteSurface li { margin: 0 0 6px; }
 .rteSurface a { color: var(--nc-violet-500); text-decoration: underline; }
 .rteSurface blockquote {
-  margin: 0 0 14px;
+  margin: 0 0 var(--rte-gap, 8px);
   padding-left: 14px;
   border-left: 3px solid var(--nc-line-2);
   color: var(--nc-fg-3);
@@ -1713,7 +1713,7 @@
   font: 400 13px/1.5 var(--nc-font-mono);
 }
 .rteSurface img { max-width: 100%; height: auto; }
-.rteImageWrap { position: relative; margin: 0 0 14px; }
+.rteImageWrap { position: relative; margin: 0 0 var(--rte-gap, 8px); }
 .rteImageWrap[data-align='center'] { text-align: center; }
 .rteImageWrap[data-align='right'] { text-align: right; }
 .rteImageBox {

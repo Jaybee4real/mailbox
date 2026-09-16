@@ -1,3 +1,4 @@
+import { lineSpacingOf, paragraphGap } from './fonts'
 import { BRAND } from './brand'
 /**
  * Turn editor HTML into HTML an email client will render.
@@ -32,14 +33,17 @@ const STYLES: Record<string, string> = {
   img: 'max-width:100%;height:auto;display:block;border:0;',
 }
 
-export function inlineEmailStyles(html: string, base?: { family?: string; size?: string }): string {
+export function inlineEmailStyles(html: string, base?: { family?: string; size?: string; lineSpacing?: number }): string {
   const family = base?.family?.replace(/'/g, '').trim()
   const size = base?.size?.trim()
+  const spacing = lineSpacingOf(base)
+  const gap = paragraphGap(spacing)
   const styles = Object.fromEntries(
     Object.entries(STYLES).map(([tag, style]) => {
       let adjusted = style
       if (family) adjusted = adjusted.replace('font-family:Arial,Helvetica,sans-serif;', `font-family:'${family}',Arial,Helvetica,sans-serif;`)
       if (size && !/^h[123]$/.test(tag)) adjusted = adjusted.replace('font-size:15px;', `font-size:${size};`)
+      adjusted = adjusted.replace('line-height:1.65;', `line-height:${spacing};`).replace('margin:0 0 14px;', `margin:0 0 ${gap};`)
       return [tag, adjusted]
     }),
   )

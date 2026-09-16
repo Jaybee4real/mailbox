@@ -17,7 +17,13 @@ export function fontFaceCss(fonts: CustomFont[], origin = ''): string {
 
 export const FONT_SIZES = ['10px', '11px', '12px', '13px', '14px', '15px', '16px', '18px', '20px', '24px', '28px', '32px']
 
-export type BaseFont = { family: string; size: string }
+export type BaseFont = { family: string; size: string; lineSpacing?: number }
 export const EMPTY_FONT: BaseFont = { family: '', size: '' }
+
+export const LINE_SPACINGS = [1, 1.15, 1.3, 1.5, 1.65, 2]
+export const DEFAULT_LINE_SPACING = 1.3
+export const lineSpacingOf = (base?: { lineSpacing?: number } | null) =>
+  base?.lineSpacing && Number.isFinite(base.lineSpacing) && base.lineSpacing >= 0.8 && base.lineSpacing <= 3 ? base.lineSpacing : DEFAULT_LINE_SPACING
+export const paragraphGap = (spacing: number) => `${Math.round(spacing * 6)}px`
 
 export const fontStack = (family: string) => (family ? `'${family.replace(/'/g, '')}',Arial,Helvetica,sans-serif` : 'Arial,Helvetica,sans-serif')

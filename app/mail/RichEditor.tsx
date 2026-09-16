@@ -9,7 +9,7 @@ import Image from '@tiptap/extension-image'
 import { CLIENT_BRAND } from '@/lib/brand.client'
 import TextAlign from '@tiptap/extension-text-align'
 import { FontFamily, FontSize, TextStyle } from '@tiptap/extension-text-style'
-import { BUILTIN_FONTS, FONT_SIZES, fontStack, type BaseFont } from '@/lib/fonts'
+import { BUILTIN_FONTS, FONT_SIZES, fontStack, lineSpacingOf, paragraphGap, type BaseFont } from '@/lib/fonts'
 import MailSelect from './MailSelect'
 import { Color } from '@tiptap/extension-color'
 import Highlight from '@tiptap/extension-highlight'
@@ -849,7 +849,7 @@ export default function RichEditor({
   return (
     <div
       className={styles.rte}
-      style={{ '--rte-font': fontStack(baseFont?.family ?? ''), '--rte-size': baseFont?.size || '15px' } as React.CSSProperties}
+      style={{ '--rte-font': fontStack(baseFont?.family ?? ''), '--rte-size': baseFont?.size || '15px', '--rte-lead': String(lineSpacingOf(baseFont)), '--rte-gap': paragraphGap(lineSpacingOf(baseFont)) } as React.CSSProperties}
     >
       {fontFaceCss && <style>{fontFaceCss}</style>}
       <Toolbar editor={editor} uploadImage={uploadImage} fonts={fonts} />

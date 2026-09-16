@@ -9,7 +9,7 @@ import { useConfirm } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
 import RichEditor from './RichEditor'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages } from '@/lib/email-html'
-import { BUILTIN_FONTS, EMPTY_FONT, FONT_SIZES, fontFaceCss, fontStack, type BaseFont, type CustomFont } from '@/lib/fonts'
+import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont } from '@/lib/fonts'
 import MailSelect from './MailSelect'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
@@ -506,7 +506,7 @@ function buildEmailHtml(data: ComposeData, signatureHtml: string, fontCss = '', 
   const body = data.bodyHtml.trim() ? data.bodyHtml : markdownToHtml(data.markdown)
   const inner = body + (data.useSignature ? signatureHtml : '')
   const fonts = fontCss ? `<style>${fontCss}</style>` : ''
-  return `${fonts}<div style="font-family:${fontStack(base.family)};font-size:${base.size || '15px'};line-height:1.65;color:#030712;">${outlookSafeImages(inlineEmailStyles(inner, base))}</div>${data.quoteHtml ?? ''}`
+  return `${fonts}<div style="font-family:${fontStack(base.family)};font-size:${base.size || '15px'};line-height:${lineSpacingOf(base)};color:#030712;">${outlookSafeImages(inlineEmailStyles(inner, base))}</div>${data.quoteHtml ?? ''}`
 }
 
 function buildEmailText(data: ComposeData, signatureText: string): string {
@@ -6116,7 +6116,7 @@ export default function DevMailPage() {
                   <textarea
                     ref={quickReplyRef}
                     className={styles.quickReplyInput}
-                    style={{ fontFamily: fontStack(defaultFont.family), fontSize: defaultFont.size || undefined }}
+                    style={{ fontFamily: fontStack(defaultFont.family), fontSize: defaultFont.size || undefined, lineHeight: lineSpacingOf(defaultFont) }}
                     value={quickReply}
                     onChange={event => { setQuickReply(event.target.value); setReplyHtmlDirty(false) }}
                     onPaste={event => {
@@ -8083,8 +8083,23 @@ export default function DevMailPage() {
                     setMailSettings(current => ({ ...current, defaultFont: { ...(current.defaultFont ?? EMPTY_FONT), size } }))
                   }}
                 />
+                <MailSelect
+                  ariaLabel="Line spacing"
+                  editable
+                  placeholder={String(DEFAULT_LINE_SPACING)}
+                  value={settings.defaultFont?.lineSpacing ? String(settings.defaultFont.lineSpacing) : ''}
+                  options={[
+                    { value: '', label: `${DEFAULT_LINE_SPACING} spacing (standard)` },
+                    ...LINE_SPACINGS.filter(spacing => spacing !== DEFAULT_LINE_SPACING).map(spacing => ({ value: String(spacing), label: `${spacing} spacing` })),
+                  ]}
+                  onChange={raw => {
+                    const spacing = raw.trim() === '' ? undefined : Number(raw)
+                    if (spacing !== undefined && !(Number.isFinite(spacing) && spacing >= 0.8 && spacing <= 3)) return
+                    setMailSettings(current => ({ ...current, defaultFont: { ...(current.defaultFont ?? EMPTY_FONT), lineSpacing: spacing } }))
+                  }}
+                />
               </div>
-              <p className={styles.settingsNote}>Applied to everything you write; a font or size picked in the editor still wins for that text.</p>
+              <p className={styles.settingsNote}>Applied to everything you write; a font or size picked in the editor still wins for that text. Line spacing sets the space between lines and paragraphs, in the editor and in what recipients see.</p>
             </div>
             <div className={styles.settingsField}>
               <span>Fonts</span>
