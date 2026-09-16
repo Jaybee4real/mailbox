@@ -15,9 +15,19 @@ function getResend(): Resend | null {
  * our own mail_sent row is the durable source, and the provider is asked only for the
  * details it alone holds (attachment links, schedule, delivery state).
  */
+/** Served through this domain rather than the provider's host, which does not resolve on some of the networks the office uses. */
+function attachmentList(id: string, entries: Array<Record<string, unknown>>) {
+  return entries.map((entry, index) => ({
+    filename: String(entry.filename ?? 'attachment'),
+    size: Number(entry.size ?? 0),
+    downloadUrl: `/api/mail/emails/${encodeURIComponent(id)}/attachments/download?index=${index}`,
+  }))
+}
+
 async function fromArchive(id: string) {
   const stored = await readSentMessage(id).catch(() => null)
   if (!stored) return null
+  const files = await getSentAttachments(id).catch(() => [])
   return NextResponse.json({
     ok: true,
     email: {
@@ -33,7 +43,7 @@ async function fromArchive(id: string) {
       createdAt: stored.createdAt,
       scheduledAt: null,
       lastEvent: stored.lastEvent ?? '',
-      attachments: [],
+      attachments: attachmentList(id, files as Array<Record<string, unknown>>),
     },
   })
 }
@@ -63,13 +73,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     : ((await resend.emails.attachments.list({ emailId: id }).catch(() => null))?.data as unknown as {
         data?: Array<Record<string, unknown>>
       })?.data ?? []
-  // Served through this domain rather than the provider's host, which does not resolve
-  // on some of the networks the office uses.
-  const attachments = rawAttachments.map((entry, index) => ({
-    filename: String((entry as Record<string, unknown>).filename ?? 'attachment'),
-    size: Number((entry as Record<string, unknown>).size ?? 0),
-    downloadUrl: `/api/mail/emails/${encodeURIComponent(id)}/attachments/download?index=${index}`,
-  }))
+  const attachments = attachmentList(id, rawAttachments as Array<Record<string, unknown>>)
 
   const item = data as unknown as Record<string, unknown>
   return NextResponse.json({
