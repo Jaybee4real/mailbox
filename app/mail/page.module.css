@@ -6643,6 +6643,7 @@
     gap: 6px;
     z-index: 405;
   }
+  .listHead .refreshBtn { display: none; }
   .listHead {
     padding-right: 106px;
   }

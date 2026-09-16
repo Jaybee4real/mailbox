@@ -6593,6 +6593,15 @@ export default function DevMailPage() {
         ))
       })()}
       <div className={styles.topRight}>
+      {isPhone && (
+        <button
+          className={`${styles.themeToggle} ${refreshing ? styles.spinning : ''}`}
+          onClick={refreshAll}
+          aria-label="Refresh"
+        >
+          {ICONS.refresh}
+        </button>
+      )}
       {canInstall && !installed && (
         <button
           className={styles.themeToggle}
@@ -6602,17 +6611,19 @@ export default function DevMailPage() {
           {ICONS.install}
         </button>
       )}
-      <button
-        className={styles.themeToggle}
-        onClick={() => { setSettingsTab('notifications'); setSettingsOpen(true) }}
-        aria-label={
-          settings.desktopNotifications && notifyPermission === 'granted'
-            ? 'Notifications are on. Open notification settings.'
-            : 'Notifications are off. Open notification settings.'
-        }
-      >
-        {settings.desktopNotifications && notifyPermission === 'granted' ? ICONS.bell : ICONS.bellOff}
-      </button>
+      {!isPhone && (
+        <button
+          className={styles.themeToggle}
+          onClick={() => { setSettingsTab('notifications'); setSettingsOpen(true) }}
+          aria-label={
+            settings.desktopNotifications && notifyPermission === 'granted'
+              ? 'Notifications are on. Open notification settings.'
+              : 'Notifications are off. Open notification settings.'
+          }
+        >
+          {settings.desktopNotifications && notifyPermission === 'granted' ? ICONS.bell : ICONS.bellOff}
+        </button>
+      )}
       <div
         className={styles.themeSwitcher}
         onMouseEnter={openThemeMenu}
