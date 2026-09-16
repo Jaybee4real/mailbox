@@ -1,3 +1,5 @@
+<img src=".github/banner.png" alt="mailbox by Novacraft" width="100%">
+
 # Mailbox
 
 A shared webmail app: one codebase, one deployment per mailbox. Inbox and
