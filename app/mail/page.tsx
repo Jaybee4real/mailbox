@@ -1449,25 +1449,14 @@ export default function DevMailPage() {
   // Collapsed by default: the signature is long, and the composer is for the message.
   const [sigExpanded, setSigExpanded] = useState(false)
   const [sigPreviewOpen, setSigPreviewOpen] = useState(false)
-  /**
-   * Measured at the click, not on mount: before the content has settled it reports several
-   * times its real height, and the reveal then finishes long before the animation does.
-   */
   /** Clicking the folded signature opens it, unless the click was on a link inside it. */
   const expandSignatureFromBody = useCallback((event: React.MouseEvent<HTMLElement>) => {
     if (sigExpanded) return
     if ((event.target as HTMLElement).closest('a')) return
-    const body = event.currentTarget
-    body.style.setProperty('--sig-h', `${body.scrollHeight}px`)
     setSigExpanded(true)
   }, [sigExpanded])
 
-  const toggleSignature = useCallback((event: React.MouseEvent<HTMLElement>) => {
-    const fold = event.currentTarget.closest(`.${styles.composeSignature}`)
-    const body = fold?.querySelector<HTMLElement>(`.${styles.composeSignatureBody}`)
-    if (body) body.style.setProperty('--sig-h', `${body.scrollHeight}px`)
-    setSigExpanded(open => !open)
-  }, [])
+  const toggleSignature = useCallback(() => setSigExpanded(open => !open), [])
   const [quickSending, setQuickSending] = useState(false)
   const [replyMode, setReplyMode] = useState<ReplyMode>('write')
   const [replySig, setReplySig] = useState(true)

@@ -6213,9 +6213,7 @@
   background: linear-gradient(to bottom, transparent 0%, var(--nc-ink-1) 78%);
   pointer-events: none;
 }
-/* Its measured height, set by the element itself, so the reveal finishes with the
-   content rather than running on against an arbitrary ceiling. */
-.composeSignatureOpen .composeSignatureBody { max-height: var(--sig-h, 1200px); cursor: default; }
+.composeSignatureOpen .composeSignatureBody { max-height: none; overflow: visible; cursor: default; }
 .composeSignatureOpen { padding-bottom: 30px; }
 
 @media (prefers-reduced-motion: reduce) {
