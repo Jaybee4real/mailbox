@@ -1361,6 +1361,64 @@
   background: var(--nc-ink-0);
   border-top: 1px solid var(--nc-line-1);
 }
+/* The phone's stand-in for the docked reply: one line that opens the composer as a page.
+   It keeps the dock's place at the foot of the reader so the layout does not shift. */
+.replyLaunch {
+  flex: 0 0 auto;
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--nc-ink-0);
+  border-top: 1px solid var(--nc-line-1);
+}
+.replyLaunchBtn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid var(--nc-line-1);
+  background: var(--nc-ink-2);
+  color: var(--nc-fg-2);
+  font: 400 14px/1.4 var(--nc-font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.replyLaunchBtn span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.replyLaunchBtn svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--nc-fg-3);
+}
+.replyLaunchAll {
+  flex: 0 0 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 1px solid var(--nc-line-1);
+  background: transparent;
+  color: var(--nc-fg-2);
+  cursor: pointer;
+}
+.replyLaunchAll svg {
+  width: 17px;
+  height: 17px;
+}
+
 .replyRecips {
   display: flex;
   flex-direction: column;
@@ -6645,5 +6703,13 @@
   .composeExpandBtn,
   .composeHintKeys {
     display: none;
+  }
+  /* The expanded composer takes its left edge from --list-w, and the chosen list width
+     is written onto .app as an inline variable — which outranks this breakpoint's zero.
+     So it opened 400px to the right of a 375px screen, wholly out of view. */
+  .composeExpanded {
+    left: 0;
+    right: 0;
+    width: auto;
   }
 }

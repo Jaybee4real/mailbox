@@ -1266,6 +1266,19 @@ export async function setThreadSnooze(
   return rows.length
 }
 
+/** Which of these message ids the mailbox already holds. */
+export async function inboundExists(ids: string[]): Promise<Set<string>> {
+  await ensureMailSchema()
+  const found = new Set<string>()
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200)
+    if (!chunk.length) break
+    const rows = await tagged(db(), `SELECT id FROM mail_inbox WHERE id IN (${chunk.map(() => '?').join(',')})`, chunk)
+    for (const row of rows) found.add(String(row.id))
+  }
+  return found
+}
+
 export async function setInboundLabels(id: string, labels: string[]): Promise<void> {
   const sql = db()
   await sql`UPDATE mail_inbox SET labels = ${JSON.stringify(labels)} WHERE id = ${id}`
@@ -1855,8 +1868,16 @@ export async function deleteStash(owner: string, kind: string, id: string): Prom
  */
 const CLAIM_LEASE_MS = 10 * 60 * 1000
 
-export async function claimWebhookEvent(id: string): Promise<boolean> {
-  if (!id) return true
+/**
+ * "busy" is the one that matters: an attempt is still inside its lease. The caller must
+ * answer the provider with a failure, not a duplicate — five stranded deliveries on the
+ * old host came from a process the platform killed mid-way, whose 5s and 5m retries were
+ * each told "already handled" and so the provider never tried again.
+ */
+export type WebhookClaim = 'claimed' | 'done' | 'busy'
+
+export async function claimWebhookEvent(id: string): Promise<WebhookClaim> {
+  if (!id) return 'claimed'
   await ensureMailSchema()
 
   const inserted = await sqlRaw(
@@ -1865,19 +1886,19 @@ export async function claimWebhookEvent(id: string): Promise<boolean> {
      RETURNING id`,
     [id, nowIso()],
   )
-  if (inserted.length > 0) return true
+  if (inserted.length > 0) return 'claimed'
 
   const existing = await sqlRaw('SELECT handled_at, status FROM mail_webhook_events WHERE id = ?', [id])
   const row = existing[0]
-  if (!row) return true
-  if (String(row.status) === 'done') return false
+  if (!row) return 'claimed'
+  if (String(row.status) === 'done') return 'done'
 
   const startedAt = new Date(String(row.handled_at)).getTime()
-  if (Number.isFinite(startedAt) && Date.now() - startedAt < CLAIM_LEASE_MS) return false
+  if (Number.isFinite(startedAt) && Date.now() - startedAt < CLAIM_LEASE_MS) return 'busy'
 
   // The attempt holding this never finished and its lease has run out. Take it over.
   await sqlRaw('UPDATE mail_webhook_events SET handled_at = ? WHERE id = ?', [nowIso(), id])
-  return true
+  return 'claimed'
 }
 
 /** Marks the delivery finished, so later redeliveries of it are refused for good. */

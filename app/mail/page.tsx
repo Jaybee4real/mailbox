@@ -1263,6 +1263,15 @@ export default function DevMailPage() {
     media.addEventListener('change', apply)
     return () => media.removeEventListener('change', apply)
   }, [])
+  // Below this the reader is the whole screen and a docked reply has nowhere to sit.
+  const [isPhone, setIsPhone] = useState(false)
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 720px)')
+    const apply = () => setIsPhone(media.matches)
+    apply()
+    media.addEventListener('change', apply)
+    return () => media.removeEventListener('change', apply)
+  }, [])
   const [railCollapsed, setRailCollapsed] = useState(true)
   useEffect(() => {
     try {
@@ -3580,13 +3589,14 @@ export default function DevMailPage() {
     }
   }, [compose, composeOpen, saveDraftNow])
 
-  const openCompose = (data?: Partial<ComposeData>, existingDraftId?: string) => {
+  const openCompose = (data?: Partial<ComposeData>, existingDraftId?: string, options?: { keepAttachments?: boolean }) => {
     // Full width unless a message is open — replying wants the original in view.
     setComposeExpanded(!selectedId)
     // The sender name is whoever is signed in — their profile name, else the account
     // name, else the local part of their address — not a fixed company name.
     setCompose({ ...EMPTY_COMPOSE, fromName: identityName, ...data })
-    setAttachments([])
+    // A reply handed over from the dock brings its files with it; everything else starts clean.
+    if (!options?.keepAttachments) setAttachments([])
     setComposeError('')
     setShowCcBcc(Boolean(data?.cc?.length || data?.bcc?.length))
     setDraftId(existingDraftId ?? null)
@@ -3598,7 +3608,17 @@ export default function DevMailPage() {
     setComposeOpen(false)
   }
 
-  const discardCompose = () => {
+  const discardCompose = async () => {
+    const hasWork = compose.bodyHtml.trim() || compose.subject.trim() || compose.to.length || attachments.length
+    if (hasWork) {
+      const agreed = await confirm({
+        title: 'Discard this message?',
+        body: 'What you have written and attached will be thrown away.',
+        confirmLabel: 'Discard',
+        danger: true,
+      })
+      if (!agreed) return
+    }
     if (draftId) {
       deleteStashItem('draft', draftId, apiHeaders())
       setDrafts(current => current.filter(entry => entry.id !== draftId))
@@ -4273,6 +4293,58 @@ export default function DevMailPage() {
   }
 
   // The settings icon on the reply bar hands the typed text off to the full composer (Cc/Bcc/formatting/attachments).
+  /**
+   * Replying to something you sent writes to the same people again, quoting what went out.
+   * The message's own id stands in for a Message-ID, as it already does for inbound mail.
+   */
+  const replyToSent = (sent: SentEmail, detail: SentDetail | null, everyone: boolean) => {
+    const to = sent.to.map(parseAddress)
+    const cc = everyone ? (detail?.cc ?? sent.cc ?? []).map(parseAddress).filter(address => !to.includes(address)) : []
+    openCompose({
+      to,
+      cc,
+      subject: sent.subject.startsWith('Re:') ? sent.subject : `Re: ${sent.subject}`,
+      quoteHtml: quoteBlock(sent.from, sent.createdAt, detail?.html ?? null, detail?.text ?? null),
+      useSignature: true,
+      inReplyTo: sent.id,
+    })
+  }
+
+  /**
+   * On a phone the docked reply becomes the composer as its own page. Everything typed or
+   * attached in the dock travels with it — the older hand-off quietly dropped the files.
+   */
+  const openReplyPage = (entry: InboundEmail) => {
+    const draft = buildReplyDraft(entry)
+    const target = quickReplyTarget(entry)
+    const typed = quickReply.trim()
+    const bodyHtml = draft.htmlDirty && draft.htmlSource.trim() ? draft.htmlSource : typed ? markdownToHtml(typed) : ''
+    openCompose(
+      {
+        to: draft.to,
+        cc: draft.cc,
+        bcc: draft.bcc,
+        subject: draft.subject,
+        bodyHtml,
+        quoteHtml: quoteBlock(target.from, target.receivedAt, target.html, target.text),
+        useSignature: draft.useSignature,
+        inReplyTo: draft.inReplyTo,
+      },
+      undefined,
+      { keepAttachments: true },
+    )
+    setComposeExpanded(true)
+    setQuickReply('')
+    setReplyHtml('')
+    setReplyHtmlDirty(false)
+    setReplyMode('write')
+    setReplyToList([])
+    setReplyCc([])
+    setReplyBcc([])
+    setReplyRecipsOpen(false)
+    setReplyRecipsEdited(false)
+  }
+
   const openReplySettings = (entry: InboundEmail) => {
     replyAllTo(entry)
     const typed = quickReply.trim()
@@ -4454,6 +4526,15 @@ export default function DevMailPage() {
         moveSelection(-1)
         return
       }
+      if (!selectedInbound && selectedSent) {
+        if (event.key === 'r') { event.preventDefault(); replyToSent(selectedSent, selectedDetail, settings.replyAllDefault); return }
+        if (event.key === 'a') { event.preventDefault(); replyToSent(selectedSent, selectedDetail, true); return }
+        if (event.key === 'f') {
+          event.preventDefault()
+          forwardEmail(selectedSent.subject, selectedDetail?.html ?? null, selectedDetail?.text ?? null, selectedSent.id, 'sent')
+          return
+        }
+      }
       const inbound = selectedInbound
       if (!inbound) return
       switch (event.key) {
@@ -4500,7 +4581,7 @@ export default function DevMailPage() {
   useEffect(() => {
     if (!isLoggedIn || !settings.desktopNotifications || notifyPermission !== 'granted') return
     void subscribePush(apiHeaders())
-  }, [isLoggedIn, settings.desktopNotifications, notifyPermission, apiHeaders])
+  }, [isLoggedIn, settings.desktopNotifications, notifyPermission, apiHeaders, selectedSent, selectedDetail])
 
   useEffect(() => {
     announce(
@@ -5797,6 +5878,27 @@ export default function DevMailPage() {
             </div>
           )}
           {folder !== 'trash' && (() => {
+            if (isPhone) {
+              return (
+                <div className={styles.replyLaunch}>
+                  <button type="button" className={styles.replyLaunchBtn} onClick={() => openReplyPage(inbound)}>
+                    {ICONS.reply}
+                    <span>{quickReply.trim() ? quickReply.trim().slice(0, 60) : `Reply${settings.replyAllDefault ? ' to everyone' : ''}…`}</span>
+                  </button>
+                  {!settings.replyAllDefault && (
+                    <button
+                      type="button"
+                      className={styles.replyLaunchAll}
+                      title="Reply all"
+                      aria-label="Reply all"
+                      onClick={() => { replyAllTo(inbound); setComposeExpanded(true) }}
+                    >
+                      {ICONS.replyAll}
+                    </button>
+                  )}
+                </div>
+              )
+            }
             const replyDraft = buildReplyDraft(inbound)
             const replyEffHtml = buildEmailHtml(replyDraft, signatureHtml, fontCss, defaultFont)
             const replyEffText = buildEmailText(replyDraft, signatureText)
@@ -6120,6 +6222,14 @@ export default function DevMailPage() {
                   >
                     opened{selectedSent.openCount > 1 ? ` ×${selectedSent.openCount}` : ''}
                   </span>
+                )}
+                <button className={styles.actionBtn} onClick={() => replyToSent(selectedSent, selectedDetail, settings.replyAllDefault)}>
+                  {ICONS.reply} Reply
+                </button>
+                {!settings.replyAllDefault && (
+                  <button className={styles.actionBtn} onClick={() => replyToSent(selectedSent, selectedDetail, true)}>
+                    {ICONS.replyAll} Reply all
+                  </button>
                 )}
                 <button
                   className={styles.actionBtn}
