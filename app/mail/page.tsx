@@ -1479,7 +1479,18 @@ export default function DevMailPage() {
   const [replyRecipsOpen, setReplyRecipsOpen] = useState(false)
   // Once the recipients have been touched they are the writer's, including when emptied.
   const [replyRecipsEdited, setReplyRecipsEdited] = useState(false)
+  const [replyBar, setReplyBar] = useState<null | 'reply' | 'all' | 'forward'>(null)
   const quickReplyRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    if (!replyBar) return
+    const focus = () => quickReplyRef.current?.focus({ preventScroll: true })
+    const frame = requestAnimationFrame(focus)
+    const settled = window.setTimeout(focus, 280)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(settled)
+    }
+  }, [replyBar])
   useEffect(() => {
     setQuickReply('')
     setReplyMode('write')
@@ -1491,6 +1502,7 @@ export default function DevMailPage() {
     setReplyBcc([])
     setReplyRecipsOpen(false)
     setReplyRecipsEdited(false)
+    setReplyBar(null)
   }, [selectedId])
   // Grow the reply box to fit its content; the CSS max-height caps it (8 lines) and scrolls past it.
   useEffect(() => {
@@ -4229,6 +4241,20 @@ export default function DevMailPage() {
   // Recipients come from the (collapsible) To/Cc/Bcc fields; an untouched To falls back to the sender.
   const buildReplyDraft = (entry: InboundEmail): ComposeData => {
     const target = quickReplyTarget(entry)
+    if (replyBar === 'forward') {
+      return {
+        ...EMPTY_COMPOSE,
+        to: replyToList,
+        cc: replyCc,
+        bcc: replyBcc,
+        subject: target.subject.startsWith('Fwd:') ? target.subject : `Fwd: ${target.subject}`,
+        markdown: quickReply,
+        htmlSource: replyHtml,
+        htmlDirty: replyHtmlDirty,
+        useSignature: replySig,
+        quoteHtml: forwardQuote(target.subject, target.html, target.text),
+      }
+    }
     const fallback = defaultReplyRecipient(entry)
     // Replying to everyone is the default: a conversation that reached four people is
     // answered to those four, and trimming the list is the deliberate act.
@@ -4290,7 +4316,7 @@ export default function DevMailPage() {
 
   const sendQuickReply = async (entry: InboundEmail) => {
     const body = quickReply.trim() || (replyHtmlDirty ? replyHtml.trim() : '')
-    if (!body || quickSending) return
+    if ((!body && replyBar !== 'forward') || quickSending) return
     const draft = buildReplyDraft(entry)
     if (!draft.to.length) {
       openReplySettings(entry)
@@ -4340,6 +4366,7 @@ export default function DevMailPage() {
       setReplyHtml('')
       setReplyHtmlDirty(false)
       setReplyMode('write')
+      setReplyBar(null)
       setReplyToList([])
       setReplyCc([])
       setReplyBcc([])
@@ -4408,7 +4435,8 @@ export default function DevMailPage() {
   }
 
   const openReplySettings = (entry: InboundEmail) => {
-    replyAllTo(entry)
+    if (replyBar === 'forward') forwardEmail(entry.subject, entry.html, entry.text, entry.id)
+    else replyAllTo(entry)
     const typed = quickReply.trim()
     if (typed) setCompose(data => ({ ...data, bodyHtml: markdownToHtml(typed) + data.bodyHtml, useSignature: replySig }))
     setQuickReply('')
@@ -4450,6 +4478,15 @@ export default function DevMailPage() {
     }
   }
 
+  // Carries the whole original mail (full HTML), not a stripped snippet.
+  const forwardQuote = (subject: string, html: string | null, text: string | null): string => {
+    if (html && html.trim()) {
+      const header = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5A5170;border-left:3px solid ${CLIENT_BRAND.accent};padding:4px 0 4px 12px;margin:0 0 16px;">---------- Forwarded message ----------<br>Subject: ${escapeHtml(subject)}</div>`
+      return `${header}${html}`
+    }
+    return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#030712;">${inlineEmailStyles(markdownToHtml(`---\n\nForwarded message:\n\n${text ?? ''}`))}</div>`
+  }
+
   const forwardEmail = (
     subject: string,
     html: string | null,
@@ -4458,18 +4495,33 @@ export default function DevMailPage() {
     kind: 'inbound' | 'sent' = 'inbound',
   ) => {
     const fwSubject = subject.startsWith('Fwd:') ? subject : `Fwd: ${subject}`
-    if (html && html.trim()) {
-      // Carry the whole original mail (full HTML), not a stripped snippet.
-      const header = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5A5170;border-left:3px solid ${CLIENT_BRAND.accent};padding:4px 0 4px 12px;margin:0 0 16px;">---------- Forwarded message ----------<br>Subject: ${escapeHtml(subject)}</div>`
-      openCompose({ subject: fwSubject, quoteHtml: `${header}${html}` })
-    } else {
-      openCompose({
-        subject: fwSubject,
-        quoteHtml: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#030712;">${inlineEmailStyles(markdownToHtml(`---\n\nForwarded message:\n\n${text ?? ''}`))}</div>`,
-      })
-    }
+    openCompose({ subject: fwSubject, quoteHtml: forwardQuote(subject, html, text) })
     // After openCompose, which clears the list the files are about to go into.
     if (messageId) void carryForwardAttachments(messageId, kind)
+  }
+
+  const openReplyBar = (entry: InboundEmail, kind: 'reply' | 'all' | 'forward') => {
+    setReplyBar(kind)
+    setReplyRecipsOpen(kind === 'forward')
+    if (kind === 'all') {
+      const { to, cc } = replyAllRecipients(entry)
+      setReplyToList(to)
+      setReplyCc(cc)
+      setReplyRecipsEdited(true)
+      return
+    }
+    setReplyToList([])
+    setReplyCc([])
+    setReplyRecipsEdited(kind === 'forward')
+    if (kind === 'forward') void carryForwardAttachments(entry.id)
+  }
+
+  // On a phone the launcher opens the full-page composer; on a wider screen the bar comes in.
+  const startReply = (entry: InboundEmail, kind: 'reply' | 'all' | 'forward') => {
+    if (!isPhone) return openReplyBar(entry, kind)
+    if (kind === 'reply') replyTo(entry)
+    else if (kind === 'all') replyAllTo(entry)
+    else forwardEmail(entry.subject, entry.html, entry.text, entry.id)
   }
 
   const printMessage = (subject: string, from: string, when: string, html: string | null, text: string | null, recipients: { to?: string[]; cc?: string[] } = {}) => {
@@ -4603,15 +4655,15 @@ export default function DevMailPage() {
       switch (event.key) {
         case 'r':
           event.preventDefault()
-          replyTo(inbound)
+          startReply(inbound, 'reply')
           break
         case 'a':
           event.preventDefault()
-          replyAllTo(inbound)
+          startReply(inbound, 'all')
           break
         case 'f':
           event.preventDefault()
-          forwardEmail(inbound.subject, inbound.html, inbound.text, inbound.id)
+          startReply(inbound, 'forward')
           break
         case 's':
           event.preventDefault()
@@ -5686,15 +5738,15 @@ export default function DevMailPage() {
             )}
           </div>
           <div className={styles.actions}>
-            <button className={styles.actionBtn} onClick={() => replyTo(inbound)}>
+            <button className={styles.actionBtn} onClick={() => startReply(inbound, 'reply')}>
               {ICONS.reply} Reply
             </button>
             {!settings.replyAllDefault && (
-              <button className={styles.actionBtn} onClick={() => replyAllTo(inbound)}>
+              <button className={styles.actionBtn} onClick={() => startReply(inbound, 'all')}>
                 {ICONS.replyAll} Reply all
               </button>
             )}
-            <button className={styles.actionBtn} onClick={() => forwardEmail(inbound.subject, inbound.html, inbound.text, inbound.id)}>
+            <button className={styles.actionBtn} onClick={() => startReply(inbound, 'forward')}>
               {ICONS.forward} Forward
             </button>
             <span className={styles.actionSpacer} />
@@ -5962,6 +6014,7 @@ export default function DevMailPage() {
                 </div>
               )
             }
+            if (!replyBar && !quickReply.trim() && !replyHtmlDirty) return null
             const replyDraft = buildReplyDraft(inbound)
             const replyEffHtml = buildEmailHtml(replyDraft, signatureHtml, fontCss, defaultFont)
             const replyEffText = buildEmailText(replyDraft, signatureText)
@@ -5974,7 +6027,8 @@ export default function DevMailPage() {
               '',
               replyEffHtml,
             ].filter(line => line !== null).join('\n')
-            const canSend = (quickReply.trim() || (replyHtmlDirty && replyHtml.trim())) && !quickSending
+            const hasBody = Boolean(quickReply.trim() || (replyHtmlDirty && replyHtml.trim()))
+            const canSend = (hasBody || replyBar === 'forward') && (replyBar !== 'forward' || replyDraft.to.length > 0) && !quickSending
             const recipSummary = [
               `To ${replyDraft.to.join(', ') || '—'}`,
               replyDraft.cc.length ? `Cc ${replyDraft.cc.length}` : null,
@@ -6146,7 +6200,7 @@ export default function DevMailPage() {
                         sendQuickReply(inbound)
                       }
                     }}
-                    placeholder={`Reply to ${parseAddress(quickReplyTarget(inbound).from) || 'sender'}…`}
+                    placeholder={replyBar === 'forward' ? 'Add a note to go with the forwarded message…' : `Reply to ${parseAddress(quickReplyTarget(inbound).from) || 'sender'}…`}
                     rows={1}
                   />
                 )}
