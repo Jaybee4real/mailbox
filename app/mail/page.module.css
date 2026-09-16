@@ -1321,7 +1321,7 @@
   max-width: 800px;
   margin: 0 auto;
   padding: 30px 34px;
-  font: 400 15px/1.7 var(--nc-font-sans);
+  font: 400 15px/var(--mail-lead, 1.3) var(--nc-font-sans);
   color: var(--nc-fg-1);
   white-space: pre-wrap;
   word-break: break-word;

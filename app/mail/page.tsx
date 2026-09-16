@@ -9,7 +9,7 @@ import { useConfirm } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
 import RichEditor from './RichEditor'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages } from '@/lib/email-html'
-import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont } from '@/lib/fonts'
+import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect from './MailSelect'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
@@ -709,7 +709,7 @@ function countRemoteRefs(html: string | null): number {
 // Show the email in its true colours on a light "paper" card, framed by the dark
 // reader. The markup is left untouched — the card supplies a legible white surface
 // for bare fragments, and emails that paint their own background render as designed.
-const READER_THEME = `<style>
+const readerTheme = (spacing: number) => `<style>
   :root { color-scheme: light; }
   /* Transparent so the framed document takes the app's themed surface from the
      iframe element behind it. Theme variables do not cross the document boundary,
@@ -725,11 +725,12 @@ const READER_THEME = `<style>
     padding: 30px 34px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     font-size: 15px;
-    line-height: 1.7;
+    line-height: ${spacing};
     -webkit-font-smoothing: antialiased;
     word-break: break-word;
     overflow-wrap: anywhere;
   }
+  .nc-paper p { margin: 0 0 ${paragraphGap(spacing)}; }
   .nc-paper img { max-width: 100%; height: auto; }
   .nc-paper a { color: #5418C2; }
 </style>`
@@ -852,11 +853,11 @@ function stripOwnPixel(html: string): string {
 const OWN_IMAGE_HOSTS = `${CLIENT_BRAND.websiteUrl} ${CLIENT_BRAND.publicUrl}`
 
 // When allowRemote is false the CSP blocks remote fetches so tracking pixels never load.
-function frameHtml(html: string, allowRemote: boolean): string {
+function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SPACING): string {
   const csp = allowRemote
     ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * data:; style-src 'unsafe-inline' *; font-src * data:; media-src * data:">`
     : `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${OWN_IMAGE_HOSTS} data:; style-src 'unsafe-inline'; font-src data:">`
-  return `<!doctype html><html><head><meta charset="utf-8">${csp}${READER_THEME}<base target="_blank"></head><body><div class="nc-paper">${stripOwnPixel(html)}</div></body>`
+  return `<!doctype html><html><head><meta charset="utf-8">${csp}${readerTheme(spacing)}<base target="_blank"></head><body><div class="nc-paper">${stripOwnPixel(html)}</div></body>`
 }
 
 function headerValue(email: InboundEmail, key: string): string {
@@ -3535,6 +3536,7 @@ export default function DevMailPage() {
   }, [plainSpoken])
   const fontCss = fontFaceCss(settings.fonts ?? [], CLIENT_BRAND.publicUrl)
   const defaultFont = settings.defaultFont ?? EMPTY_FONT
+  const readerSpacing = lineSpacingOf(defaultFont)
 
   const [logoBusy, setLogoBusy] = useState(false)
   const [logoMsg, setLogoMsg] = useState('')
@@ -4492,7 +4494,8 @@ export default function DevMailPage() {
     // print-color-adjust keeps the mark from being dropped by "background graphics off".
     const printCss = `<style>
       @page { margin: 14mm; }
-      body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      body { margin: 0; line-height: ${readerSpacing}; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      p { margin: 0 0 ${paragraphGap(readerSpacing)}; }
       img { max-width: 100%; }
     </style>`
     doc.open()
@@ -5328,7 +5331,7 @@ export default function DevMailPage() {
         <iframe
           className={styles.threadFrame}
           sandbox="allow-same-origin"
-          srcDoc={frameHtml(message.html, showRemote)}
+          srcDoc={frameHtml(message.html, showRemote, readerSpacing)}
           title="Email content"
           onLoad={event => {
             try {
@@ -5339,7 +5342,7 @@ export default function DevMailPage() {
         />
       )
     }
-    return <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(message.html, showRemote)} title="Email content" />
+    return <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(message.html, showRemote, readerSpacing)} title="Email content" />
   }
 
   // One message open at a time — opening another collapses the rest.
@@ -5355,7 +5358,7 @@ export default function DevMailPage() {
         <iframe
           className={styles.threadFrame}
           sandbox="allow-same-origin"
-          srcDoc={frameHtml(detail.html, true)}
+          srcDoc={frameHtml(detail.html, true, readerSpacing)}
           title="Sent email"
           onLoad={event => {
             try {
@@ -6153,7 +6156,7 @@ export default function DevMailPage() {
                     <iframe
                       className={styles.replyPreview}
                       sandbox="allow-same-origin"
-                      srcDoc={frameHtml(replyEffHtml, true)}
+                      srcDoc={frameHtml(replyEffHtml, true, readerSpacing)}
                       title="Reply preview"
                       onLoad={event => {
                         try {
@@ -6407,7 +6410,7 @@ export default function DevMailPage() {
             {!selectedDetail ? (
               <BodySkeleton />
             ) : selectedDetail.html ? (
-              <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(selectedDetail.html, true)} title="Email content" />
+              <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(selectedDetail.html, true, readerSpacing)} title="Email content" />
             ) : (
               <pre className={styles.readerText}>{selectedDetail.text ?? '(no content)'}</pre>
             )}
@@ -6438,6 +6441,7 @@ export default function DevMailPage() {
         ),
         ['--acting-offset' as string]: `${actingBarHeight}px`,
         ['--brand-mark' as string]: `url('${CLIENT_BRAND.chromeMarkUrl}')`,
+        ['--mail-lead' as string]: String(readerSpacing),
         ['--list-w' as string]: `${listWidth}px`,
       } as React.CSSProperties}
     >
@@ -7433,7 +7437,7 @@ export default function DevMailPage() {
               {compose.quoteHtml && !compose.campaign.kind && (
                 <details className={styles.composeQuote} open>
                   <summary className={styles.composeQuoteLabel}>Quoted message</summary>
-                  <iframe className={styles.composeQuoteFrame} sandbox="allow-same-origin" srcDoc={frameHtml(compose.quoteHtml, true)} title="Quoted message" />
+                  <iframe className={styles.composeQuoteFrame} sandbox="allow-same-origin" srcDoc={frameHtml(compose.quoteHtml, true, readerSpacing)} title="Quoted message" />
                 </details>
               )}
               {/* The signature is appended on send, so show it here rather than leaving the
