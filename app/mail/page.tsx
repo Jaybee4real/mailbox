@@ -308,6 +308,7 @@ type MailSettings = {
 }
 
 const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+const NOTIFY_NOTICE_KEY = 'mail:notify-notice-until'
 
 const DEFAULT_SETTINGS: MailSettings = {
   signature: '',
@@ -1345,6 +1346,20 @@ export default function DevMailPage() {
   // Dismissed for this session only: it should come back next sign-in while the
   // password is still the one the mailbox was created with.
   const [pwNoticeHidden, setPwNoticeHidden] = useState(false)
+  const [notifyNoticeHidden, setNotifyNoticeHidden] = useState(true)
+  useEffect(() => {
+    try {
+      if (Number(localStorage.getItem(NOTIFY_NOTICE_KEY) ?? 0) < Date.now()) setNotifyNoticeHidden(false)
+    } catch {
+      setNotifyNoticeHidden(false)
+    }
+  }, [])
+  const dismissNotifyNotice = useCallback(() => {
+    setNotifyNoticeHidden(true)
+    try {
+      localStorage.setItem(NOTIFY_NOTICE_KEY, String(Date.now() + 14 * 86400_000))
+    } catch {}
+  }, [])
   const [settings, setMailSettings] = useState<MailSettings>(DEFAULT_SETTINGS)
   const { canInstall, installed, install } = useInstall()
   const { permission: notifyPermission, request: requestNotifyPermission, announce } = useNotifications(
@@ -6454,38 +6469,75 @@ export default function DevMailPage() {
           </button>
         </div>
       )}
-      {account?.defaultPassword && !pwNoticeHidden && (
-        <div className={styles.pwNotice} role="status">
-          <div className={styles.pwNoticeText}>
-            <p className={styles.pwNoticeTitle}>Set your own password</p>
-            <p className={styles.pwNoticeSub}>
-              This mailbox still uses the password it was created with, which is your own
-              address. Anyone who knows it could sign in as you.
-            </p>
+      {(() => {
+        const notices: Array<{ key: string; title: string; body: string; dismiss: string; action: string; onDismiss: () => void; onAction: () => void }> = []
+        if (isLoggedIn && !settings.desktopNotifications && notifyPermission !== 'denied' && notifyPermission !== 'unsupported' && !notifyNoticeHidden) {
+          notices.push({
+            key: 'notifications',
+            title: 'Turn on notifications',
+            body: 'Hear about new mail the moment it arrives, even with this tab in the background or the app closed.',
+            dismiss: 'Not now',
+            action: 'Turn on',
+            onDismiss: dismissNotifyNotice,
+            onAction: () => {
+              void (async () => {
+                const result = await requestNotifyPermission()
+                if (result === 'denied') dismissNotifyNotice()
+                if (result !== 'granted') return
+                const ok = await subscribePush(apiHeaders())
+                setNotifyNoticeHidden(true)
+                if (ok) setMailSettings(current => ({ ...current, desktopNotifications: true }))
+                else {
+                  setSettingsOpen(true)
+                  setSettingsTab('notifications')
+                }
+              })()
+            },
+          })
+        }
+        if (account?.defaultPassword && !pwNoticeHidden) {
+          notices.push({
+            key: 'password',
+            title: 'Set your own password',
+            body: 'This mailbox still uses the password it was created with, which is your own address. Anyone who knows it could sign in as you.',
+            dismiss: 'Not now',
+            action: 'Change it',
+            onDismiss: () => setPwNoticeHidden(true),
+            onAction: () => {
+              setSettingsOpen(true)
+              setSettingsTab('profile')
+              setPwNoticeHidden(true)
+              setPwFocusRequest(request => request + 1)
+            },
+          })
+        }
+        if (!notices.length) return null
+        return notices.slice(0, 3).map((notice, depth) => (
+          <div
+            key={notice.key}
+            className={`${styles.pwNotice} ${depth > 0 ? styles.pwNoticeBehind : ''}`}
+            style={{ ['--depth' as string]: depth } as React.CSSProperties}
+            role={depth === 0 ? 'status' : undefined}
+            aria-hidden={depth > 0}
+          >
+            {depth === 0 && notices.length > 1 && (
+              <span className={styles.pwNoticeMore}>{notices.length - 1} more</span>
+            )}
+            <div className={styles.pwNoticeText}>
+              <p className={styles.pwNoticeTitle}>{notice.title}</p>
+              <p className={styles.pwNoticeSub}>{notice.body}</p>
+            </div>
+            <div className={styles.pwNoticeActions}>
+              <button type="button" className={styles.pwNoticeDismiss} onClick={notice.onDismiss} tabIndex={depth === 0 ? 0 : -1}>
+                {notice.dismiss}
+              </button>
+              <button type="button" className={styles.pwNoticeGo} onClick={notice.onAction} tabIndex={depth === 0 ? 0 : -1}>
+                {notice.action}
+              </button>
+            </div>
           </div>
-          <div className={styles.pwNoticeActions}>
-            <button
-              type="button"
-              className={styles.pwNoticeDismiss}
-              onClick={() => setPwNoticeHidden(true)}
-            >
-              Not now
-            </button>
-            <button
-              type="button"
-              className={styles.pwNoticeGo}
-              onClick={() => {
-                setSettingsOpen(true)
-                setSettingsTab('profile')
-                setPwNoticeHidden(true)
-                setPwFocusRequest(request => request + 1)
-              }}
-            >
-              Change it
-            </button>
-          </div>
-        </div>
-      )}
+        ))
+      })()}
       <div className={styles.topRight}>
       {canInstall && !installed && (
         <button

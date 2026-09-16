@@ -5290,6 +5290,27 @@
   animation: ncNoticeIn .26s cubic-bezier(.2, .7, .3, 1) both;
   will-change: transform, opacity;
 }
+/* The card behind peeks out above the one in front, so the next thing to deal with is
+   visible without being readable or clickable until it comes forward. */
+.pwNoticeBehind {
+  z-index: calc(75 - var(--depth, 1));
+  transform: translateY(calc(var(--depth, 1) * -12px)) scale(calc(1 - var(--depth, 1) * .04));
+  opacity: .92;
+  pointer-events: none;
+  animation: none;
+  transition: transform .26s cubic-bezier(.2, .7, .3, 1);
+}
+.pwNoticeMore {
+  position: absolute;
+  top: -9px;
+  right: 14px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--nc-violet-500);
+  color: #fff;
+  font: 600 11px/1 var(--nc-font-sans);
+  letter-spacing: .01em;
+}
 
 .pwNoticeTitle {
   margin: 0;
@@ -6554,6 +6575,7 @@
     width: auto;
     z-index: 445;
   }
+  .pwNoticeBehind { z-index: calc(445 - var(--depth, 1)); }
   /* Forty-four pixels is the smallest thing a thumb finds reliably. */
   .itemStar,
   .iconBtn,
