@@ -1848,10 +1848,29 @@ export default function DevMailPage() {
     }
   }, [])
 
-  const mailboxQuery = ''
+  const [mailboxes, setMailboxes] = useState<{ address: string; name: string }[]>([])
+  const [mailboxAll, setMailboxAll] = useState(false)
 
-  // Nobody browses another mailbox any more, so mail always goes out as the signed-in
-  // account and there is no one to act as.
+  useEffect(() => {
+    if (!isLoggedIn) return
+    let live = true
+    fetch('/api/mail/mailboxes', { headers: apiHeaders() })
+      .then(response => response.json())
+      .then(data => {
+        if (!live || !data?.ok) return
+        setMailboxAll(Boolean(data.all))
+        setMailboxes(Array.isArray(data.mailboxes) ? data.mailboxes : [])
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [isLoggedIn, apiHeaders])
+
+  const mailboxQuery = mailboxAll && mailbox !== 'all' ? `?mailbox=${encodeURIComponent(mailbox)}` : ''
+
+  // Mail always goes out as the signed-in account, so browsing another mailbox never
+  // changes who a reply comes from.
   const actingAs: string | null = null
 
   const decorateSent = (data: {
@@ -7007,6 +7026,30 @@ export default function DevMailPage() {
             {ICONS.refresh}
           </button>
         </div>
+        {mailboxAll && mailboxes.length > 1 && (
+          <div className={styles.mailboxTabs} role="tablist" aria-label="Mailbox">
+            <button
+              role="tab"
+              aria-selected={mailbox === 'all'}
+              className={`${styles.mailboxTab} ${mailbox === 'all' ? styles.mailboxTabOn : ''}`}
+              onClick={() => setMailbox('all')}
+            >
+              All mail
+            </button>
+            {mailboxes.map(entry => (
+              <button
+                key={entry.address}
+                role="tab"
+                aria-selected={mailbox === entry.address}
+                title={entry.address}
+                className={`${styles.mailboxTab} ${mailbox === entry.address ? styles.mailboxTabOn : ''}`}
+                onClick={() => setMailbox(entry.address)}
+              >
+                {entry.name}
+              </button>
+            ))}
+          </div>
+        )}
         {crossFolder && listItems.length > 0 && (
           <button type="button" className={styles.crossFolderHint} onClick={followCrossFolder}>
             {crossFolderLabel}

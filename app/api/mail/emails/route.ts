@@ -2,6 +2,7 @@ import { BRAND } from '@/lib/brand'
 import { NextResponse } from 'next/server'
 import { matchesQuery, parseQuery } from '@/app/mail/search'
 import { FORWARD_RECIPIENTS, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { scopeFor } from '@/lib/scope'
 import { readSentFlags, setSentFlags, readPixelOpens, readSentMeta, setSentMetaOwner, listAccounts, readSentArchive, type SentFlags } from '@/lib/mailbox'
 
 const SHARED_ADDRESS = (process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim().toLowerCase()
@@ -68,9 +69,9 @@ export async function GET(req: Request) {
     attachmentCount: item.attachmentCount ?? 0,
   }))
 
-  // Sent mail is scoped the same way the inbox is: to the signed-in mailbox, whatever
-  // the role. Administering accounts does not carry the right to read someone's sends.
-  const ownerScope: string = account.address ?? ' no-address'
+  // Sent mail is scoped the same way the inbox is, including the one address a
+  // deployment may name as able to read every account.
+  const ownerScope = scopeFor(account, new URL(req.url).searchParams.get('mailbox'))
 
   // Ownership is the sender identity: the `from` address if it's an accessor's, else the
   // shared inbox (admin). This attributes historical sends (all from hello@) correctly.
