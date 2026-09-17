@@ -598,10 +598,10 @@ export async function invalidateCounts(owner: string | null | undefined): Promis
   }
 }
 
-export async function countFoldersCached(owner: string): Promise<FolderCounts> {
+export async function countFoldersCached(owner: string | null): Promise<FolderCounts> {
   await ensureMailSchema()
   const sql = db()
-  const key = owner.toLowerCase()
+  const key = owner === null ? '*all' : owner.toLowerCase()
   const hit = await sql`SELECT computed_at, counts FROM mail_counts_cache WHERE owner = ${key}`
   const row = hit[0]
   if (row && Date.now() - Date.parse(String(row.computed_at)) < COUNTS_CACHE_MS) {
@@ -610,7 +610,7 @@ export async function countFoldersCached(owner: string): Promise<FolderCounts> {
     // than serve a shape the caller will read as "threads are not live".
     if (parsed && 'conversations' in parsed) return parsed
   }
-  const fresh = await countFolders(owner)
+  const fresh = await countFolders(owner ?? undefined)
   await sql`
     INSERT INTO mail_counts_cache (owner, computed_at, counts)
     VALUES (${key}, ${new Date().toISOString()}, ${JSON.stringify(fresh)})
@@ -836,9 +836,9 @@ export type ThreadFolder = 'inbox' | 'archive' | 'trash' | 'starred' | 'snoozed'
 /** The newest conversations in a folder: one row each, already summarised. */
 export type ThreadPage = { rows: ThreadRow[]; nextCursor: string | null }
 
-export async function listThreads(ownerRaw: string, folder: ThreadFolder, limit: number, cursorRaw?: string | null): Promise<ThreadPage> {
+export async function listThreads(ownerRaw: string | null, folder: ThreadFolder, limit: number, cursorRaw?: string | null): Promise<ThreadPage> {
   await ensureMailSchema()
-  const owner = ownerRaw.toLowerCase()
+  const owner = ownerRaw === null ? null : ownerRaw.toLowerCase()
   const nowIso = new Date().toISOString()
   const predicate =
     folder === 'archive' ? 'archived_count > 0'
@@ -850,15 +850,31 @@ export async function listThreads(ownerRaw: string, folder: ThreadFolder, limit:
   // cursor's arguments have to follow whatever the predicate used.
   const folderArgs = folder === 'snoozed' || folder === 'inbox' ? [nowIso] : []
   const cursor = decodeCursor(cursorRaw)
-  const rows = await tagged(db(), `
-    SELECT thread_id, subject, first_at, latest_at, latest_id, count, unread_count, starred_count,
-      inbox_count, archived_count, trashed_count, attach_count, senders, snippet, labels, snoozed_until
-    FROM mail_threads WHERE owner = ? AND ${predicate}
-      ${cursor ? 'AND (latest_at < ? OR (latest_at = ? AND thread_id < ?))' : ''}
-    ORDER BY latest_at DESC, thread_id DESC LIMIT ?`,
-    cursor
-      ? [owner, ...folderArgs, cursor.receivedAt, cursor.receivedAt, cursor.id, limit]
-      : [owner, ...folderArgs, limit])
+  const cursorClause = cursor ? '(latest_at < ? OR (latest_at = ? AND thread_id < ?))' : ''
+  const cursorArgs = cursor ? [cursor.receivedAt, cursor.receivedAt, cursor.id] : []
+  // Thread rows are materialised per owner, so reading every account has to fold the same
+  // conversation back together. SQLite fills a bare column from whichever row matched the
+  // MAX in the same select, which is how subject, snippet and senders come from the latest
+  // message rather than an arbitrary one.
+  const rows = owner === null
+    ? await tagged(db(), `
+        SELECT thread_id, subject, MIN(first_at) AS first_at, MAX(latest_at) AS latest_at, latest_id,
+          SUM(count) AS count, SUM(unread_count) AS unread_count, SUM(starred_count) AS starred_count,
+          SUM(inbox_count) AS inbox_count, SUM(archived_count) AS archived_count,
+          SUM(trashed_count) AS trashed_count, SUM(attach_count) AS attach_count,
+          senders, snippet, labels, snoozed_until
+        FROM mail_threads
+        GROUP BY thread_id
+        HAVING ${predicate}${cursorClause ? ` AND ${cursorClause}` : ''}
+        ORDER BY latest_at DESC, thread_id DESC LIMIT ?`,
+        [...folderArgs, ...cursorArgs, limit])
+    : await tagged(db(), `
+        SELECT thread_id, subject, first_at, latest_at, latest_id, count, unread_count, starred_count,
+          inbox_count, archived_count, trashed_count, attach_count, senders, snippet, labels, snoozed_until
+        FROM mail_threads WHERE owner = ? AND ${predicate}
+          ${cursorClause ? `AND ${cursorClause}` : ''}
+        ORDER BY latest_at DESC, thread_id DESC LIMIT ?`,
+        [owner, ...folderArgs, ...cursorArgs, limit])
   const last = rows[rows.length - 1]
   const nextCursor = rows.length === limit && last ? encodeCursor(String(last.latest_at), String(last.thread_id)) : null
   const mapped = rows.map(row => ({

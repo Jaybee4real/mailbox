@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, isLocalOrigin, resolveAccount } from '@/lib/dev-auth'
+import { inboxScope } from '@/lib/scope'
 import { searchInbox, appendEvent, appendInbound, recordContact, setInboundFlags, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
 import { attributeOwner, forwardToAccounts, ingestReceived, parseSender } from '@/lib/receive'
 import { isBrevoInbound, normalizeBrevoInbound } from '@/lib/mail-provider'
@@ -11,9 +12,9 @@ export async function GET(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
   const account = await resolveAccount(req)
-  // Everyone sees their own mailbox and only their own. Administering accounts is a
-  // separate power from reading other people's mail, so an admin is scoped here too.
-  const ownerFilter: string = account.address ?? ' no-address'
+  // Everyone sees their own mailbox and only their own, unless this deployment names one
+  // address that reads every account. Administering accounts stays a separate power.
+  const ownerFilter = inboxScope(account)
   // A query or an explicit page means the caller wants the searchable, paged path.
   // Without either, fall back to readInbox so existing callers are unaffected.
   const params = new URL(req.url).searchParams
@@ -29,7 +30,7 @@ export async function GET(req: Request) {
     const folder = (['inbox', 'archive', 'trash', 'starred', 'snoozed'] as const).find(f => f === folderParam)
     const { rows, total, nextCursor } = await searchInbox({
       text,
-      owner: ownerFilter,
+      owner: ownerFilter ?? undefined,
       folder,
       limit: Number(limitRaw ?? 50) || 50,
       offset,
