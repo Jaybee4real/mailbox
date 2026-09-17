@@ -23,6 +23,7 @@ import os
 import re
 import socket
 import sys
+import sqlite3
 import threading
 import time
 import urllib.error
@@ -359,7 +360,24 @@ def arg(value, kind='text'):
 
 
 def execute(url, token, statements):
+    if url.startswith('file:'):
+        return execute_sqlite(url[len('file:'):], statements)
     return with_retry(lambda: execute_once(url, token, statements), 'turso')
+
+
+SQLITE_LOCK = threading.Lock()
+
+
+def execute_sqlite(path, statements):
+    """The pipeline's shape over a local SQLite file, for a database that is not served over HTTP."""
+    with SQLITE_LOCK, sqlite3.connect(path, timeout=120) as connection:
+        connection.execute('PRAGMA busy_timeout = 120000')
+        results = []
+        for statement in statements:
+            cursor = connection.execute(statement['sql'], [a['value'] for a in statement['args']])
+            rows = cursor.fetchall() if cursor.description else []
+            results.append({'response': {'result': {'rows': [[{'value': cell} for cell in row] for row in rows]}}})
+        return results
 
 
 def execute_once(url, token, statements):
@@ -428,6 +446,7 @@ def main():
     parser.add_argument('--batch', type=int, default=10)
     parser.add_argument('--mark-read', action='store_true')
     parser.add_argument('--skip-attachments', action='store_true')
+    parser.add_argument('--kinds', default='inbox,sent', help='which rows the attachment pass touches: inbox, sent, or both')
     parser.add_argument('--attach-only', action='store_true',
                         help='second pass: upload attachments for rows already imported and write the URLs back')
     parser.add_argument('--workers', type=int, default=8, help='parallel attachment uploads')
@@ -454,8 +473,9 @@ def main():
         print(f'upload cap: {args.max_mbps} Mbit/s', flush=True)
     url, db_token = os.environ.get('TURSO_DATABASE_URL'), os.environ.get('TURSO_AUTH_TOKEN')
     blob_token = None if args.skip_attachments else (os.environ.get('BLOB_READ_WRITE_TOKEN') if STORE == 'blob' else 's3')
-    if not args.dry_run and not (url and db_token):
+    if not args.dry_run and not (url and (db_token or url.startswith('file:'))):
         sys.exit('TURSO_DATABASE_URL and TURSO_AUTH_TOKEN must be set')
+    kinds = {kind.strip() for kind in args.kinds.split(',') if kind.strip()}
     if not args.dry_run and not args.skip_attachments and not blob_token:
         print('BLOB_READ_WRITE_TOKEN unset: attachments will be metadata only', flush=True)
 
@@ -664,7 +684,7 @@ def main():
             print(f'  {row["receivedAt"][:10]} {row["kind"]:5} {flag} {row["from"][:30]:30} {row["subject"][:44]}'
                   f'  [{len(row["attachments"])} files]', flush=True)
         if args.attach_only:
-            if row['kind'] == 'skip' or not row['attachments']:
+            if row['kind'] not in kinds or not row['attachments']:
                 continue
             chunk.append(row)
             if len(chunk) >= args.batch:
