@@ -12,19 +12,35 @@
  */
 
 const CONTAINER = [
+  // Outlook stacks a prefix onto the id on every requote, so match the suffix.
   '[id$="divRplyFwdMsg" i]',
+  // Outlook Web draws this rule immediately above that div; every instance in the corpus
+  // sits on a real boundary, while a bare <hr> is decorative half the time.
+  'hr[style*="inline-block"][style*="98%"]',
+  // Outlook desktop flattens the same boundary to a bordered div.
+  'div[style*="border-top"][style*="#E1E1E1" i]',
   '[class*="gmail_quote_container" i]',
   'blockquote[class*="gmail_quote" i]',
   'blockquote[type="cite" i]',
   'blockquote[id*="blockquote_zmail" i]',
   '[class*="moz-cite-prefix" i]',
-  '[id$="appendonsend" i]',
 ].join(',')
 
-/** An attribution line: the date-and-name sentence a client writes above the quote. */
-const ATTRIBUTION = [
+// Deliberately absent: Outlook's empty "appendonsend" anchor. It marks where typing stopped,
+// which looks like the ideal cut, but the sender's signature is sometimes emitted after it.
+
+/** A reply divider: everything below it is the thread being repeated. */
+const REPLY_DIVIDER = [
   /^\s*On\b[\s\S]{10,220}?\bwrote:\s*$/i,
   /^\s*-{4,}\s*On\b[\s\S]{10,220}?\bwrote\s*-{4,}\s*$/i,
+]
+
+/**
+ * A forward marker means the opposite of a reply divider: what follows is not a repeat,
+ * it is the whole point of the message. Folding it on a bare forward would leave the
+ * reader a cover note and a fold line, so it is only honoured under a real covering note.
+ */
+const FORWARD_MARKER = [
   /^\s*-{2,20}\s*(?:Original Message|Original message|Forwarded message)\s*-{2,20}\s*$/i,
   /^\s*Begin forwarded message:\s*$/i,
 ]
@@ -34,16 +50,21 @@ const HEADER_BLOCK = /^\s*(?:\*\s*)?(?:From|De)\s*:\s*\S[\s\S]{0,400}?^\s*(?:\*\
 
 /** Text the reader must keep: if trimming leaves less than this, nothing is trimmed. */
 const MIN_HEAD_CHARS = 25
+/** A forward needs a substantial note of its own before its body may be folded. */
+const MIN_HEAD_CHARS_FORWARD = 150
 
-function isQuoteStart(element: Element): boolean {
-  if (element.matches(CONTAINER)) return true
+type Boundary = 'reply' | 'forward' | null
+
+function quoteStart(element: Element): Boundary {
+  if (element.matches(CONTAINER)) return 'reply'
   const text = (element.textContent ?? '').trim()
-  if (!text) return false
-  if (text.length < 400 && ATTRIBUTION.some(pattern => pattern.test(text))) return true
+  if (!text) return null
+  if (text.length < 400 && REPLY_DIVIDER.some(pattern => pattern.test(text))) return 'reply'
+  if (text.length < 400 && FORWARD_MARKER.some(pattern => pattern.test(text))) return 'forward'
   // A divider drawn as a rule or a run of underscores only counts when a header block follows.
   const looksLikeDivider = element.tagName === 'HR' || /^[_—-]{10,}$/.test(text)
-  if (looksLikeDivider) return false
-  return text.length < 1200 && HEADER_BLOCK.test(text)
+  if (looksLikeDivider) return null
+  return text.length < 1200 && HEADER_BLOCK.test(text) ? 'reply' : null
 }
 
 export type QuotedSplit = { head: string; tail: string | null }
@@ -73,11 +94,17 @@ export function splitQuotedTail(html: string): QuotedSplit {
   }
 
   const children = Array.from(scope.children)
-  const at = children.findIndex(isQuoteStart)
+  let at = -1
+  let kind: Boundary = null
+  for (const [index, element] of children.entries()) {
+    const boundary = quoteStart(element)
+    if (boundary) { at = index; kind = boundary; break }
+  }
   if (at <= 0) return { head: html, tail: null }
 
   const head = children.slice(0, at)
-  if (head.map(element => element.textContent ?? '').join(' ').trim().length < MIN_HEAD_CHARS) {
+  const kept = head.map(element => element.textContent ?? '').join(' ').trim().length
+  if (kept < (kind === 'forward' ? MIN_HEAD_CHARS_FORWARD : MIN_HEAD_CHARS)) {
     return { head: html, tail: null }
   }
   const tail = children.slice(at)
