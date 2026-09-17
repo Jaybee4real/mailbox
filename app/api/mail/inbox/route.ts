@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, isLocalOrigin, resolveAccount } from '@/lib/dev-auth'
-import { inboxScope } from '@/lib/scope'
+import { scopeFor } from '@/lib/scope'
 import { searchInbox, appendEvent, appendInbound, recordContact, setInboundFlags, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
 import { attributeOwner, forwardToAccounts, ingestReceived, parseSender } from '@/lib/receive'
 import { isBrevoInbound, normalizeBrevoInbound } from '@/lib/mail-provider'
@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const account = await resolveAccount(req)
   // Everyone sees their own mailbox and only their own, unless this deployment names one
   // address that reads every account. Administering accounts stays a separate power.
-  const ownerFilter = inboxScope(account)
+  const ownerFilter = scopeFor(account, new URL(req.url).searchParams.get('mailbox'))
   // A query or an explicit page means the caller wants the searchable, paged path.
   // Without either, fall back to readInbox so existing callers are unaffected.
   const params = new URL(req.url).searchParams

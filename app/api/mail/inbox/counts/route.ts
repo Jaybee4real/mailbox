@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
-import { inboxScope } from '@/lib/scope'
+import { scopeFor } from '@/lib/scope'
 import { countFolders, countFoldersCached } from '@/lib/mailbox'
 
 const COUNTS_TTL_MS = 20 * 1000
@@ -22,6 +22,6 @@ export async function GET(req: Request) {
   // Counts describe the signed-in mailbox, matching what the list will actually show.
   const account = await resolveAccount(req)
   const fresh = new URL(req.url).searchParams.get('fresh') === '1'
-  const counts = await cachedCounts(inboxScope(account), fresh)
+  const counts = await cachedCounts(scopeFor(account, new URL(req.url).searchParams.get('mailbox')), fresh)
   return NextResponse.json({ ok: true, counts })
 }

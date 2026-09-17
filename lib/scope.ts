@@ -20,3 +20,15 @@ export function inboxScope(viewer: Viewer): string | null {
   if (readsAllInboxes(viewer)) return null
   return viewer.address ?? ' no-address'
 }
+
+/**
+ * Which inbox a request should read. An address the viewer may not see is not an error:
+ * it falls back to their own, so a guessed parameter reveals nothing.
+ */
+export function scopeFor(viewer: Viewer, requested?: string | null): string | null {
+  const own = viewer.address ?? ' no-address'
+  const wanted = (requested ?? '').trim().toLowerCase()
+  const everything = readsAllInboxes(viewer)
+  if (!wanted || wanted === 'all') return everything ? null : own
+  return everything ? wanted : own
+}
