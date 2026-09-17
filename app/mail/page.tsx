@@ -10,7 +10,7 @@ import { subscribePush, unsubscribePush, useInstall, useNotifications } from './
 import RichEditor from './RichEditor'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel } from '@/lib/email-html'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
-import MailSelect from './MailSelect'
+import MailSelect, { GLYPH } from './MailSelect'
 import Ticker from './Ticker'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
@@ -8221,19 +8221,19 @@ export default function DevMailPage() {
               <div className={styles.fontAdd}>
                 <MailSelect
                   ariaLabel="Default font"
-                  prefix={<span className={styles.selectGlyphSerif}>A</span>}
+                  prefix={GLYPH.font}
                   value={settings.defaultFont?.family ?? ''}
-                  options={[{ value: '', label: 'Arial (standard)' }, ...[...BUILTIN_FONTS, ...(settings.fonts ?? []).map(font => font.name)].filter((font, index, all) => all.indexOf(font) === index).map(font => ({ value: font, label: font }))]}
+                  options={[{ value: '', label: 'Arial (standard)', closed: 'Arial' }, ...[...BUILTIN_FONTS, ...(settings.fonts ?? []).map(font => font.name)].filter((font, index, all) => all.indexOf(font) === index).map(font => ({ value: font, label: font }))]}
                   optionStyle={font => (font ? { fontFamily: `'${font}', Arial, sans-serif` } : {})}
                   onChange={family => setMailSettings(current => ({ ...current, defaultFont: { ...(current.defaultFont ?? EMPTY_FONT), family } }))}
                 />
                 <MailSelect
                   ariaLabel="Default size"
-                  prefix="tT"
+                  prefix={GLYPH.size}
                   editable
                   placeholder="15"
                   value={settings.defaultFont?.size ?? ''}
-                  options={[{ value: '', label: '15 (standard)' }, ...FONT_SIZES.map(size => ({ value: size, label: size.replace('px', '') }))]}
+                  options={[{ value: '', label: '15 (standard)', closed: '15' }, ...FONT_SIZES.map(size => ({ value: size, label: size.replace('px', '') }))]}
                   onChange={raw => {
                     const size = /^\d+(\.\d+)?$/.test(raw) ? `${raw}px` : raw
                     if (size && !/^\d+(\.\d+)?(px|pt|em|rem|%)$/.test(size)) return
@@ -8248,12 +8248,12 @@ export default function DevMailPage() {
               <div className={styles.fontAdd}>
                 <MailSelect
                   ariaLabel="Line spacing"
-                  prefix="↕"
+                  prefix={GLYPH.spacing}
                   editable
                   placeholder={String(DEFAULT_LINE_SPACING)}
                   value={settings.defaultFont?.lineSpacing ? String(settings.defaultFont.lineSpacing) : ''}
                   options={[
-                    { value: '', label: `${DEFAULT_LINE_SPACING} (standard)` },
+                    { value: '', label: `${DEFAULT_LINE_SPACING} (standard)`, closed: String(DEFAULT_LINE_SPACING) },
                     ...LINE_SPACINGS.filter(spacing => spacing !== DEFAULT_LINE_SPACING).map(spacing => ({ value: String(spacing), label: String(spacing) })),
                   ]}
                   onChange={raw => {

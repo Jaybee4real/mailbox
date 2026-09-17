@@ -12,6 +12,16 @@ export function anchoredMenuStyle(anchor: HTMLElement): React.CSSProperties {
     : { ...base, top: rect.bottom + 6 }
 }
 
+export const GLYPH = {
+  font: <span className={styles.selectGlyphSerif}>A</span>,
+  size: 'tT',
+  spacing: (
+    <svg viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path d="M3 2v8M1.6 3.6L3 2l1.4 1.6M1.6 8.4L3 10l1.4-1.6M6.5 4.2h4M6.5 7.8h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+}
+
 export const CHEVRON = (
   <svg className={styles.selectChevron} viewBox="0 0 12 8" fill="none" aria-hidden>
     <path d="M1 1l5 5 5-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -28,11 +38,10 @@ export default function MailSelect({
   editable = false,
   optionStyle,
   prefix,
-  compact = false,
-  title,
+  label,
 }: {
   value: string
-  options: Array<{ value: string; label: string }>
+  options: Array<{ value: string; label: string; closed?: string }>
   onChange: (value: string) => void
   ariaLabel: string
   buttonClassName?: string
@@ -40,11 +49,8 @@ export default function MailSelect({
   /** Typed values are accepted too: committed on Enter or when the field loses focus. */
   editable?: boolean
   optionStyle?: (value: string) => React.CSSProperties
-  /** A quiet glyph before the value, so three selects in a row can be told apart. */
   prefix?: React.ReactNode
-  /** Closed, show only the glyph; the value stays in the title and the menu. */
-  compact?: boolean
-  title?: string
+  label?: string
 }) {
   const [open, setOpen] = useState(false)
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({})
@@ -72,24 +78,26 @@ export default function MailSelect({
   }, [open])
 
   const current = options.find(option => option.value === value)
+  const shown = current?.closed ?? current?.label
   const toggle = () => {
     if (!open && anchorRef.current) setMenuStyle(anchoredMenuStyle(anchorRef.current))
     setOpen(prev => !prev)
   }
   const commitTyped = () => {
-    if (typed !== null && typed !== (current?.label ?? value)) onChange(typed.trim())
+    if (typed !== null && typed !== (shown ?? value)) onChange(typed.trim())
     setTyped(null)
   }
 
   return (
     <span className={styles.select} ref={wrapRef}>
       {editable ? (
-        <span ref={anchorRef as React.RefObject<HTMLSpanElement>} className={`${styles.selectBtn} ${styles.selectEditable} ${buttonClassName ?? ''}`} title={title}>
+        <span ref={anchorRef as React.RefObject<HTMLSpanElement>} className={`${styles.selectBtn} ${styles.selectEditable} ${buttonClassName ?? ''}`}>
           {prefix && <span className={styles.selectGlyph} aria-hidden>{prefix}</span>}
+          {label && <span className={styles.selectLabel}>{label}</span>}
           <input
             className={styles.selectInput}
             aria-label={ariaLabel}
-            value={typed ?? current?.label ?? value}
+            value={typed ?? shown ?? value}
             placeholder={placeholder}
             onFocus={() => { if (!open) toggle() }}
             onChange={event => setTyped(event.target.value)}
@@ -113,12 +121,12 @@ export default function MailSelect({
           className={`${styles.selectBtn} ${buttonClassName ?? ''}`}
           aria-haspopup="listbox"
           aria-expanded={open}
-          aria-label={compact ? `${ariaLabel}: ${current?.label ?? placeholder}` : ariaLabel}
-          title={title ?? (compact ? `${ariaLabel}: ${current?.label ?? placeholder}` : undefined)}
+          aria-label={ariaLabel}
           onClick={toggle}
         >
           {prefix && <span className={styles.selectGlyph} aria-hidden>{prefix}</span>}
-          {!compact && <span style={optionStyle && current?.value ? optionStyle(current.value) : undefined}>{current?.label ?? placeholder}</span>}
+          {label && <span className={styles.selectLabel}>{label}</span>}
+          <span style={optionStyle && current?.value ? optionStyle(current.value) : undefined}>{shown ?? placeholder}</span>
           {CHEVRON}
         </button>
       )}

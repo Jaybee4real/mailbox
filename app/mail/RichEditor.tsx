@@ -10,7 +10,7 @@ import { CLIENT_BRAND } from '@/lib/brand.client'
 import TextAlign from '@tiptap/extension-text-align'
 import { FontFamily, FontSize, TextStyle } from '@tiptap/extension-text-style'
 import { LINE_SPACINGS, BUILTIN_FONTS, FONT_SIZES, fontStack, lineSpacingOf, paragraphGap, type BaseFont } from '@/lib/fonts'
-import MailSelect from './MailSelect'
+import MailSelect, { GLYPH } from './MailSelect'
 import { Color } from '@tiptap/extension-color'
 import Highlight from '@tiptap/extension-highlight'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
@@ -631,12 +631,10 @@ function Toolbar({ editor, uploadImage, fonts = [], baseFont }: { editor: Editor
         <MailSelect
           buttonClassName={styles.rteSelect}
           ariaLabel="Font"
-          placeholder={`${defaultFamily} (default)`}
-          prefix={<span className={styles.selectGlyphSerif}>A</span>}
-          compact
-          title={`Font: ${currentFamily || `${defaultFamily} (default)`}`}
+          label="Font"
+          prefix={GLYPH.font}
           value={currentFamily}
-          options={[{ value: '', label: `${defaultFamily} (default)` }, ...[...BUILTIN_FONTS, ...fonts.filter(font => !BUILTIN_FONTS.includes(font))].map(font => ({ value: font, label: font }))]}
+          options={[{ value: '', label: `${defaultFamily} (default)`, closed: defaultFamily }, ...[...BUILTIN_FONTS, ...fonts.filter(font => !BUILTIN_FONTS.includes(font))].map(font => ({ value: font, label: font }))]}
           optionStyle={font => (font ? { fontFamily: `'${font}', Arial, sans-serif` } : {})}
           onChange={family => {
             if (family) editor.chain().focus().setFontFamily(family).run()
@@ -646,12 +644,12 @@ function Toolbar({ editor, uploadImage, fonts = [], baseFont }: { editor: Editor
         <MailSelect
           buttonClassName={`${styles.rteSelect} ${styles.rteSizeSelect}`}
           ariaLabel="Font size"
+          label="Size"
           placeholder={defaultSize}
-          prefix="tT"
-          title={`Size — default ${defaultSize}`}
+          prefix={GLYPH.size}
           editable
           value={(editor.getAttributes('textStyle').fontSize as string | undefined) ?? ''}
-          options={[{ value: '', label: `${defaultSize} (default)` }, ...FONT_SIZES.map(size => ({ value: size, label: size.replace('px', '') }))]}
+          options={[{ value: '', label: `${defaultSize} (default)`, closed: defaultSize }, ...FONT_SIZES.map(size => ({ value: size, label: size.replace('px', '') }))]}
           onChange={raw => {
             const size = /^\d+(\.\d+)?$/.test(raw) ? `${raw}px` : raw
             if (!size || /default/i.test(size)) editor.chain().focus().unsetFontSize().run()
@@ -660,13 +658,13 @@ function Toolbar({ editor, uploadImage, fonts = [], baseFont }: { editor: Editor
         />
         <MailSelect
           buttonClassName={`${styles.rteSelect} ${styles.rteSizeSelect}`}
-          ariaLabel="Line spacing"
+          ariaLabel="Line height"
+          label="Line height"
           placeholder={defaultSpacing}
-          prefix="↕"
-          title={`Line spacing — default ${defaultSpacing}`}
+          prefix={GLYPH.spacing}
           editable
           value={editor.getAttributes('paragraph').lineSpacing ? String(editor.getAttributes('paragraph').lineSpacing) : ''}
-          options={[{ value: '', label: `${defaultSpacing} (default)` }, ...LINE_SPACINGS.map(spacing => ({ value: String(spacing), label: String(spacing) }))]}
+          options={[{ value: '', label: `${defaultSpacing} (default)`, closed: defaultSpacing }, ...LINE_SPACINGS.map(spacing => ({ value: String(spacing), label: String(spacing) }))]}
           onChange={raw => {
             const spacing = parseFloat(raw)
             if (!raw.trim() || /default/i.test(raw)) editor.chain().focus().updateAttributes('paragraph', { lineSpacing: null }).run()

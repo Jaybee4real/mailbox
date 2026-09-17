@@ -1681,7 +1681,7 @@
   border-radius: 6px;
   background: var(--nc-ink-1);
   color: var(--nc-fg-1);
-  font: 500 12px/1 var(--nc-font-sans);
+  font: 500 11px/1 var(--nc-font-sans);
 }
 .rteSwatches { display: flex; gap: 3px; }
 .rteSwatch {
@@ -2221,13 +2221,22 @@
 .selectBtn:hover { border-color: var(--nc-line-2); color: var(--nc-fg-1); }
 .selectGlyph {
   flex-shrink: 0;
-  font: 600 11px/1 var(--nc-font-mono);
-  letter-spacing: .02em;
-  color: var(--nc-fg-4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font: 700 11px/1 var(--nc-font-sans);
+  letter-spacing: .01em;
+  color: var(--nc-fg-3);
 }
-.selectGlyphSerif { font: 600 14px/1 Georgia, 'Times New Roman', serif; color: var(--nc-fg-3); }
-.selectEditable .selectGlyph { margin-left: 9px; }
-.selectEditable .selectGlyph + .selectInput { padding-left: 6px; }
+.selectGlyph svg { width: 13px; height: 13px; }
+.selectGlyphSerif { font: 700 13px/1 Georgia, 'Times New Roman', serif; }
+.selectLabel {
+  flex-shrink: 0;
+  color: var(--nc-fg-3);
+  white-space: nowrap;
+}
 .selectBtn > span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2270,6 +2279,7 @@
 .selectOptionOn { background: var(--nc-ink-4); color: var(--nc-violet-200); }
 
 .toolbar .selectBtn { padding: 7px 10px; font-size: 12px; }
+.selectBtn.rteSelect { font-size: 11.5px; }
 .campaignSelectBtn {
   width: 100%;
   justify-content: space-between;
@@ -6592,20 +6602,23 @@
 .fontInput { flex: 1 1 160px; height: 34px; padding: 0 10px; border: 1px solid var(--nc-line-1); border-radius: 8px; background: var(--nc-ink-1); color: var(--nc-fg-1); font: 500 13px/1 var(--nc-font-sans); }
 .fontUpload { height: 34px; display: inline-flex; align-items: center; padding: 0 12px; border: 1px solid var(--nc-line-1); border-radius: 8px; font: 500 13px/1 var(--nc-font-sans); color: var(--nc-fg-1); cursor: pointer; }
 
-.selectEditable { padding: 0 6px 0 0; gap: 0; }
-.selectInput {
+.selectEditable { padding: 0 6px 0 8px; gap: 6px; }
+.selectBtn .selectInput {
   width: 3.5em;
   min-width: 0;
   height: 100%;
-  padding: 0 0 0 10px;
+  padding: 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
+  box-shadow: none;
+  appearance: none;
   color: inherit;
   font: inherit;
   outline: none;
 }
-/* Wide enough for the word it actually shows: at 3.5em "Default" arrived as "Defi". */
-.rteSizeSelect .selectInput { padding-left: 8px; width: 6em; }
+.selectBtn .selectInput:focus { border: 0; box-shadow: none; }
+.rteSizeSelect .selectInput { width: 3.2em; }
 .selectChevronBtn { display: inline-flex; align-items: center; padding: 0 4px; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .mailboxDomainSelect.selectBtn { padding: 4px 6px; background: transparent; border: 0; }
 
