@@ -3945,6 +3945,18 @@
   font: 500 14px/1.4 var(--nc-font-sans);
   color: var(--nc-fg-1);
 }
+.tickerGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+.tickerGroupName {
+  font: 600 11px/1 var(--nc-font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--nc-fg-3);
+}
 .settingsToggle input {
   width: 16px;
   height: 16px;

@@ -11,7 +11,7 @@ import RichEditor from './RichEditor'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel } from '@/lib/email-html'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect, { GLYPH } from './MailSelect'
-import Ticker from './Ticker'
+import Ticker, { TICKER_SPOTS, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
@@ -303,6 +303,7 @@ type MailSettings = {
   mobile: string
   replyAllDefault: boolean
   replyStyle: 'panel' | 'mini'
+  ticker?: TickerSettings
   notifyEmail: string
   fonts: CustomFont[]
   defaultFont: BaseFont
@@ -1396,6 +1397,7 @@ export default function DevMailPage() {
     } catch {}
   }, [])
   const [settings, setMailSettings] = useState<MailSettings>(DEFAULT_SETTINGS)
+  const tickerOn = (spot: TickerSpot) => settings.ticker?.[spot] !== false
   const { canInstall, installed, install } = useInstall()
   const { permission: notifyPermission, request: requestNotifyPermission, announce } = useNotifications(
     settings.desktopNotifications,
@@ -2609,12 +2611,12 @@ export default function DevMailPage() {
       .then(response => response.json())
       .then(data => {
         if (data.ok && data.settings) {
-          const stored = data.settings as MailSettings & { density?: string; replyStyle?: string }
+          const stored = data.settings as MailSettings & { density?: string; replyStyle?: string; ticker?: unknown }
           // Only the roomy setting is named; anything else — unset, or the retired
           // "comfortable" — is the default. Treating every unrecognised value as roomy put
           // six of the seven mailboxes into a reduced reader none of them had asked for.
           const density: MailSettings['density'] = stored.density === 'relaxed' ? 'relaxed' : 'compact'
-          setMailSettings(current => ({ ...current, ...data.settings, density, replyStyle: stored.replyStyle === 'mini' ? 'mini' : 'panel' }))
+          setMailSettings(current => ({ ...current, ...data.settings, density, replyStyle: stored.replyStyle === 'mini' ? 'mini' : 'panel', ticker: tickerSettingsFrom(stored.ticker) }))
           const prefs = (data.settings as MailSettings).prefs
           if (prefs?.theme) { setThemePref(prefs.theme); localStorage.setItem(LS_THEME_KEY, prefs.theme) }
           if (prefs?.accent && hexToHsl(prefs.accent)) { setAccent(prefs.accent); localStorage.setItem(LS_ACCENT_KEY, prefs.accent) }
@@ -5204,7 +5206,7 @@ export default function DevMailPage() {
                 )}
               </button>
               <div className={styles.attachInfo}>
-                <Ticker className={styles.attachName} title={attachment.filename}>{attachment.filename}</Ticker>
+                <Ticker className={styles.attachName} title={attachment.filename} enabled={tickerOn('attachName')}>{attachment.filename}</Ticker>
                 <span className={styles.attachMeta}>
                   {attachment.size ? formatSize(attachment.size) : null}
                   {attachment.shareId ? `${attachment.size ? ' · ' : ''}shared link` : null}
@@ -5337,7 +5339,7 @@ export default function DevMailPage() {
               <span className={styles.attachThumbExt}>{extension || 'FILE'}</span>
             </span>
           )}
-          <Ticker className={styles.attachChipName} title={attachment.filename}>{attachment.filename}</Ticker>
+          <Ticker className={styles.attachChipName} title={attachment.filename} enabled={tickerOn('attachChip')}>{attachment.filename}</Ticker>
           <span className={styles.attachChipSize}>{state}</span>
           {attachment.error && attachment.file && (
             <button type="button" className={styles.attachRetry} onClick={() => retryUpload(attachment)}>
@@ -5624,9 +5626,9 @@ export default function DevMailPage() {
           <span className={styles.threadMsgMeta}>
             <span className={styles.threadMsgFrom}>
               {unread && <span className={styles.unreadDot} />}
-              <Ticker className={styles.threadMsgFromText}>{from}</Ticker>
+              <Ticker className={styles.threadMsgFromText} enabled={tickerOn('threadFrom')}>{from}</Ticker>
             </span>
-            {!open && <Ticker className={styles.threadMsgSnippet}>{snippet}</Ticker>}
+            {!open && <Ticker className={styles.threadMsgSnippet} enabled={tickerOn('threadSnippet')}>{snippet}</Ticker>}
           </span>
           {hasAttach && (
             <span className={styles.threadMsgTool} title="Carries an attachment" aria-label="Carries an attachment">
@@ -5748,9 +5750,9 @@ export default function DevMailPage() {
             <div className={styles.readerMeta}>
               <div className={styles.avatar}>{(parseAddress(inbound.from)[0] ?? '?').toUpperCase()}</div>
               <div className={styles.readerMetaText}>
-                <Ticker className={`${styles.readerFrom} ${styles.tickerBlock}`}>{inbound.from}</Ticker>
-                <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`}>to {inbound.to.join(', ') || 'you'}</Ticker>
-                {inbound.cc.length > 0 && <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`}>cc {inbound.cc.join(', ')}</Ticker>}
+                <Ticker className={`${styles.readerFrom} ${styles.tickerBlock}`} enabled={tickerOn('readerFrom')}>{inbound.from}</Ticker>
+                <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`} enabled={tickerOn('readerTo')}>to {inbound.to.join(', ') || 'you'}</Ticker>
+                {inbound.cc.length > 0 && <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`} enabled={tickerOn('readerTo')}>cc {inbound.cc.join(', ')}</Ticker>}
               </div>
               <div className={styles.readerDate}>
                 {new Date(inbound.receivedAt).toLocaleString()}
@@ -6114,7 +6116,7 @@ export default function DevMailPage() {
                     title="Recipients — Cc, Bcc"
                   >
                     <span className={styles.replyRecipsChevron}>{ICONS.chevron}</span>
-                    <Ticker className={styles.replyRecipsSummary}>{recipSummary}</Ticker>
+                    <Ticker className={styles.replyRecipsSummary} enabled={tickerOn('replyRecipients')}>{recipSummary}</Ticker>
                   </button>
                 </div>
                 {replyRecipsOpen && (
@@ -6333,8 +6335,8 @@ export default function DevMailPage() {
             <div className={styles.readerMeta}>
               <div className={styles.avatar}>N</div>
               <div className={styles.readerMetaText}>
-                <Ticker className={`${styles.readerFrom} ${styles.tickerBlock}`}>{selectedDetail?.from ?? selectedSent.from}</Ticker>
-                <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`}>to {selectedSent.to.join(', ')}</Ticker>
+                <Ticker className={`${styles.readerFrom} ${styles.tickerBlock}`} enabled={tickerOn('readerFrom')}>{selectedDetail?.from ?? selectedSent.from}</Ticker>
+                <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`} enabled={tickerOn('readerTo')}>to {selectedSent.to.join(', ')}</Ticker>
               </div>
               <div className={styles.readerDate}>
                 {isScheduled && selectedSent.scheduledAt
@@ -7181,15 +7183,15 @@ export default function DevMailPage() {
                 </span>
                 <span className={styles.itemBody}>
                   <span className={styles.itemTop}>
-                    <Ticker className={styles.itemFrom}>{item.primary}</Ticker>
+                    <Ticker className={styles.itemFrom} enabled={tickerOn('listFrom')}>{item.primary}</Ticker>
                     {item.threadCount > 1 && <span className={styles.threadBadge}>{item.threadCount}</span>}
                     <span className={styles.itemTime}>{item.time}</span>
                   </span>
                   <p className={styles.itemSubject}>
                     {item.hasAttachment && <span className={styles.itemClip}>{ICONS.attach}</span>}
-                    <Ticker className={styles.itemSubjectText}>{item.subject}</Ticker>
+                    <Ticker className={styles.itemSubjectText} enabled={tickerOn('listSubject')}>{item.subject}</Ticker>
                   </p>
-                  {item.snippet && <Ticker className={`${styles.itemSnippet} ${styles.tickerBlock}`}>{item.snippet}</Ticker>}
+                  {item.snippet && <Ticker className={`${styles.itemSnippet} ${styles.tickerBlock}`} enabled={tickerOn('listSnippet')}>{item.snippet}</Ticker>}
                   {item.labels.length > 0 && (
                     <span className={styles.itemLabels}>
                       {item.labels.map(labelId => {
@@ -7939,6 +7941,25 @@ export default function DevMailPage() {
                   </button>
                 ))}
               </div>
+            </div>
+            <div className={styles.settingsField}>
+              <span>Scrolling text</span>
+              <p className={styles.settingsNote}>A line that does not fit glides back and forth. Turn that off anywhere you would rather see it cut short.</p>
+              {TICKER_SPOTS.map(group => (
+                <div key={group.group} className={styles.tickerGroup}>
+                  <span className={styles.tickerGroupName}>{group.group}</span>
+                  {group.spots.map(([spot, label]) => (
+                    <label key={spot} className={styles.settingsToggle}>
+                      <input
+                        type="checkbox"
+                        checked={tickerOn(spot)}
+                        onChange={event => setMailSettings(current => ({ ...current, ticker: { ...current.ticker, [spot]: event.target.checked } }))}
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              ))}
             </div>
             </>)}
 
