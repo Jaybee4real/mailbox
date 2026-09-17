@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { EditorContent, Extension, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type Editor, type NodeViewProps } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
@@ -19,6 +19,19 @@ import styles from './page.module.css'
 
 const TEXT_COLOURS = ['#030712', '#b91c1c', '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#6b7280']
 const HIGHLIGHTS = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FBCFE8', '#FED7AA']
+const PHONE = '(max-width: 720px)'
+function usePhone(): boolean {
+  return useSyncExternalStore(
+    onChange => {
+      const media = window.matchMedia(PHONE)
+      media.addEventListener('change', onChange)
+      return () => media.removeEventListener('change', onChange)
+    },
+    () => window.matchMedia(PHONE).matches,
+    () => false,
+  )
+}
+
 function Group({ children }: { children: React.ReactNode }) {
   return <div className={styles.rteGroup}>{children}</div>
 }
@@ -579,6 +592,8 @@ type Pop = 'link' | 'image' | 'table' | null
 function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadImage?: (file: File) => Promise<string>; fonts?: string[] }) {
   const [pop, setPop] = useState<Pop>(null)
   const popRef = useRef<HTMLDivElement>(null)
+  const phone = usePhone()
+  const [palette, setPalette] = useState(false)
 
   useEffect(() => {
     if (!pop) return
@@ -606,6 +621,7 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
   }, [editor])
 
   return (
+    <>
     <div className={styles.rteToolbar} role="toolbar" aria-label="Formatting">
       <Group>
         <MailSelect
@@ -663,46 +679,57 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
         </Btn>
       </Group>
 
-      <Group>
-        <span className={styles.rteSwatches} role="group" aria-label="Text colour">
-          {TEXT_COLOURS.map(colour => (
-            <button
-              key={colour}
-              type="button"
-              title={`Text ${colour}`}
-              aria-label={`Text colour ${colour}`}
-              className={styles.rteSwatch}
-              style={{ background: colour }}
-              onMouseDown={event => event.preventDefault()}
-              onClick={() => editor.chain().focus().setColor(colour).run()}
-            />
-          ))}
-          <label className={styles.rteSwatchCustom} title="Any other colour">
-            <input
-              type="color"
-              aria-label="Choose any text colour"
-              onChange={event => editor.chain().focus().setColor(event.target.value).run()}
-            />
-          </label>
-        </span>
-        <span className={styles.rteSwatches} role="group" aria-label="Highlight">
-          {HIGHLIGHTS.map(colour => (
-            <button
-              key={colour}
-              type="button"
-              title={`Highlight ${colour}`}
-              aria-label={`Highlight ${colour}`}
-              className={`${styles.rteSwatch} ${styles.rteSwatchHi}`}
-              style={{ background: colour }}
-              onMouseDown={event => event.preventDefault()}
-              onClick={() => editor.chain().focus().toggleHighlight({ color: colour }).run()}
-            />
-          ))}
-        </span>
-        <Btn title="Clear formatting" onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}>
-          ✕
-        </Btn>
-      </Group>
+      {phone ? (
+        <Group>
+          <Btn title="Colours" active={palette} onClick={() => setPalette(open => !open)}>
+            <span className={styles.rteColourDot} aria-hidden />
+          </Btn>
+          <Btn title="Clear formatting" onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}>
+            ✕
+          </Btn>
+        </Group>
+      ) : (
+        <Group>
+          <span className={styles.rteSwatches} role="group" aria-label="Text colour">
+            {TEXT_COLOURS.map(colour => (
+              <button
+                key={colour}
+                type="button"
+                title={`Text ${colour}`}
+                aria-label={`Text colour ${colour}`}
+                className={styles.rteSwatch}
+                style={{ background: colour }}
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => editor.chain().focus().setColor(colour).run()}
+              />
+            ))}
+            <label className={styles.rteSwatchCustom} title="Any other colour">
+              <input
+                type="color"
+                aria-label="Choose any text colour"
+                onChange={event => editor.chain().focus().setColor(event.target.value).run()}
+              />
+            </label>
+          </span>
+          <span className={styles.rteSwatches} role="group" aria-label="Highlight">
+            {HIGHLIGHTS.map(colour => (
+              <button
+                key={colour}
+                type="button"
+                title={`Highlight ${colour}`}
+                aria-label={`Highlight ${colour}`}
+                className={`${styles.rteSwatch} ${styles.rteSwatchHi}`}
+                style={{ background: colour }}
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => editor.chain().focus().toggleHighlight({ color: colour }).run()}
+              />
+            ))}
+          </span>
+          <Btn title="Clear formatting" onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}>
+            ✕
+          </Btn>
+        </Group>
+      )}
 
       <Group>
         <Btn title="Bullet list" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>
@@ -763,6 +790,44 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
         </Btn>
       </Group>
     </div>
+    {phone && (
+      <div className={`${styles.rtePalette} ${palette ? styles.rtePaletteOpen : ''}`} aria-hidden={!palette}>
+        <span className={styles.rtePaletteGroup} role="group" aria-label="Text colour">
+          {TEXT_COLOURS.slice(0, 6).map(colour => (
+            <button
+              key={colour}
+              type="button"
+              title={`Text ${colour}`}
+              aria-label={`Text colour ${colour}`}
+              className={styles.rteSwatch}
+              style={{ background: colour }}
+              tabIndex={palette ? 0 : -1}
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => editor.chain().focus().setColor(colour).run()}
+            />
+          ))}
+          <label className={styles.rteSwatchCustom} title="Any other colour">
+            <input type="color" aria-label="Choose any text colour" tabIndex={palette ? 0 : -1} onChange={event => editor.chain().focus().setColor(event.target.value).run()} />
+          </label>
+        </span>
+        <span className={styles.rtePaletteGroup} role="group" aria-label="Highlight">
+          {HIGHLIGHTS.slice(0, 4).map(colour => (
+            <button
+              key={colour}
+              type="button"
+              title={`Highlight ${colour}`}
+              aria-label={`Highlight ${colour}`}
+              className={`${styles.rteSwatch} ${styles.rteSwatchHi}`}
+              style={{ background: colour }}
+              tabIndex={palette ? 0 : -1}
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => editor.chain().focus().toggleHighlight({ color: colour }).run()}
+            />
+          ))}
+        </span>
+      </div>
+    )}
+    </>
   )
 }
 

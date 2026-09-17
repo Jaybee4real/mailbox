@@ -1697,6 +1697,33 @@
   padding: 0;
 }
 .rteSwatchHi { border-radius: 50%; }
+.rteColourDot {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: conic-gradient(#b91c1c, #b45309, #047857, #1d4ed8, #6d28d9, #b91c1c);
+}
+.rtePalette {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(-6px);
+  background: var(--nc-ink-2);
+  transition: max-height .28s var(--nc-ease-out), opacity .22s var(--nc-ease-out), transform .28s var(--nc-ease-out), padding .28s var(--nc-ease-out);
+}
+.rtePaletteOpen {
+  max-height: 60px;
+  opacity: 1;
+  transform: none;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--nc-line-1);
+}
+.rtePaletteGroup { display: flex; align-items: center; gap: 6px; }
 .rteContent {
   flex: 1;
   min-height: 0;
@@ -2540,12 +2567,18 @@
 .threadClip svg { width: 13px; height: 13px; }
 /* ── Attachment tiles ────────────────────────────────────── */
 .attachGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(278px, 1fr));
+  display: flex;
   gap: 8px;
   margin: 0 28px 14px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  padding-bottom: 2px;
 }
 .attachTile {
+  flex: 0 0 auto;
+  width: min(300px, 78vw);
+  scroll-snap-align: start;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -6654,6 +6687,21 @@
     z-index: 405;
   }
   .listHead .refreshBtn { display: none; }
+  .actions { row-gap: 8px; gap: 6px; padding: 12px 14px; }
+  .actions .iconBtn { min-width: 40px; width: 40px; padding: 0; }
+  .actionSpacer { flex: 1 0 100%; min-width: 0; height: 0; }
+  .rteToolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 6px;
+    padding: 8px 12px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .rteToolbar::-webkit-scrollbar { display: none; }
+  .rteGroup { flex: 0 0 auto; scroll-snap-align: start; }
+  .rtePalette .rteSwatch { width: 24px; height: 24px; }
   .listHead {
     padding-right: 106px;
   }

@@ -138,7 +138,7 @@ type SentEmail = {
   inReplyTo?: string | null
 }
 
-type DownloadAttachment = { filename: string; size: number; downloadUrl: string; shareId?: string; contentType?: string }
+type DownloadAttachment = { filename: string; size: number; downloadUrl: string; shareId?: string; contentType?: string; contentId?: string }
 
 type SentDetail = SentEmail & {
   cc: string[]
@@ -182,7 +182,7 @@ type InboundEmail = {
   headers: Record<string, unknown>
   receivedAt: string
   read: boolean
-  attachments: Array<{ filename: string; contentType?: string; size?: number; shareId?: string; url?: string }>
+  attachments: Array<{ filename: string; contentType?: string; size?: number; shareId?: string; url?: string; contentId?: string }>
   starred: boolean
   archived: boolean
   trashed: boolean
@@ -591,6 +591,20 @@ function htmlToQuoteText(html: string | null, text: string | null): string {
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+}
+
+/** Attachments the body embeds by Content-ID (signature icons, pasted pictures) are not files to list. */
+function inlineAttachmentNames(message: InboundEmail): string[] {
+  const html = message.html ?? ''
+  if (!html.includes('cid:')) return []
+  const referenced = new Set((html.match(/cid:([^"'\s>)]+)/gi) ?? []).map(match => match.slice(4).toLowerCase()))
+  return message.attachments
+    .filter(entry => entry.contentId && referenced.has(entry.contentId.replace(/^<|>$/g, '').toLowerCase()))
+    .map(entry => entry.filename)
+}
+function visibleAttachments(message: InboundEmail): InboundEmail['attachments'] {
+  const inline = new Set(inlineAttachmentNames(message))
+  return message.attachments.filter(entry => !inline.has(entry.filename))
 }
 
 // Real, visible images in an email (skips the 1x1 tracking pixel and inline cid: parts).
@@ -5371,20 +5385,23 @@ export default function DevMailPage() {
   }
 
   const renderInboundAttachments = (message: InboundEmail) => {
-    if (!message.attachments.length) return null
+    if (!visibleAttachments(message).length) return null
     // The stored-blob lookup answers with an empty array for anything it does not
     // hold, which is every file sent as a share link. Falling back only on null
     // left the header counting attachments the grid then refused to draw.
     const fetched = inboundAttachments[message.id]
-    const list: DownloadAttachment[] = fetched?.length
+    const inline = new Set(inlineAttachmentNames(message))
+    const list: DownloadAttachment[] = (fetched?.length
       ? fetched
       : message.attachments.map(entry => ({
           filename: entry.filename,
           size: entry.size ?? 0,
           downloadUrl: entry.shareId ? `/share/${entry.shareId}` : '',
           shareId: entry.shareId,
+          contentId: entry.contentId,
         }))
-    return renderAttachmentTiles(list)
+    ).filter(entry => !inline.has(entry.filename))
+    return list.length ? renderAttachmentTiles(list) : null
   }
 
   const renderInboundBody = (message: InboundEmail, framed: boolean) => {
@@ -5564,7 +5581,7 @@ export default function DevMailPage() {
       mine ? (detail ? htmlToSnippetText(detail.html, detail.text) : item.sent.subject) : htmlToSnippetText(item.inbound.html, item.inbound.text)
     ).slice(0, 100)
     const unread = !mine && !item.inbound.read
-    const hasAttach = mine ? (detail?.attachments?.length ?? 0) > 0 : item.inbound.attachments.length > 0
+    const hasAttach = mine ? (detail?.attachments?.length ?? 0) > 0 : visibleAttachments(item.inbound).length > 0
     const shellClass =
       layout === 'bubbles'
         ? `${styles.bubble} ${mine ? styles.bubbleOut : styles.bubbleIn} ${open ? styles.bubbleOpen : ''}`
