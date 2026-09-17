@@ -1668,6 +1668,8 @@ export default function DevMailPage() {
     setThreadsResolved(false)
     threadsFetch.current = null
     threadsLoadedFolder.current = null
+    setInboxEmails([])
+    setServerCounts(null)
   }, [mailboxQuery])
   const loadThreads = useCallback(async () => {
     if (!isLoggedIn) return
@@ -2143,13 +2145,18 @@ export default function DevMailPage() {
    * is loaded describes the page, not the mailbox, and grows as you scroll.
    */
   const lastCountAt = useRef(0)
+  // Keyed on the mailbox as well as the clock: the throttle is there to absorb a burst of
+  // actions on one mailbox, and must never swallow the recount that a switch requires.
+  const lastCountKey = useRef<string | null>(null)
   const loadCounts = useCallback(async (force = false) => {
     // Counting reads the whole mailbox — about seventy thousand rows here — so it runs when
     // the figures can actually have changed, not on the periodic refresh. A minute's
     // throttle keeps a burst of actions from re-counting once each.
-    if (!force && Date.now() - lastCountAt.current < 300000) return
-    if (!force && document.visibilityState !== 'visible') return
+    const sameMailbox = lastCountKey.current === mailboxQuery
+    if (!force && sameMailbox && Date.now() - lastCountAt.current < 300000) return
+    if (!force && sameMailbox && document.visibilityState !== 'visible') return
     lastCountAt.current = Date.now()
+    lastCountKey.current = mailboxQuery
     setCountsLoading(true)
     try {
       const params = new URLSearchParams(mailboxQuery.replace(/^\?/, ''))
@@ -2204,7 +2211,7 @@ export default function DevMailPage() {
   useEffect(() => {
     if (!isLoggedIn) return
     try {
-      const cached = localStorage.getItem(`${LS_INBOX_CACHE_KEY}:${email}`)
+      const cached = localStorage.getItem(`${LS_INBOX_CACHE_KEY}:${email}${mailboxQuery}`)
       if (!cached) return
       const saved = JSON.parse(cached) as { at?: number; rows?: InboundEmail[]; threads?: ConversationRow[]; folder?: string; counts?: typeof serverCounts }
       if (saved?.counts) setServerCounts(current => current ?? saved.counts!)
@@ -2221,13 +2228,13 @@ export default function DevMailPage() {
       // A cache that will not parse is not worth a broken mailbox.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoggedIn, email])
+  }, [isLoggedIn, email, mailboxQuery])
 
   useEffect(() => {
     if (!isLoggedIn || mailboxStale || inboxEmails.length === 0) return
     try {
       localStorage.setItem(
-        `${LS_INBOX_CACHE_KEY}:${email}`,
+        `${LS_INBOX_CACHE_KEY}:${email}${mailboxQuery}`,
         JSON.stringify({
           at: Date.now(),
           folder: threadFolder,
@@ -2239,7 +2246,7 @@ export default function DevMailPage() {
     } catch {
       // Storage full or blocked: the cache is an optimisation, never a requirement.
     }
-  }, [inboxEmails, threads, threadFolder, isLoggedIn, mailboxStale, email, serverCounts])
+  }, [inboxEmails, threads, threadFolder, isLoggedIn, mailboxStale, email, mailboxQuery, serverCounts])
 
   const typedOnce = useRef(false)
   useEffect(() => {
