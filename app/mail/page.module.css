@@ -527,6 +527,12 @@
   cursor: pointer;
 }
 .crossFolderHint:hover { border-color: var(--nc-violet-500); }
+.emptyNudge {
+  align-self: center;
+  margin: 2px 0 0;
+  padding: 8px 14px;
+  font-size: 13px;
+}
 .refreshBtn svg { width: 14px; height: 14px; }
 .filterChip {
   margin-left: auto;

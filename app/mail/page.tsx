@@ -11,7 +11,7 @@ import RichEditor from './RichEditor'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel } from '@/lib/email-html'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect, { GLYPH } from './MailSelect'
-import Ticker, { TICKER_SPOTS, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
+import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
@@ -1364,7 +1364,7 @@ export default function DevMailPage() {
   const [threadOrder, setThreadOrder] = useState<'newest' | 'oldest'>('newest')
   const [threadOpening, setThreadOpening] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [searchPick, setSearchPick] = useState(0)
+  const [searchPick, setSearchPick] = useState(-1)
   const [threadExpanded, setThreadExpanded] = useState<Set<string>>(new Set())
   const [threadEverOpen, setThreadEverOpen] = useState<Set<string>>(new Set())
   const [linkVerdicts, setLinkVerdicts] = useState<Record<string, { verdict: LinkVerdict; reasons: string[] }>>({})
@@ -1397,7 +1397,7 @@ export default function DevMailPage() {
     } catch {}
   }, [])
   const [settings, setMailSettings] = useState<MailSettings>(DEFAULT_SETTINGS)
-  const tickerOn = (spot: TickerSpot) => settings.ticker?.[spot] !== false
+  const tickerOn = (spot: TickerSpot) => settings.ticker?.[spot] ?? tickerDefault(spot)
   const { canInstall, installed, install } = useInstall()
   const { permission: notifyPermission, request: requestNotifyPermission, announce } = useNotifications(
     settings.desktopNotifications,
@@ -1861,8 +1861,16 @@ export default function DevMailPage() {
    * not looked. Null means "no search", so the folder shows the ordinary list.
    */
   const [sentSearchResults, setSentSearchResults] = useState<SentEmail[] | null>(null)
-  const [crossFolder, setCrossFolder] = useState<{ folder: 'sent' | 'inbox'; count: number; more: boolean } | null>(null)
+  const [crossFolder, setCrossFolder] = useState<{ folder: 'sent' | 'inbox'; query: string; count: number; more: boolean } | null>(null)
   const crossFolderSeq = useRef(0)
+  const crossFolderLabel = crossFolder
+    ? `Also ${crossFolder.count.toLocaleString()}${crossFolder.more ? '+' : ''} in ${crossFolder.folder === 'sent' ? 'Sent' : 'Inbox'} →`
+    : ''
+  const followCrossFolder = () => {
+    if (!crossFolder) return
+    setFolder(crossFolder.folder)
+    setSearch(crossFolder.query)
+  }
   useEffect(() => {
     const text = search.trim()
     const seq = ++crossFolderSeq.current
@@ -1870,19 +1878,20 @@ export default function DevMailPage() {
       setCrossFolder(null)
       return
     }
+    const mirrored = text.replace(/(^|\s)(from|to):/gi, (_, lead: string, field: string) => `${lead}${field.toLowerCase() === 'from' ? 'to' : 'from'}:`)
     const timer = window.setTimeout(async () => {
       try {
         if (folder === 'sent') {
-          const response = await fetch(`/api/mail/inbox?limit=1&folder=inbox&q=${encodeURIComponent(text)}`, { headers: apiHeaders() })
+          const response = await fetch(`/api/mail/inbox?limit=1&folder=inbox&q=${encodeURIComponent(mirrored)}`, { headers: apiHeaders() })
           const data = await response.json()
           if (seq !== crossFolderSeq.current) return
-          setCrossFolder(data.ok && typeof data.total === 'number' && data.total > 0 ? { folder: 'inbox', count: data.total, more: false } : null)
+          setCrossFolder(data.ok && typeof data.total === 'number' && data.total > 0 ? { folder: 'inbox', query: mirrored, count: data.total, more: false } : null)
         } else {
-          const response = await fetch(`/api/mail/emails?q=${encodeURIComponent(text)}`, { headers: apiHeaders() })
+          const response = await fetch(`/api/mail/emails?q=${encodeURIComponent(mirrored)}`, { headers: apiHeaders() })
           const data = await response.json()
           if (seq !== crossFolderSeq.current) return
           const count = Array.isArray(data.emails) ? data.emails.length : 0
-          setCrossFolder(data.ok && count > 0 ? { folder: 'sent', count, more: Boolean(data.truncated) } : null)
+          setCrossFolder(data.ok && count > 0 ? { folder: 'sent', query: mirrored, count, more: Boolean(data.truncated) } : null)
         }
       } catch {
         if (seq === crossFolderSeq.current) setCrossFolder(null)
@@ -6882,9 +6891,9 @@ export default function DevMailPage() {
             {ICONS.refresh}
           </button>
         </div>
-        {crossFolder && (
-          <button type="button" className={styles.crossFolderHint} onClick={() => setFolder(crossFolder.folder)}>
-            Also {crossFolder.count.toLocaleString()}{crossFolder.more ? '+' : ''} in {crossFolder.folder === 'sent' ? 'Sent' : 'Inbox'} →
+        {crossFolder && listItems.length > 0 && (
+          <button type="button" className={styles.crossFolderHint} onClick={followCrossFolder}>
+            {crossFolderLabel}
           </button>
         )}
         <div className={styles.search}>
@@ -6895,7 +6904,7 @@ export default function DevMailPage() {
             onChange={event => {
               setSearch(event.target.value)
               setSearchOpen(true)
-              setSearchPick(0)
+              setSearchPick(-1)
             }}
             onFocus={() => setSearchOpen(true)}
             onBlur={() => window.setTimeout(() => setSearchOpen(false), 120)}
@@ -6906,11 +6915,12 @@ export default function DevMailPage() {
                 setSearchPick(current => (current + 1) % searchSuggestions.length)
               } else if (event.key === 'ArrowUp') {
                 event.preventDefault()
-                setSearchPick(current => (current - 1 + searchSuggestions.length) % searchSuggestions.length)
+                setSearchPick(current => (current <= 0 ? searchSuggestions.length : current) - 1)
               } else if (event.key === 'Enter') {
                 event.preventDefault()
-                setSearch(searchSuggestions[searchPick].apply)
-                setSearchPick(0)
+                if (searchPick >= 0) setSearch(searchSuggestions[searchPick].apply)
+                setSearchPick(-1)
+                setSearchOpen(false)
               } else if (event.key === 'Escape') {
                 setSearchOpen(false)
               }
@@ -6922,7 +6932,7 @@ export default function DevMailPage() {
             </button>
           )}
           {searchOpen && searchSuggestions.length > 0 && (
-            <div className={styles.searchSuggest} role="listbox">
+            <div className={styles.searchSuggest} role="listbox" onMouseLeave={() => setSearchPick(-1)}>
               {searchSuggestions.map((suggestion, index) => (
                 <button
                   key={suggestion.apply}
@@ -6934,7 +6944,7 @@ export default function DevMailPage() {
                   onMouseDown={event => {
                     event.preventDefault()
                     setSearch(suggestion.apply)
-                    setSearchPick(0)
+                    setSearchPick(-1)
                   }}
                 >
                   <span className={styles.searchOptionLabel}>{suggestion.label}</span>
@@ -7086,6 +7096,17 @@ export default function DevMailPage() {
               >
                 Try again
               </button>
+            </div>
+          ) : listItems.length === 0 && search.trim() ? (
+            <div className={styles.emptyList}>
+              <span className={styles.emptyHex} />
+              <p className={styles.emptyTitle}>Nothing matches here</p>
+              <p className={styles.emptySub}>No mail in {folderTitles[folder]} matches “{search.trim()}”.</p>
+              {crossFolder && (
+                <button type="button" className={`${styles.crossFolderHint} ${styles.emptyNudge}`} onClick={followCrossFolder}>
+                  {crossFolderLabel}
+                </button>
+              )}
             </div>
           ) : listItems.length === 0 ? (
             <div className={styles.emptyList}>

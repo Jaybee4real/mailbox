@@ -4,23 +4,27 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import styles from './page.module.css'
 
 export const TICKER_SPOTS = [
-  { group: 'Mail list', spots: [['listFrom', 'Sender'], ['listSubject', 'Subject'], ['listSnippet', 'Preview']] },
-  { group: 'Conversation', spots: [['threadFrom', 'Sender'], ['threadSnippet', 'Preview']] },
-  { group: 'Reader', spots: [['readerFrom', 'From'], ['readerTo', 'To and Cc']] },
-  { group: 'Attachments', spots: [['attachName', 'File names in the row'], ['attachChip', 'File names in the composer']] },
-  { group: 'Reply bar', spots: [['replyRecipients', 'Recipients']] },
+  { group: 'Mail list', on: false, spots: [['listFrom', 'Sender'], ['listSubject', 'Subject'], ['listSnippet', 'Preview']] },
+  { group: 'Conversation', on: true, spots: [['threadFrom', 'Sender'], ['threadSnippet', 'Preview']] },
+  { group: 'Reader', on: true, spots: [['readerFrom', 'From'], ['readerTo', 'To and Cc']] },
+  { group: 'Attachments', on: true, spots: [['attachName', 'File names in the row'], ['attachChip', 'File names in the composer']] },
+  { group: 'Reply bar', on: true, spots: [['replyRecipients', 'Recipients']] },
 ] as const
 
 export type TickerSpot = (typeof TICKER_SPOTS)[number]['spots'][number][0]
 export type TickerSettings = Partial<Record<TickerSpot, boolean>>
 
-const SPOT_NAMES = new Set<string>(TICKER_SPOTS.flatMap(group => group.spots.map(([spot]) => spot)))
+const DEFAULT_ON = new Map<string, boolean>(TICKER_SPOTS.flatMap(group => group.spots.map(([spot]) => [spot, group.on])))
+
+export function tickerDefault(spot: TickerSpot): boolean {
+  return DEFAULT_ON.get(spot) ?? true
+}
 
 export function tickerSettingsFrom(raw: unknown): TickerSettings {
   const kept: TickerSettings = {}
   if (raw && typeof raw === 'object') {
     for (const [spot, value] of Object.entries(raw)) {
-      if (SPOT_NAMES.has(spot) && typeof value === 'boolean') kept[spot as TickerSpot] = value
+      if (DEFAULT_ON.has(spot) && typeof value === 'boolean') kept[spot as TickerSpot] = value
     }
   }
   return kept
