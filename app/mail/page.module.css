@@ -1757,7 +1757,7 @@
 .itemSubject { display: flex; align-items: center; gap: 4px; }
 .itemSubjectText { flex: 1; }
 .threadMsgFrom { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
-.threadMsgFromText { flex: 1; }
+.threadMsgFromText { flex: 0 1 auto; min-width: 0; }
 .rteColourDot {
   display: inline-block;
   width: 16px;
