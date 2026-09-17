@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { extractUrls, inspectUrl, type LinkVerdict } from '@/lib/link-safety'
 import AttachmentLightbox, { attachmentKind, formatSize, type PreviewItem } from './AttachmentLightbox'
 import AccessCheck from './AccessCheck'
-import { parseQuery, matchesQuery } from './search'
+import { parseQuery, matchesQuery, serverSearchParams, splitForServer } from './search'
 import { useConfirm } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
 import RichEditor from './RichEditor'
@@ -1882,7 +1882,8 @@ export default function DevMailPage() {
     const timer = window.setTimeout(async () => {
       try {
         if (folder === 'sent') {
-          const response = await fetch(`/api/mail/inbox?limit=1&folder=inbox&q=${encodeURIComponent(mirrored)}`, { headers: apiHeaders() })
+          const params = new URLSearchParams({ limit: '1', folder: 'inbox', ...serverSearchParams(mirrored) })
+          const response = await fetch(`/api/mail/inbox?${params.toString()}`, { headers: apiHeaders() })
           const data = await response.json()
           if (seq !== crossFolderSeq.current) return
           setCrossFolder(data.ok && typeof data.total === 'number' && data.total > 0 ? { folder: 'inbox', query: mirrored, count: data.total, more: false } : null)
@@ -1951,8 +1952,7 @@ export default function DevMailPage() {
         params.set('folder', threadFolder)
         // A cursor asks for the page after a known row; without one this is the first page.
         if (cursor) params.set('cursor', cursor)
-        const text = search.trim()
-        if (text) params.set('q', text)
+        for (const [name, value] of Object.entries(serverSearchParams(search))) params.set(name, value)
         const response = await fetch(`/api/mail/inbox?${params.toString()}`, { headers: apiHeaders() })
         if (!response.ok) throw new Error(describeHttp(response.status))
         const data = await response.json().catch(() => null)
@@ -1997,8 +1997,7 @@ export default function DevMailPage() {
       const params = new URLSearchParams(mailboxQuery.replace(/^\?/, ''))
       params.set('limit', String(INBOX_PAGE))
       params.set('folder', threadFolder)
-      const text = search.trim()
-      if (text) params.set('q', text)
+      for (const [name, value] of Object.entries(serverSearchParams(search))) params.set(name, value)
       const response = await fetch(`/api/mail/inbox?${params.toString()}`, { headers: apiHeaders() })
       if (!response.ok) throw new Error(describeHttp(response.status))
       const data = await response.json().catch(() => null)
@@ -2748,11 +2747,12 @@ export default function DevMailPage() {
 
 
   const searchQuery = useMemo(() => parseQuery(search), [search])
+  const residualQuery = useMemo(() => splitForServer(searchQuery).residual, [searchQuery])
 
   const matchesInbound = useCallback(
     (entry: InboundEmail) => {
-      if (searchQuery.isEmpty) return true
-      return matchesQuery(searchQuery, {
+      if (residualQuery.isEmpty) return true
+      return matchesQuery(residualQuery, {
         from: entry.from,
         to: entry.to.join(' '),
         cc: (entry.cc ?? []).join(' '),
@@ -2769,7 +2769,7 @@ export default function DevMailPage() {
         folder: entry.trashed ? 'trash' : entry.archived ? 'archive' : 'inbox',
       })
     },
-    [searchQuery],
+    [residualQuery],
   )
 
   const matchesSent = useCallback(

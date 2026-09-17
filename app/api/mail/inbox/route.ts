@@ -37,7 +37,7 @@ export async function GET(req: Request) {
       // Counting scans the whole match. Unfiltered, the sidebar already has this number
       // from countFolders, so only a search — whose match nothing else knows — pays for it.
       threadId,
-      withTotal: !cursor && Boolean(text),
+      withTotal: !cursor && Boolean(text || params.get('from') || params.get('to') || params.get('label') || params.get('unread') || params.get('starred') || params.get('attachment')),
       unread: params.get('unread') === '1' ? true : undefined,
       starred: params.get('starred') === '1' ? true : undefined,
       hasAttachment: params.get('attachment') === '1' || undefined,

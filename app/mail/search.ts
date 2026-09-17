@@ -164,6 +164,56 @@ function matchTerm(term: Term, doc: SearchDoc): boolean {
   }
 }
 
+export type ServerSearch = {
+  text: string
+  from?: string
+  to?: string
+  label?: string
+  unread?: boolean
+  starred?: boolean
+  hasAttachment?: boolean
+}
+
+/**
+ * The parts of a query the inbox route can answer itself go to the server; whatever it
+ * cannot express stays behind as the residual the browser still has to check.
+ */
+export function splitForServer(query: ParsedQuery): { server: ServerSearch; residual: ParsedQuery } {
+  const server: ServerSearch = { text: '' }
+  const words: string[] = []
+  const residual: Term[][] = []
+  for (const group of query.groups) {
+    const term = group.length === 1 ? group[0] : null
+    if (!term || term.negated) {
+      residual.push(group)
+      continue
+    }
+    if (term.field === null) words.push(term.value)
+    else if (term.field === 'from' && !server.from) server.from = term.value
+    else if (term.field === 'to' && !server.to) server.to = term.value
+    else if (term.field === 'label' && !server.label) server.label = term.value
+    else if (term.field === 'is' && term.value === 'unread') server.unread = true
+    else if (term.field === 'is' && term.value === 'starred') server.starred = true
+    else if (term.field === 'has' && term.value === 'attachment') server.hasAttachment = true
+    else residual.push(group)
+  }
+  server.text = words.join(' ')
+  return { server, residual: { groups: residual, isEmpty: residual.length === 0 } }
+}
+
+export function serverSearchParams(raw: string): Record<string, string> {
+  const { server } = splitForServer(parseQuery(raw))
+  const params: Record<string, string> = {}
+  if (server.text) params.q = server.text
+  if (server.from) params.from = server.from
+  if (server.to) params.to = server.to
+  if (server.label) params.label = server.label
+  if (server.unread) params.unread = '1'
+  if (server.starred) params.starred = '1'
+  if (server.hasAttachment) params.attachment = '1'
+  return params
+}
+
 export function matchesQuery(query: ParsedQuery, doc: SearchDoc): boolean {
   if (query.isEmpty) return true
   return query.groups.every(group =>
