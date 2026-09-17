@@ -6820,9 +6820,11 @@
    label. These were 15px to 32px tall, which is a miss more often than a hit. */
 @media (pointer: coarse) {
   .modeTab,
-  .orderToggle,
-  .settingsNavItem {
+  .orderToggle {
     min-height: 32px;
+  }
+  .settingsNavItem {
+    min-height: 40px;
   }
   .toolBtn {
     min-width: 40px;
