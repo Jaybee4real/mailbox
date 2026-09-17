@@ -112,6 +112,29 @@ export function dropUnreachableImages(html: string): string {
   })
 }
 
+/**
+ * Addresses Gmail serves only to the account that owns them.
+ *
+ * A signature logo written by Gmail lives on Google's own CDN, and Takeout exports the
+ * link but never the bytes. Outside that mailbox the address answers 400, so the picture
+ * has been broken since the day the mail was exported and can never load again.
+ */
+const GOOGLE_PRIVATE_IMAGE = /^https?:\/\/(?:ci\d*\.googleusercontent\.com\/mail-sig\/|mail\.google\.com\/mail\/|docs\.google\.com\/uc\?)/i
+
+/**
+ * Removes those pictures so the signature reads as text rather than a broken icon.
+ * When `mark` is given — only for mail one of our own addresses sent, where we know whose
+ * logo it was — the tenant's own mark is put back in its place instead.
+ */
+export function healGooglePrivateImages(html: string, mark?: string | null): string {
+  return html.replace(/<img\b[^>]*>/gi, tag => {
+    const src = /\bsrc\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1]?.trim() ?? ''
+    if (!GOOGLE_PRIVATE_IMAGE.test(src)) return tag
+    if (!mark) return ''
+    return tag.replace(/\bsrc\s*=\s*["'][^"']*["']/i, `src="${mark}"`)
+  })
+}
+
 export function stripCidPlaceholders(text: string): string {
   return text
     .replace(/\[cid:[^\]\n]{0,300}\]/gi, '')

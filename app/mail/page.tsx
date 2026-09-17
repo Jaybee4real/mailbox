@@ -8,7 +8,7 @@ import { parseQuery, matchesQuery, serverSearchParams, splitForServer } from './
 import { useConfirm } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
 import RichEditor from './RichEditor'
-import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel } from '@/lib/email-html'
+import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel, healGooglePrivateImages } from '@/lib/email-html'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect, { GLYPH } from './MailSelect'
 
@@ -922,6 +922,14 @@ function pastedMarkdown(event: React.ClipboardEvent): string | null {
  * and blocking it put a broken image on the end of every message we send.
  */
 const OWN_IMAGE_HOSTS = `${CLIENT_BRAND.websiteUrl} ${CLIENT_BRAND.publicUrl}`
+
+/** Mail one of our own addresses sent, so a signature logo in it was ours to restore. */
+function sentByUs(address: string): boolean {
+  const email = (address.match(/<([^>]+)>/)?.[1] ?? address).trim().toLowerCase()
+  if (!email.includes('@')) return false
+  const domain = email.slice(email.lastIndexOf('@') + 1)
+  return MAIL_ADDRESSES.includes(email) || LOGIN_DOMAINS.includes(domain)
+}
 
 // When allowRemote is false the CSP blocks remote fetches so tracking pixels never load.
 function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SPACING, dark = false): string {
@@ -5581,7 +5589,10 @@ export default function DevMailPage() {
     }
     const split = splitQuotedTail(message.html)
     const quoteShown = quoteOpen.has(message.id)
-    const bodyHtml = split.tail && !quoteShown ? split.head : message.html
+    const bodyHtml = healGooglePrivateImages(
+      split.tail && !quoteShown ? split.head : message.html,
+      sentByUs(message.from) ? CLIENT_BRAND.markUrl : null,
+    )
     if (framed) {
       // Thread messages auto-size to content (whole conversation scrolls as one).
       // sandbox omits allow-scripts, so no email JS runs; CSP still blocks fetches.
@@ -5624,7 +5635,7 @@ export default function DevMailPage() {
         <iframe
           className={styles.threadFrame}
           sandbox="allow-same-origin"
-          srcDoc={frameHtml(detail.html, true, readerSpacing, resolvedTheme === 'dark')}
+          srcDoc={frameHtml(healGooglePrivateImages(detail.html, CLIENT_BRAND.markUrl), true, readerSpacing, resolvedTheme === 'dark')}
           title="Sent email"
           onLoad={event => {
             try {

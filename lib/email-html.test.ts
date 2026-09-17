@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { inlineEmailStyles, htmlToPlainText, safeHref, dropUnreachableImages, outlookSafeImages } from './email-html.ts'
+import { inlineEmailStyles, htmlToPlainText, safeHref, dropUnreachableImages, outlookSafeImages, healGooglePrivateImages } from './email-html.ts'
 
 // A paragraph with no styling of its own gets the base inline style.
 assert.match(inlineEmailStyles('<p>Hello</p>'), /<p style="font-family:Arial[^"]*">Hello<\/p>/)
@@ -72,3 +72,19 @@ assert.ok(!centred.includes('data-align'), 'the editor marker is stripped')
 // A linked logo keeps its link, inside the cell rather than around the table.
 const linked = outlookSafeImages('<a href="https://x.test"><img src="https://x.test/m.png" style="display:block;width:100px;border:1px solid #000;"></a>')
 assert.match(linked, /<td[^>]*><a href="https:\/\/x\.test"><img/, 'the anchor sits inside the cell')
+
+// A Gmail-hosted signature logo cannot load outside that mailbox: drop it, or put ours back.
+assert.equal(
+  healGooglePrivateImages('<p>Hi</p><img src="https://ci3.googleusercontent.com/mail-sig/ABC"><p>Regards</p>'),
+  '<p>Hi</p><p>Regards</p>',
+)
+assert.equal(
+  healGooglePrivateImages('<img src="https://ci3.googleusercontent.com/mail-sig/ABC" alt="logo">', 'https://mail.example.com/brand/mark.png'),
+  '<img src="https://mail.example.com/brand/mark.png" alt="logo">',
+)
+// Entity-encoded query strings still match, and everything else is left alone.
+assert.equal(healGooglePrivateImages('<img src="https://mail.google.com/mail/u/0?ui=2&amp;ik=x">'), '')
+assert.equal(
+  healGooglePrivateImages('<img src="cid:abc"><img src="https://lh3.googleusercontent.com/real.png">'),
+  '<img src="cid:abc"><img src="https://lh3.googleusercontent.com/real.png">',
+)
