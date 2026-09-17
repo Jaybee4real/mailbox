@@ -12,6 +12,7 @@ import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeI
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect, { GLYPH } from './MailSelect'
 import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
+import { splitQuotedTail } from './quoted'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
@@ -1370,6 +1371,7 @@ export default function DevMailPage() {
   const [searchPick, setSearchPick] = useState(-1)
   const [threadExpanded, setThreadExpanded] = useState<Set<string>>(new Set())
   const [threadEverOpen, setThreadEverOpen] = useState<Set<string>>(new Set())
+  const [quoteOpen, setQuoteOpen] = useState<Set<string>>(new Set())
   const [linkVerdicts, setLinkVerdicts] = useState<Record<string, { verdict: LinkVerdict; reasons: string[] }>>({})
   const scanLinksRef = useRef<(urls: string[]) => void>(() => {})
   const [preview, setPreview] = useState<{ items: PreviewItem[]; index: number } | null>(null)
@@ -5430,6 +5432,26 @@ export default function DevMailPage() {
     return list.length ? renderAttachmentTiles(list) : null
   }
 
+  const toggleQuote = (id: string) =>
+    setQuoteOpen(current => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  /** The line offering the repeated thread underneath a reply. */
+  const renderQuoteLine = (id: string, shown: boolean) => (
+    <button type="button" className={styles.quoteLine} aria-expanded={shown} onClick={() => toggleQuote(id)}>
+      <span className={styles.quoteLineRule} aria-hidden />
+      <span className={styles.quoteLineLabel}>
+        {ICONS.chevron}
+        {shown ? 'Hide earlier messages' : 'Show earlier messages'}
+      </span>
+      <span className={styles.quoteLineRule} aria-hidden />
+    </button>
+  )
+
   const renderInboundBody = (message: InboundEmail, framed: boolean) => {
     if (readerMode === 'plain') {
       return <pre className={styles.readerText}>{message.text?.trim() || htmlToSnippetText(message.html, null) || '(no text part)'}</pre>
@@ -5438,25 +5460,36 @@ export default function DevMailPage() {
     if (readerMode === 'raw') return <pre className={styles.readerSource}>{rawInboundMessage(message)}</pre>
     // preview
     if (!message.html) return <pre className={styles.readerText}>{message.text ?? '(no content)'}</pre>
+    const split = splitQuotedTail(message.html)
+    const quoteShown = quoteOpen.has(message.id)
+    const bodyHtml = split.tail && !quoteShown ? split.head : message.html
     if (framed) {
       // Thread messages auto-size to content (whole conversation scrolls as one).
       // sandbox omits allow-scripts, so no email JS runs; CSP still blocks fetches.
       return (
-        <iframe
-          className={styles.threadFrame}
-          sandbox="allow-same-origin"
-          srcDoc={frameHtml(message.html, showRemote, readerSpacing, resolvedTheme === 'dark')}
-          title="Email content"
-          onLoad={event => {
-            try {
-              const doc = event.currentTarget.contentDocument
-              if (doc) event.currentTarget.style.height = `${Math.min(1600, doc.documentElement.scrollHeight + 8)}px`
-            } catch {}
-          }}
-        />
+        <>
+          <iframe
+            className={styles.threadFrame}
+            sandbox="allow-same-origin"
+            srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme === 'dark')}
+            title="Email content"
+            onLoad={event => {
+              try {
+                const doc = event.currentTarget.contentDocument
+                if (doc) event.currentTarget.style.height = `${Math.min(1600, doc.documentElement.scrollHeight + 8)}px`
+              } catch {}
+            }}
+          />
+          {split.tail && renderQuoteLine(message.id, quoteShown)}
+        </>
       )
     }
-    return <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(message.html, showRemote, readerSpacing, resolvedTheme === 'dark')} title="Email content" />
+    return (
+      <>
+        <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme === 'dark')} title="Email content" />
+        {split.tail && renderQuoteLine(message.id, quoteShown)}
+      </>
+    )
   }
 
   // One message open at a time — opening another collapses the rest.

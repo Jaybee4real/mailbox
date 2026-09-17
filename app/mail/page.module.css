@@ -2567,6 +2567,39 @@
   overflow: hidden;
   background: transparent;
 }
+.quoteLine {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 2px 0 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.quoteLineRule {
+  flex: 1;
+  height: 1px;
+  background: var(--nc-line-1);
+}
+.quoteLineLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 4px 11px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 999px;
+  background: var(--nc-ink-2);
+  color: var(--nc-fg-3);
+  font: 500 11.5px/1 var(--nc-font-sans);
+  transition: color var(--dur-fast) var(--nc-ease-out), border-color var(--dur-fast) var(--nc-ease-out);
+}
+.quoteLineLabel svg { width: 11px; height: 8px; }
+.quoteLine:hover .quoteLineLabel { color: var(--nc-fg-1); border-color: var(--nc-line-2); }
+.quoteLine[aria-expanded='true'] .quoteLineLabel svg { transform: rotate(180deg); }
+
 .threadMsgStatic .threadMsgHead { cursor: default; }
 .threadMsg + .threadMsg { border-top: 1px solid var(--nc-line-1); }
 .threadMsgOpen .threadMsgHead { border-bottom: 1px solid var(--nc-line-1); }
