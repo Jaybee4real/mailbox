@@ -2645,12 +2645,14 @@
 .threadMsgRecips {
   display: flex;
   align-items: baseline;
+  justify-content: flex-start;
   gap: 8px;
   min-width: 0;
   margin-top: 3px;
 }
 .threadMsgRecipsText {
-  flex: 1;
+  /* Hugs the addresses so Details sits beside them rather than out at the far margin. */
+  flex: 0 1 auto;
   min-width: 0;
   font: 400 11.5px/1.35 var(--nc-font-sans);
   color: var(--nc-fg-3);
