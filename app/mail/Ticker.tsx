@@ -4,8 +4,8 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import styles from './page.module.css'
 
 export const TICKER_SPOTS = [
-  { group: 'Mail list', on: true, spots: [['listFrom', 'Sender'], ['listSubject', 'Subject'], ['listSnippet', 'Preview']] },
-  { group: 'Conversation', on: false, spots: [['threadFrom', 'Sender'], ['threadSnippet', 'Preview']] },
+  { group: 'Mail list', on: false, spots: [['listFrom', 'Sender'], ['listSubject', 'Subject'], ['listSnippet', 'Preview']] },
+  { group: 'Conversation', on: true, spots: [['threadFrom', 'Sender'], ['threadSnippet', 'Preview']] },
   { group: 'Reader', on: true, spots: [['readerFrom', 'From'], ['readerTo', 'To and Cc']] },
   { group: 'Attachments', on: true, spots: [['attachName', 'File names in the row'], ['attachChip', 'File names in the composer']] },
   { group: 'Reply bar', on: true, spots: [['replyRecipients', 'Recipients']] },

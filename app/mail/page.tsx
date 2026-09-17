@@ -12,7 +12,7 @@ import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeI
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect, { GLYPH } from './MailSelect'
 import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
-import { splitQuotedTail } from './quoted'
+import { splitQuotedTail, splitQuotedText } from './quoted'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
@@ -5459,7 +5459,16 @@ export default function DevMailPage() {
     if (readerMode === 'html') return <pre className={styles.readerSource}>{formatHtmlSource(message.html ?? '')}</pre>
     if (readerMode === 'raw') return <pre className={styles.readerSource}>{rawInboundMessage(message)}</pre>
     // preview
-    if (!message.html) return <pre className={styles.readerText}>{message.text ?? '(no content)'}</pre>
+    if (!message.html) {
+      const plain = splitQuotedText(message.text ?? '')
+      const textShown = quoteOpen.has(message.id)
+      return (
+        <>
+          <pre className={styles.readerText}>{(textShown ? message.text : plain.head) || '(no content)'}</pre>
+          {plain.tail && renderQuoteLine(message.id, textShown)}
+        </>
+      )
+    }
     const split = splitQuotedTail(message.html)
     const quoteShown = quoteOpen.has(message.id)
     const bodyHtml = split.tail && !quoteShown ? split.head : message.html

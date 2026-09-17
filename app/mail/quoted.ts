@@ -113,3 +113,50 @@ export function splitQuotedTail(html: string): QuotedSplit {
     tail: tail.map(element => element.outerHTML).join(''),
   }
 }
+
+/**
+ * The same boundary in a message that arrived as plain text only.
+ *
+ * Half the bodies in the archive are text with no HTML part, and they quote just as
+ * heavily — so the reader needs this as much as the HTML path. Each pattern below was
+ * counted against the real archive, and the two that looked obvious are the two that
+ * had to be rejected: a lone "From:" heads every bounce report, and a row of underscores
+ * is a confidentiality footer more often than a divider.
+ */
+const TEXT_REPLY = [
+  // A run of underscores, but only where the quoted headers actually follow it.
+  /(?:^|\r?\n)[ \t]*_{10,}[ \t]*(?:\r?\n)+(?=[ \t]*(?:>[ \t]*)*(?:From|De)[ \t]*:[ \t])/,
+  // The header block itself: From, then Sent or Date, then To or Cc.
+  /(?:^|\r?\n)(?:>[ \t]*)*(?:From|De)[ \t]*:[ \t][^\n]{1,400}(?:[ \t]*\r?\n)+(?:>[ \t]*)*(?:Sent|Date|Enviado)[ \t]*:[ \t][^\n]{1,200}(?:[ \t]*\r?\n)+(?:>[ \t]*)*(?:To|Cc|Para)[ \t]*:[ \t]/,
+  // The attribution sentence, allowed to wrap over a few lines.
+  /(?:^|\r?\n)[ \t>]*On\b(?:[^\n]*\n){0,3}?[^\n]*\bwrote:[ \t]*(?=\r?\n|$)/,
+  /(?:^|\r?\n)[ \t>]*-{4,}[ \t]*On\b[^\n]{0,300}?wrote[ \t]*-{4,}[ \t]*$/m,
+]
+
+const TEXT_FORWARD = [
+  /(?:^|\r?\n)[ \t>]*-{2,20}[ \t]?(?:Original Message|Original message|Forwarded message)[ \t]?-{2,20}[ \t]*(?=\r?\n|$)/,
+  /(?:^|\r?\n)[ \t]*Begin forwarded message:[ \t]*(?=\r?\n|$)/,
+]
+
+export type TextSplit = { head: string; tail: string | null }
+
+export function splitQuotedText(text: string): TextSplit {
+  if (!text) return { head: text, tail: null }
+  let cut = -1
+  let kind: Boundary = null
+  for (const [patterns, boundary] of [[TEXT_REPLY, 'reply'], [TEXT_FORWARD, 'forward']] as const) {
+    for (const pattern of patterns) {
+      const match = pattern.exec(text)
+      if (!match) continue
+      // Cut at the divider itself, not after the newline that introduced it.
+      const at = match.index + (/^\r?\n/.test(match[0]) ? 1 : 0)
+      if (cut === -1 || at < cut) { cut = at; kind = boundary }
+    }
+  }
+  if (cut <= 0) return { head: text, tail: null }
+  const head = text.slice(0, cut)
+  if (head.trim().length < (kind === 'forward' ? MIN_HEAD_CHARS_FORWARD : MIN_HEAD_CHARS)) {
+    return { head: text, tail: null }
+  }
+  return { head: head.replace(/\s+$/, ''), tail: text.slice(cut) }
+}
