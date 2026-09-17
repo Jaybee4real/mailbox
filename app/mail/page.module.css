@@ -1317,22 +1317,19 @@
 .readerBody {
   flex: 1;
   margin: 0 28px 24px;
-  border-radius: var(--radius-card);
-  border: 1px solid var(--nc-line-1);
   overflow: hidden;
-  background: var(--nc-ink-1);
   min-height: 0;
 }
 .readerFrame {
   width: 100%;
   height: 100%;
   border: none;
-  background: var(--nc-ink-1);
+  background: transparent;
 }
 .readerText {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 30px 34px;
+  max-width: 860px;
+  margin: 0;
+  padding: 8px 0 24px;
   font: 400 15px/var(--mail-lead, 1.3) var(--nc-font-sans);
   color: var(--nc-fg-1);
   white-space: pre-wrap;
@@ -1342,7 +1339,6 @@
   overflow-y: auto;
   /* A plain-text part carries no styling of its own, so it follows the app rather
      than sitting on the white paper an HTML email brings with it. */
-  background: var(--nc-ink-2);
   -webkit-font-smoothing: antialiased;
 }
 .readerSource {
@@ -2549,18 +2545,21 @@
 }
 .threadMsg {
   flex: 0 0 auto;
-  border: 1px solid var(--nc-line-1);
-  border-radius: var(--radius-card);
+  border: 0;
+  border-radius: 0;
   overflow: hidden;
-  background: var(--nc-ink-1);
+  background: transparent;
 }
-.threadMsgOpen { border-color: var(--nc-line-2); }
+.threadMsg + .threadMsg { border-top: 1px solid var(--nc-line-1); }
+.threadMsgOpen .threadMsgHead { border-bottom: 1px solid var(--nc-line-1); }
 .threadMsgHead {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
   padding: var(--thread-pad);
+  padding-left: 0;
+  padding-right: 0;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -2945,18 +2944,8 @@
    all four sides, so you can see where the mail begins and where it ends rather than a
    band of white running into the furniture above it. */
 .threadMsgBody {
-  /* A page, not a wall: the paper is the width of the column it carries and sits centred in
-     the pane, rather than stretching the full width with the text stranded in the middle. */
-  /* Auto margins on a grid item shrink it to its content, which sized the page to whatever
-     the longest line happened to be. The width is stated, and the margins only centre it. */
-  width: min(868px, calc(100% - var(--thread-inset) * 2));
-  margin: var(--thread-inset) auto;
-  border: 1px solid var(--nc-line-1);
-  border-radius: var(--radius-card);
-  /* The sheet is the paper the mail is printed on, so it is the paper's colour. Left on the
-     card's own tone it vanished into the card, and the only edge you could see was the one
-     the message's own white background drew, square, wherever its markup happened to start. */
-  background: var(--nc-ink-0);
+  width: 100%;
+  margin: 0 0 8px;
   font-size: var(--row-subject);
   line-height: var(--row-lead);
   overflow: hidden;
@@ -2965,7 +2954,7 @@
   width: 100%;
   min-height: 120px;
   border: none;
-  background: var(--nc-ink-1);
+  background: transparent;
   display: block;
 }
 .threadMsgBody .readerText,
@@ -6741,7 +6730,6 @@
   .readerBody { margin: 0 15px 16px; }
   .readerModeBar { margin: 0 15px 12px; }
   .thread { padding-left: 15px; padding-right: 15px; }
-  .threadMsgBody { width: 100%; margin: 12px 0; }
   .attachGrid { margin: 0 15px 12px; }
   .activity { margin: 0 15px 14px; padding: 10px 12px; }
   .readerAttach { margin: 0 15px 14px; }

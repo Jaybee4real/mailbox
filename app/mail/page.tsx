@@ -746,20 +746,19 @@ function countRemoteRefs(html: string | null): number {
 // Show the email in its true colours on a light "paper" card, framed by the dark
 // reader. The markup is left untouched — the card supplies a legible white surface
 // for bare fragments, and emails that paint their own background render as designed.
-const readerTheme = (spacing: number) => `<style>
+const readerTheme = (spacing: number, dark: boolean) => `<style>
   :root { color-scheme: light; }
   /* Transparent so the framed document takes the app's themed surface from the
      iframe element behind it. Theme variables do not cross the document boundary,
      so anything set here would be a colour frozen against one theme. */
   html { background: transparent; }
-  body { margin: 0; background: transparent; padding: 22px 22px 44px; }
+  body { margin: 0; background: transparent; padding: 0 0 12px; }
   .nc-paper {
-    max-width: 800px;
-    margin: 0 auto;
-    background: #ffffff;
+    max-width: 860px;
     color: #1A1030;
-    border-radius: 14px;
-    padding: 30px 34px;
+    background: ${dark ? '#ffffff' : 'transparent'};
+    border-radius: ${dark ? '6px' : '0'};
+    padding: ${dark ? '14px 16px' : '6px 0 12px'};
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     font-size: 15px;
     line-height: ${spacing};
@@ -768,10 +767,6 @@ const readerTheme = (spacing: number) => `<style>
     overflow-wrap: anywhere;
   }
   .nc-paper p { margin: 0 0 ${paragraphGap(spacing)}; }
-  @media (max-width: 480px) {
-    body { padding: 4px 0 24px; }
-    .nc-paper { padding: 16px 15px; border-radius: 10px; }
-  }
   .nc-paper img { max-width: 100%; height: auto; }
   .nc-paper a { color: #5418C2; }
 </style>`
@@ -890,11 +885,11 @@ function pastedMarkdown(event: React.ClipboardEvent): string | null {
 const OWN_IMAGE_HOSTS = `${CLIENT_BRAND.websiteUrl} ${CLIENT_BRAND.publicUrl}`
 
 // When allowRemote is false the CSP blocks remote fetches so tracking pixels never load.
-function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SPACING): string {
+function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SPACING, dark = false): string {
   const csp = allowRemote
     ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * data:; style-src 'unsafe-inline' *; font-src * data:; media-src * data:">`
     : `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${OWN_IMAGE_HOSTS} data:; style-src 'unsafe-inline'; font-src data:">`
-  return `<!doctype html><html><head><meta charset="utf-8">${csp}${readerTheme(spacing)}<base target="_blank"></head><body><div class="nc-paper">${stripOwnPixel(html)}</div></body>`
+  return `<!doctype html><html><head><meta charset="utf-8">${csp}${readerTheme(spacing, dark)}<base target="_blank"></head><body><div class="nc-paper">${stripOwnPixel(html)}</div></body>`
 }
 
 function headerValue(email: InboundEmail, key: string): string {
@@ -5435,7 +5430,7 @@ export default function DevMailPage() {
         <iframe
           className={styles.threadFrame}
           sandbox="allow-same-origin"
-          srcDoc={frameHtml(message.html, showRemote, readerSpacing)}
+          srcDoc={frameHtml(message.html, showRemote, readerSpacing, resolvedTheme === 'dark')}
           title="Email content"
           onLoad={event => {
             try {
@@ -5446,7 +5441,7 @@ export default function DevMailPage() {
         />
       )
     }
-    return <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(message.html, showRemote, readerSpacing)} title="Email content" />
+    return <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(message.html, showRemote, readerSpacing, resolvedTheme === 'dark')} title="Email content" />
   }
 
   // One message open at a time — opening another collapses the rest.
@@ -5462,7 +5457,7 @@ export default function DevMailPage() {
         <iframe
           className={styles.threadFrame}
           sandbox="allow-same-origin"
-          srcDoc={frameHtml(detail.html, true, readerSpacing)}
+          srcDoc={frameHtml(detail.html, true, readerSpacing, resolvedTheme === 'dark')}
           title="Sent email"
           onLoad={event => {
             try {
@@ -6262,7 +6257,7 @@ export default function DevMailPage() {
                     <iframe
                       className={styles.replyPreview}
                       sandbox="allow-same-origin"
-                      srcDoc={frameHtml(replyEffHtml, true, readerSpacing)}
+                      srcDoc={frameHtml(replyEffHtml, true, readerSpacing, resolvedTheme === 'dark')}
                       title="Reply preview"
                       onLoad={event => {
                         try {
@@ -6513,7 +6508,7 @@ export default function DevMailPage() {
             {!selectedDetail ? (
               <BodySkeleton />
             ) : selectedDetail.html ? (
-              <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(selectedDetail.html, true, readerSpacing)} title="Email content" />
+              <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(selectedDetail.html, true, readerSpacing, resolvedTheme === 'dark')} title="Email content" />
             ) : (
               <pre className={styles.readerText}>{selectedDetail.text ?? '(no content)'}</pre>
             )}
@@ -7593,7 +7588,7 @@ export default function DevMailPage() {
               {compose.quoteHtml && !compose.campaign.kind && (
                 <details className={styles.composeQuote}>
                   <summary className={styles.composeQuoteLabel}>Quoted message</summary>
-                  <iframe className={styles.composeQuoteFrame} sandbox="allow-same-origin" srcDoc={frameHtml(compose.quoteHtml, true, readerSpacing)} title="Quoted message" />
+                  <iframe className={styles.composeQuoteFrame} sandbox="allow-same-origin" srcDoc={frameHtml(compose.quoteHtml, true, readerSpacing, resolvedTheme === 'dark')} title="Quoted message" />
                 </details>
               )}
               {/* The signature is appended on send, so show it here rather than leaving the
