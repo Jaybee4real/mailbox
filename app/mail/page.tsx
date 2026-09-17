@@ -5801,6 +5801,7 @@ export default function DevMailPage() {
             <span className={styles.threadMsgFrom}>
               {unread && <span className={styles.unreadDot} />}
               <Ticker className={styles.threadMsgFromText} enabled={tickerOn('threadFrom')}>{from}</Ticker>
+              {folds && !open && <span className={styles.threadMsgHint}>(click to open)</span>}
             </span>
             {!open && <Ticker className={styles.threadMsgSnippet} enabled={tickerOn('threadSnippet')}>{snippet}</Ticker>}
             {open && layout !== 'bubbles' && (
