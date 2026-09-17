@@ -6739,6 +6739,9 @@
   .app { --thread-inset: 15px; }
   .readerHead { padding: 18px 15px 0; }
   .readerBody { margin: 0 15px 16px; }
+  .readerModeBar { margin: 0 15px 12px; }
+  .thread { padding-left: 15px; padding-right: 15px; }
+  .threadMsgBody { width: 100%; margin: 12px 0; }
   .attachGrid { margin: 0 15px 12px; }
   .activity { margin: 0 15px 14px; padding: 10px 12px; }
   .readerAttach { margin: 0 15px 14px; }
