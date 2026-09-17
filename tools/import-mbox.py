@@ -73,7 +73,7 @@ INBOX_COLUMNS = ('id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, bod
 INSERT_INBOX = (f'INSERT INTO mail_inbox ({INBOX_COLUMNS}) VALUES ({",".join("?" * 18)}) '
                 'ON CONFLICT (id) DO NOTHING')
 INSERT_SENT = ('INSERT INTO mail_sent (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, '
-               'created_at, last_event, provider) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING')
+               'created_at, last_event, provider, attachments) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING')
 INSERT_SENT_META = ('INSERT INTO mail_sent_meta (email_id, owner, is_auto, created_at) VALUES (?,?,0,?) '
                     'ON CONFLICT (email_id) DO NOTHING')
 
@@ -332,20 +332,23 @@ STORE = 'blob'
 
 
 def stored_attachments(url, token, ids):
-    """id -> (owner, attachments) for inbox rows already stored."""
+    """id -> (owner, attachments, table) for rows already stored, in either table."""
     if not ids:
         return {}
     marks = ','.join('?' * len(ids))
     results = execute(url, token, [
         {'sql': f'SELECT id, owner, attachments FROM mail_inbox WHERE id IN ({marks})', 'args': [arg(i) for i in ids]},
+        {'sql': f'SELECT s.id, m.owner, s.attachments FROM mail_sent s LEFT JOIN mail_sent_meta m ON m.email_id = s.id '
+                f'WHERE s.id IN ({marks})', 'args': [arg(i) for i in ids]},
     ])
     found = {}
-    for row in results[0]['response']['result']['rows']:
-        try:
-            entries = json.loads(row[2]['value'] or '[]')
-        except Exception:
-            entries = []
-        found[row[0]['value']] = ((row[1]['value'] or '').lower(), entries)
+    for table, result in zip(('mail_inbox', 'mail_sent'), results[:2]):
+        for row in result['response']['result']['rows']:
+            try:
+                entries = json.loads(row[2]['value'] or '[]')
+            except Exception:
+                entries = []
+            found[row[0]['value']] = ((row[1]['value'] or '').lower(), entries, table)
     return found
 
 
@@ -409,6 +412,7 @@ def sent_statements(row):
             arg(row['id']), arg(row['from']), arg(json.dumps(row['to'])), arg(json.dumps(row['cc'])),
             arg(json.dumps(row['bcc'])), arg(json.dumps(row['replyTo'])), arg(row['subject']),
             arg(row['html']), arg(row['text']), arg(row['receivedAt']), arg('imported'), arg('mbox'),
+            arg(json.dumps(row['attachments'])),
         ]},
         {'sql': INSERT_SENT_META, 'args': [arg(row['id']), arg(row['owner']), arg(row['receivedAt'])]},
     ]
@@ -477,6 +481,7 @@ def main():
                 local['missing'] += 1
                 continue
             row['id'] = mine
+            row['table'] = stored[mine][2]
             entries = stored[mine][1]
             want = len(row['attachments'])
             complete = lambda e: bool(e.get('key')) or (bool(e.get('url')) and not args.replace_blob)
@@ -524,7 +529,7 @@ def main():
             touched.add(row['id'])
         for row in rows:
             if row['id'] in touched or row.get('reuse'):
-                execute(url, db_token, [{'sql': 'UPDATE mail_inbox SET attachments = ? WHERE id = ?',
+                execute(url, db_token, [{'sql': f'UPDATE {row["table"]} SET attachments = ? WHERE id = ?',
                                          'args': [arg(json.dumps(row['stored'])), arg(row['id'])]}])
                 local['updated'] += 1
             for attachment in row['attachments']:
@@ -659,7 +664,7 @@ def main():
             print(f'  {row["receivedAt"][:10]} {row["kind"]:5} {flag} {row["from"][:30]:30} {row["subject"][:44]}'
                   f'  [{len(row["attachments"])} files]', flush=True)
         if args.attach_only:
-            if row['kind'] != 'inbox' or not row['attachments']:
+            if row['kind'] == 'skip' or not row['attachments']:
                 continue
             chunk.append(row)
             if len(chunk) >= args.batch:
