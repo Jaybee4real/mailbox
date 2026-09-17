@@ -5871,15 +5871,20 @@ export default function DevMailPage() {
               <div className={styles.avatar}>{(parseAddress(inbound.from)[0] ?? '?').toUpperCase()}</div>
               <div className={styles.readerMetaText}>
                 <Ticker className={`${styles.readerFrom} ${styles.tickerBlock}`} enabled={tickerOn('readerFrom')}>{inbound.from}</Ticker>
-                <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`} enabled={tickerOn('readerTo')}>to {inbound.to.join(', ') || 'you'}</Ticker>
-                {inbound.cc.length > 0 && <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`} enabled={tickerOn('readerTo')}>cc {inbound.cc.join(', ')}</Ticker>}
+                <span className={styles.threadMsgRecips}>
+                  <Ticker className={styles.threadMsgRecipsText} enabled={tickerOn('readerTo')}>
+                    {[
+                      `to ${inbound.to.join(', ') || 'you'}`,
+                      inbound.cc.length ? `cc ${inbound.cc.join(', ')}` : '',
+                      inbound.bcc.length ? `bcc ${inbound.bcc.join(', ')}` : '',
+                    ].filter(Boolean).join('  ·  ')}
+                  </Ticker>
+                  <button className={styles.threadMsgDetails} aria-expanded={showFullHeaders} onClick={() => setShowFullHeaders(open => !open)}>
+                    {showFullHeaders ? 'Hide details' : 'Details'}
+                  </button>
+                </span>
               </div>
-              <div className={styles.readerDate}>
-                {new Date(inbound.receivedAt).toLocaleString()}
-                <button className={styles.headerToggle} onClick={() => setShowFullHeaders(open => !open)}>
-                  {showFullHeaders ? 'Hide details' : 'Details'}
-                </button>
-              </div>
+              <div className={styles.readerDate}>{new Date(inbound.receivedAt).toLocaleString()}</div>
             </div>
             {showFullHeaders && (
               <dl className={styles.fullHeaders}>
