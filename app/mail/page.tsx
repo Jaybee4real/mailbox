@@ -129,6 +129,7 @@ type SentEmail = {
   createdAt: string
   scheduledAt: string | null
   lastEvent: string
+  attachmentCount?: number
   starred: boolean
   archived: boolean
   trashed: boolean
@@ -2787,7 +2788,7 @@ export default function DevMailPage() {
         size: null,
         read: true,
         starred: entry.starred,
-        hasAttachment: false,
+        hasAttachment: (entry.attachmentCount ?? 0) > 0,
         labels: [],
         folder: entry.trashed ? 'trash' : entry.archived ? 'archive' : 'sent',
       })
@@ -2988,7 +2989,7 @@ export default function DevMailPage() {
           : formatRelative(entry.createdAt, now),
       unread: false,
       starred: entry.starred,
-      hasAttachment: false,
+      hasAttachment: (entry.attachmentCount ?? 0) > 0,
       chip: (folder === 'scheduled' ? 'scheduled' : null) as string | null,
       threadCount: 1,
       latestAt: new Date(entry.createdAt).getTime(),

@@ -12,7 +12,7 @@ function fromAddressOf(email: SentEmail): string {
 
 export const runtime = 'nodejs'
 
-type SentEmail = { id: string; from: string; to: string[]; subject: string; createdAt: string; scheduledAt: string | null; lastEvent: string }
+type SentEmail = { id: string; from: string; to: string[]; subject: string; createdAt: string; scheduledAt: string | null; lastEvent: string; attachmentCount: number }
 
 const KNOWN_AUTO_SUBJECTS = new Set([`Reset your ${BRAND.name} Mail password`])
 
@@ -65,6 +65,7 @@ export async function GET(req: Request) {
     createdAt: item.createdAt,
     scheduledAt: null,
     lastEvent: item.lastEvent ?? '',
+    attachmentCount: item.attachmentCount ?? 0,
   }))
 
   // Sent mail is scoped the same way the inbox is: to the signed-in mailbox, whatever
@@ -106,7 +107,7 @@ export async function GET(req: Request) {
         size: null,
         read: true,
         starred: Boolean(flagOf[email.id]?.starred),
-        hasAttachment: false,
+        hasAttachment: (email.attachmentCount ?? 0) > 0,
         labels: [],
         folder: flagOf[email.id]?.trashed ? 'trash' : flagOf[email.id]?.archived ? 'archive' : 'sent',
       }),

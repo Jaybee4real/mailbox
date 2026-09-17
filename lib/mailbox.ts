@@ -1551,6 +1551,8 @@ export type SentMessage = {
   lastEvent?: string | null
   /** The bucket keys that went out with it, so a forward has something of ours to copy. */
   attachments?: Array<{ filename: string; size?: number; contentType?: string; key?: string }>
+  /** How many files the list should raise a paperclip for, counted the way the inbox counts. */
+  attachmentCount?: number
 }
 
 export async function recordSentMessage(message: SentMessage): Promise<void> {
@@ -1672,6 +1674,7 @@ export async function readSentArchive(options: {
   const rows = await tagged(
     sql,
     `SELECT s.id, s.from_addr, s.to_addrs, s.cc, s.bcc, s.reply_to, s.subject, s.created_at, s.last_event,
+            json_array_length(CASE WHEN json_valid(s.attachments) THEN s.attachments ELSE '[]' END) AS attach_count,
             ${textColumn} AS text
      FROM mail_sent s LEFT JOIN mail_sent_meta m ON m.email_id = s.id
      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
@@ -1690,6 +1693,7 @@ export async function readSentArchive(options: {
     text: row.text == null ? null : String(row.text),
     createdAt: isoOrNull(row.created_at) ?? new Date(0).toISOString(),
     lastEvent: (row.last_event as string) ?? null,
+    attachmentCount: Number(row.attach_count ?? 0),
   }))
 }
 
