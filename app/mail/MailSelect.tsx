@@ -41,7 +41,7 @@ export default function MailSelect({
   label,
 }: {
   value: string
-  options: Array<{ value: string; label: string; closed?: string }>
+  options: Array<{ value: string; label: string; closed?: string; icon?: React.ReactNode; hint?: string }>
   onChange: (value: string) => void
   ariaLabel: string
   buttonClassName?: string
@@ -125,6 +125,7 @@ export default function MailSelect({
           onClick={toggle}
         >
           {prefix && <span className={styles.selectGlyph} aria-hidden>{prefix}</span>}
+          {current?.icon && <span className={styles.selectOptionIcon} aria-hidden>{current.icon}</span>}
           {label && <span className={styles.selectLabel}>{label}</span>}
           <span style={optionStyle && current?.value ? optionStyle(current.value) : undefined}>{shown ?? placeholder}</span>
           {CHEVRON}
@@ -147,7 +148,15 @@ export default function MailSelect({
                 setOpen(false)
               }}
             >
-              {option.label}
+              {option.icon && <span className={styles.selectOptionIcon} aria-hidden>{option.icon}</span>}
+              {option.hint ? (
+                <span className={styles.selectOptionText}>
+                  <span className={styles.selectOptionLabel}>{option.label}</span>
+                  <span className={styles.selectOptionHint}>{option.hint}</span>
+                </span>
+              ) : (
+                option.label
+              )}
             </button>
           ))}
         </div>

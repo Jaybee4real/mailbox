@@ -11,6 +11,40 @@ import RichEditor from './RichEditor'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel } from '@/lib/email-html'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect, { GLYPH } from './MailSelect'
+
+/** Which product an address belongs to, so the picker can wear its mark. */
+function productOf(address: string): 'vela' | 'hosting' | 'person' {
+  const local = address.split('@')[0].toLowerCase()
+  if (local === 'vela') return 'vela'
+  if (local === 'hosting') return 'hosting'
+  return 'person'
+}
+
+const MAILBOX_GLYPH: Record<'all' | 'vela' | 'hosting' | 'person', React.ReactNode> = {
+  all: (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden>
+      <rect x="2.5" y="4.5" width="15" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M3 6l7 5 7-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  vela: (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path d="M3.4 16h13.2L10 3.2z" fill="#2FB574" fillOpacity="0.55" />
+      <path d="M10 3.2V16" stroke="#6FD3A2" strokeWidth="1.6" />
+    </svg>
+  ),
+  hosting: (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path d="M10 2.6l6.4 3.7v7.4L10 17.4 3.6 13.7V6.3z" fill="#8B4FF5" fillOpacity="0.45" stroke="#A578FF" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  ),
+  person: (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden>
+      <circle cx="10" cy="7" r="3.1" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M4.2 16.4c.8-2.7 3-4.2 5.8-4.2s5 1.5 5.8 4.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  ),
+}
 import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
 import { splitQuotedTail, splitQuotedText } from './quoted'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
@@ -1583,6 +1617,40 @@ export default function DevMailPage() {
     }),
     [email, password],
   )
+  const [mailboxes, setMailboxes] = useState<{ address: string; name: string }[]>([])
+  const [mailboxAll, setMailboxAll] = useState(false)
+
+  useEffect(() => {
+    if (!isLoggedIn) return
+    let live = true
+    fetch('/api/mail/mailboxes', { headers: apiHeaders() })
+      .then(response => response.json())
+      .then(data => {
+        if (!live || !data?.ok) return
+        setMailboxAll(Boolean(data.all))
+        setMailboxes(Array.isArray(data.mailboxes) ? data.mailboxes : [])
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [isLoggedIn, apiHeaders])
+
+  const mailboxQuery = mailboxAll && mailbox !== 'all' ? `?mailbox=${encodeURIComponent(mailbox)}` : ''
+
+  const mailboxOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All mail', hint: 'every mailbox', icon: MAILBOX_GLYPH.all },
+      ...mailboxes.map(entry => ({
+        value: entry.address,
+        label: entry.name,
+        hint: entry.address,
+        icon: MAILBOX_GLYPH[productOf(entry.address)],
+      })),
+    ],
+    [mailboxes],
+  )
+
   const [threads, setThreads] = useState<ConversationRow[]>([])
   const [threadsResolved, setThreadsResolved] = useState(false)
   const threadFolder = folder === 'archived' ? 'archive' : folder === 'trash' ? 'trash' : folder === 'starred' ? 'starred' : folder === 'snoozed' ? 'snoozed' : 'inbox'
@@ -1590,17 +1658,31 @@ export default function DevMailPage() {
   const threadsLoadedFolder = useRef<string | null>(null)
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null)
   const THREAD_PAGE = 500
+  // The key carries the mailbox as well as the folder: switching tabs has to refetch, and
+  // the guard would otherwise treat the other mailbox's list as already loaded.
+  const threadKey = `${mailboxQuery}|${threadFolder}`
+
+  useEffect(() => {
+    setThreads([])
+    setThreadsCursor(null)
+    setThreadsResolved(false)
+    threadsFetch.current = null
+    threadsLoadedFolder.current = null
+  }, [mailboxQuery])
   const loadThreads = useCallback(async () => {
     if (!isLoggedIn) return
-    if (threadsFetch.current === threadFolder) return
-    threadsFetch.current = threadFolder
+    if (threadsFetch.current === threadKey) return
+    threadsFetch.current = threadKey
     try {
-      const response = await fetch(`/api/mail/threads?folder=${threadFolder}&limit=${THREAD_PAGE}`, { headers: apiHeaders() })
+      const params = new URLSearchParams(mailboxQuery.replace(/^\?/, ''))
+      params.set('folder', threadFolder)
+      params.set('limit', String(THREAD_PAGE))
+      const response = await fetch(`/api/mail/threads?${params.toString()}`, { headers: apiHeaders() })
       const data = await response.json().catch(() => null)
       if (data?.ok && Array.isArray(data.threads)) {
         const fresh = data.threads as ConversationRow[]
-        const replace = threadsLoadedFolder.current !== threadFolder
-        threadsLoadedFolder.current = threadFolder
+        const replace = threadsLoadedFolder.current !== threadKey
+        threadsLoadedFolder.current = threadKey
         setThreads(current => {
           if (replace || current.length === 0) return fresh
           const freshIds = new Set(fresh.map(entry => entry.threadId))
@@ -1610,10 +1692,10 @@ export default function DevMailPage() {
       }
     } catch {
     } finally {
-      if (threadsFetch.current === threadFolder) threadsFetch.current = null
+      if (threadsFetch.current === threadKey) threadsFetch.current = null
       setThreadsResolved(true)
     }
-  }, [isLoggedIn, threadFolder, apiHeaders])
+  }, [isLoggedIn, threadFolder, threadKey, mailboxQuery, apiHeaders])
 
   const threadPageInFlight = useRef(false)
   const loadMoreThreads = useCallback(async () => {
@@ -1621,7 +1703,11 @@ export default function DevMailPage() {
     threadPageInFlight.current = true
     setLoadingMore(true)
     try {
-      const response = await fetch(`/api/mail/threads?folder=${threadFolder}&limit=${THREAD_PAGE}&cursor=${encodeURIComponent(threadsCursor)}`, { headers: apiHeaders() })
+      const moreParams = new URLSearchParams(mailboxQuery.replace(/^\?/, ''))
+      moreParams.set('folder', threadFolder)
+      moreParams.set('limit', String(THREAD_PAGE))
+      moreParams.set('cursor', threadsCursor)
+      const response = await fetch(`/api/mail/threads?${moreParams.toString()}`, { headers: apiHeaders() })
       const data = await response.json().catch(() => null)
       if (!data?.ok || !Array.isArray(data.threads)) return
       const fresh = data.threads as ConversationRow[]
@@ -1635,7 +1721,7 @@ export default function DevMailPage() {
       threadPageInFlight.current = false
       setLoadingMore(false)
     }
-  }, [threadsCursor, threadFolder, apiHeaders])
+  }, [threadsCursor, threadFolder, mailboxQuery, apiHeaders])
 
   useEffect(() => {
     setThreadsResolved(false)
@@ -1847,27 +1933,6 @@ export default function DevMailPage() {
       live = false
     }
   }, [])
-
-  const [mailboxes, setMailboxes] = useState<{ address: string; name: string }[]>([])
-  const [mailboxAll, setMailboxAll] = useState(false)
-
-  useEffect(() => {
-    if (!isLoggedIn) return
-    let live = true
-    fetch('/api/mail/mailboxes', { headers: apiHeaders() })
-      .then(response => response.json())
-      .then(data => {
-        if (!live || !data?.ok) return
-        setMailboxAll(Boolean(data.all))
-        setMailboxes(Array.isArray(data.mailboxes) ? data.mailboxes : [])
-      })
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [isLoggedIn, apiHeaders])
-
-  const mailboxQuery = mailboxAll && mailbox !== 'all' ? `?mailbox=${encodeURIComponent(mailbox)}` : ''
 
   // Mail always goes out as the signed-in account, so browsing another mailbox never
   // changes who a reply comes from.
@@ -7027,27 +7092,14 @@ export default function DevMailPage() {
           </button>
         </div>
         {mailboxAll && mailboxes.length > 1 && (
-          <div className={styles.mailboxTabs} role="tablist" aria-label="Mailbox">
-            <button
-              role="tab"
-              aria-selected={mailbox === 'all'}
-              className={`${styles.mailboxTab} ${mailbox === 'all' ? styles.mailboxTabOn : ''}`}
-              onClick={() => setMailbox('all')}
-            >
-              All mail
-            </button>
-            {mailboxes.map(entry => (
-              <button
-                key={entry.address}
-                role="tab"
-                aria-selected={mailbox === entry.address}
-                title={entry.address}
-                className={`${styles.mailboxTab} ${mailbox === entry.address ? styles.mailboxTabOn : ''}`}
-                onClick={() => setMailbox(entry.address)}
-              >
-                {entry.name}
-              </button>
-            ))}
+          <div className={styles.mailboxPick}>
+            <MailSelect
+              value={mailbox}
+              options={mailboxOptions}
+              ariaLabel="Mailbox"
+              buttonClassName={styles.mailboxPickBtn}
+              onChange={value => { setMailbox(value); setSelectedId(null) }}
+            />
           </div>
         )}
         {crossFolder && listItems.length > 0 && (
