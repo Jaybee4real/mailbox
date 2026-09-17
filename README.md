@@ -20,9 +20,9 @@ the next one.
 
 Here, pushing *is* deploying — for one tenant. A GitHub webhook on this repository
 points at the Coolify that serves production, so a push to `master` auto-deploys the
-**Novacraft** mailbox. Metroperil is deliberately not wired: it shares this repository
-and branch, but Coolify checks the webhook signature against each application's own
-secret, so metroperil is skipped and still needs a manual deploy from Coolify.
+**Novacraft** mailbox. The second tenant is deliberately not wired: it shares this
+repository and branch, but Coolify checks the webhook signature against each
+application's own secret, so it is skipped and still needs a manual deploy from Coolify.
 Finish the work, commit locally, leave it unpushed, and say plainly that it is
 waiting.
 

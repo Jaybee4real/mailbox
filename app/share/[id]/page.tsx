@@ -4,9 +4,6 @@ import { CLIENT_BRAND } from '@/lib/brand.client'
 import { use, useCallback, useEffect, useState } from 'react'
 import styles from './share.module.css'
 
-// The download page is the one screen a recipient outside the company ever sees, and it
-// was painted in two brands at once: a purple button that turned Metroperil's red on
-// hover, and a purple focus ring glowing red. Both come from the tenant now.
 const brandStyle = { '--brand-accent': CLIENT_BRAND.accent } as React.CSSProperties
 
 type Meta = {
