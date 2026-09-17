@@ -595,27 +595,27 @@ function htmlToQuoteText(html: string | null, text: string | null): string {
 
 /**
  * Parts the body embeds — a sender's signature icons, pasted pictures — are not files to list.
- * Only embedded parts carry a Content-ID; the body usually holds them as data: URIs by the
- * time it is stored, so a small image with an id is treated as embedded whether or not a
- * cid: reference survives. Anything larger, or not an image, is a real file.
+ * Only embedded parts carry a Content-ID, and stored bodies hold them as data: URIs, so a
+ * small image with an id is embedded whether or not a cid: reference survives. Archives
+ * imported without ids fall back to the names mail clients give such parts. Anything
+ * larger, or not an image, is a real file.
  */
 const INLINE_IMAGE_MAX_BYTES = 150_000
-const attachmentKey = (entry: { filename: string; size?: number }) => `${entry.filename}|${entry.size ?? ''}`
-function inlineAttachmentKeys(message: InboundEmail): Set<string> {
+const INLINE_IMAGE_NAME = /^(image\d*|outlook-[\w-]+|blocked|[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(png|gif|jpe?g)$/i
+function inlineAttachmentNames(message: InboundEmail): Set<string> {
   const html = message.html ?? ''
   const referenced = new Set((html.match(/cid:([^"'\s>)]+)/gi) ?? []).map(match => match.slice(4).toLowerCase()))
-  const keys = new Set<string>()
+  const names = new Set<string>()
   for (const entry of message.attachments) {
+    if (!entry.contentType?.startsWith('image/') || (entry.size ?? 0) > INLINE_IMAGE_MAX_BYTES) continue
     const id = entry.contentId?.replace(/^<|>$/g, '').toLowerCase()
-    if (!id) continue
-    const smallImage = Boolean(entry.contentType?.startsWith('image/')) && (entry.size ?? 0) <= INLINE_IMAGE_MAX_BYTES
-    if (referenced.has(id) || smallImage) keys.add(attachmentKey(entry))
+    if (id || INLINE_IMAGE_NAME.test(entry.filename) || (id && referenced.has(id))) names.add(entry.filename)
   }
-  return keys
+  return names
 }
 function visibleAttachments(message: InboundEmail): InboundEmail['attachments'] {
-  const inline = inlineAttachmentKeys(message)
-  return message.attachments.filter(entry => !inline.has(attachmentKey(entry)))
+  const inline = inlineAttachmentNames(message)
+  return message.attachments.filter(entry => !inline.has(entry.filename))
 }
 
 // Real, visible images in an email (skips the 1x1 tracking pixel and inline cid: parts).
@@ -5401,7 +5401,7 @@ export default function DevMailPage() {
     // hold, which is every file sent as a share link. Falling back only on null
     // left the header counting attachments the grid then refused to draw.
     const fetched = inboundAttachments[message.id]
-    const inline = inlineAttachmentKeys(message)
+    const inline = inlineAttachmentNames(message)
     const list: DownloadAttachment[] = (fetched?.length
       ? fetched
       : message.attachments.map(entry => ({
@@ -5411,7 +5411,7 @@ export default function DevMailPage() {
           shareId: entry.shareId,
           contentId: entry.contentId,
         }))
-    ).filter(entry => !inline.has(attachmentKey(entry)))
+    ).filter(entry => !inline.has(entry.filename))
     return list.length ? renderAttachmentTiles(list) : null
   }
 
