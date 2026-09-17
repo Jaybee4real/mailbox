@@ -2572,8 +2572,21 @@
   margin: 0 28px 14px;
   overflow-x: auto;
   scroll-snap-type: x proximity;
+  padding-bottom: 6px;
   scrollbar-width: thin;
-  padding-bottom: 2px;
+  scrollbar-color: color-mix(in srgb, var(--nc-violet-500) 55%, transparent) transparent;
+}
+.attachGrid::-webkit-scrollbar { height: 8px; }
+.attachGrid::-webkit-scrollbar-track { background: transparent; }
+.attachGrid::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--nc-violet-500) 45%, transparent);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+.attachGrid::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--nc-violet-500) 78%, transparent);
+  background-clip: padding-box;
 }
 .attachTile {
   flex: 0 0 auto;
@@ -6687,7 +6700,16 @@
     z-index: 405;
   }
   .listHead .refreshBtn { display: none; }
-  .actions { row-gap: 8px; gap: 6px; padding: 12px 14px; }
+  .actions { row-gap: 8px; gap: 6px; padding: 12px 15px; }
+  .app { --thread-inset: 15px; }
+  .readerHead { padding: 18px 15px 0; }
+  .readerBody { margin: 0 15px 16px; }
+  .attachGrid { margin: 0 15px 12px; }
+  .activity { margin: 0 15px 14px; padding: 10px 12px; }
+  .readerAttach { margin: 0 15px 14px; }
+  .readerText { padding: 16px 15px; }
+  .composeSignature { margin: 0 15px 14px; }
+  .quickReplyBar { padding-left: 15px; padding-right: 15px; }
   .actions .iconBtn { min-width: 40px; width: 40px; padding: 0; }
   .actionSpacer { flex: 1 0 100%; min-width: 0; height: 0; }
   .rteToolbar {

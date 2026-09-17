@@ -767,6 +767,10 @@ const readerTheme = (spacing: number) => `<style>
     overflow-wrap: anywhere;
   }
   .nc-paper p { margin: 0 0 ${paragraphGap(spacing)}; }
+  @media (max-width: 480px) {
+    body { padding: 4px 0 24px; }
+    .nc-paper { padding: 16px 15px; border-radius: 10px; }
+  }
   .nc-paper img { max-width: 100%; height: auto; }
   .nc-paper a { color: #5418C2; }
 </style>`
