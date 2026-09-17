@@ -2679,13 +2679,9 @@
   flex-shrink: 0;
   color: var(--nc-fg-4);
   font: 400 11px/1 var(--nc-font-sans);
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--nc-ease-out);
+  transition: color var(--dur-fast) var(--nc-ease-out);
 }
-.threadMsgHead:hover .threadMsgHint { opacity: 1; }
-@media (pointer: coarse) {
-  .threadMsgHint { opacity: 1; }
-}
+.threadMsgHead:hover .threadMsgHint { color: var(--nc-fg-3); }
 
 .threadMsgRecips {
   display: flex;
