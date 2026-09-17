@@ -1697,6 +1697,31 @@
   padding: 0;
 }
 .rteSwatchHi { border-radius: 50%; }
+.tickerHost {
+  display: inline-block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+.tickerBlock { display: block; }
+.tickerHost[data-ticker='on'] { text-overflow: clip; }
+.tickerText { display: inline-block; white-space: nowrap; }
+.tickerHost[data-ticker='on'] .tickerText { animation: ncTicker var(--ticker-duration, 8s) ease-in-out var(--ticker-delay, 0s) infinite alternate; }
+@keyframes ncTicker {
+  0%, 14% { transform: translateX(0); }
+  86%, 100% { transform: translateX(calc(-1 * var(--ticker-shift, 0px))); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tickerHost[data-ticker='on'] .tickerText { animation: none; }
+  .tickerHost[data-ticker='on'] { text-overflow: ellipsis; }
+}
+.itemSubject { display: flex; align-items: center; gap: 4px; }
+.itemSubjectText { flex: 1; }
+.threadMsgFrom { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+.threadMsgFromText { flex: 1; }
 .rteColourDot {
   display: inline-block;
   width: 16px;
@@ -2577,6 +2602,7 @@
   scrollbar-color: color-mix(in srgb, var(--nc-violet-500) 55%, transparent) transparent;
 }
 .attachGrid::-webkit-scrollbar { height: 8px; }
+.readerAttach .attachGrid { margin: 0; flex: 1 1 100%; }
 .attachGrid::-webkit-scrollbar-track { background: transparent; }
 .attachGrid::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--nc-violet-500) 45%, transparent);
@@ -6724,6 +6750,14 @@
   .rteToolbar::-webkit-scrollbar { display: none; }
   .rteGroup { flex: 0 0 auto; scroll-snap-align: start; }
   .rtePalette .rteSwatch { width: 24px; height: 24px; }
+  .compose,
+  .composeExpanded {
+    top: auto;
+    bottom: 0;
+    height: 80dvh;
+    max-height: 80dvh;
+    border-radius: 18px 18px 0 0;
+  }
   .listHead {
     padding-right: 106px;
   }

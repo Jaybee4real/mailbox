@@ -11,6 +11,7 @@ import RichEditor from './RichEditor'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel } from '@/lib/email-html'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect from './MailSelect'
+import Ticker from './Ticker'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
@@ -5208,7 +5209,7 @@ export default function DevMailPage() {
                 )}
               </button>
               <div className={styles.attachInfo}>
-                <span className={styles.attachName} title={attachment.filename}>{attachment.filename}</span>
+                <Ticker className={styles.attachName} title={attachment.filename}>{attachment.filename}</Ticker>
                 <span className={styles.attachMeta}>
                   {attachment.size ? formatSize(attachment.size) : null}
                   {attachment.shareId ? `${attachment.size ? ' · ' : ''}shared link` : null}
@@ -5341,7 +5342,7 @@ export default function DevMailPage() {
               <span className={styles.attachThumbExt}>{extension || 'FILE'}</span>
             </span>
           )}
-          <span className={styles.attachChipName} title={attachment.filename}>{attachment.filename}</span>
+          <Ticker className={styles.attachChipName} title={attachment.filename}>{attachment.filename}</Ticker>
           <span className={styles.attachChipSize}>{state}</span>
           {attachment.error && attachment.file && (
             <button type="button" className={styles.attachRetry} onClick={() => retryUpload(attachment)}>
@@ -5628,9 +5629,9 @@ export default function DevMailPage() {
           <span className={styles.threadMsgMeta}>
             <span className={styles.threadMsgFrom}>
               {unread && <span className={styles.unreadDot} />}
-              {from}
+              <Ticker className={styles.threadMsgFromText}>{from}</Ticker>
             </span>
-            {!open && <span className={styles.threadMsgSnippet}>{snippet}</span>}
+            {!open && <Ticker className={styles.threadMsgSnippet}>{snippet}</Ticker>}
           </span>
           {hasAttach && (
             <span className={styles.threadMsgTool} title="Carries an attachment" aria-label="Carries an attachment">
@@ -5752,9 +5753,9 @@ export default function DevMailPage() {
             <div className={styles.readerMeta}>
               <div className={styles.avatar}>{(parseAddress(inbound.from)[0] ?? '?').toUpperCase()}</div>
               <div className={styles.readerMetaText}>
-                <div className={styles.readerFrom}>{inbound.from}</div>
-                <div className={styles.readerTo}>to {inbound.to.join(', ') || 'you'}</div>
-                {inbound.cc.length > 0 && <div className={styles.readerTo}>cc {inbound.cc.join(', ')}</div>}
+                <Ticker className={`${styles.readerFrom} ${styles.tickerBlock}`}>{inbound.from}</Ticker>
+                <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`}>to {inbound.to.join(', ') || 'you'}</Ticker>
+                {inbound.cc.length > 0 && <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`}>cc {inbound.cc.join(', ')}</Ticker>}
               </div>
               <div className={styles.readerDate}>
                 {new Date(inbound.receivedAt).toLocaleString()}
@@ -6118,7 +6119,7 @@ export default function DevMailPage() {
                     title="Recipients — Cc, Bcc"
                   >
                     <span className={styles.replyRecipsChevron}>{ICONS.chevron}</span>
-                    <span className={styles.replyRecipsSummary}>{recipSummary}</span>
+                    <Ticker className={styles.replyRecipsSummary}>{recipSummary}</Ticker>
                   </button>
                 </div>
                 {replyRecipsOpen && (
@@ -6337,8 +6338,8 @@ export default function DevMailPage() {
             <div className={styles.readerMeta}>
               <div className={styles.avatar}>N</div>
               <div className={styles.readerMetaText}>
-                <div className={styles.readerFrom}>{selectedDetail?.from ?? selectedSent.from}</div>
-                <div className={styles.readerTo}>to {selectedSent.to.join(', ')}</div>
+                <Ticker className={`${styles.readerFrom} ${styles.tickerBlock}`}>{selectedDetail?.from ?? selectedSent.from}</Ticker>
+                <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`}>to {selectedSent.to.join(', ')}</Ticker>
               </div>
               <div className={styles.readerDate}>
                 {isScheduled && selectedSent.scheduledAt
@@ -7185,15 +7186,15 @@ export default function DevMailPage() {
                 </span>
                 <span className={styles.itemBody}>
                   <span className={styles.itemTop}>
-                    <span className={styles.itemFrom}>{item.primary}</span>
+                    <Ticker className={styles.itemFrom}>{item.primary}</Ticker>
                     {item.threadCount > 1 && <span className={styles.threadBadge}>{item.threadCount}</span>}
                     <span className={styles.itemTime}>{item.time}</span>
                   </span>
                   <p className={styles.itemSubject}>
                     {item.hasAttachment && <span className={styles.itemClip}>{ICONS.attach}</span>}
-                    {item.subject}
+                    <Ticker className={styles.itemSubjectText}>{item.subject}</Ticker>
                   </p>
-                  {item.snippet && <p className={styles.itemSnippet}>{item.snippet}</p>}
+                  {item.snippet && <Ticker className={`${styles.itemSnippet} ${styles.tickerBlock}`}>{item.snippet}</Ticker>}
                   {item.labels.length > 0 && (
                     <span className={styles.itemLabels}>
                       {item.labels.map(labelId => {
