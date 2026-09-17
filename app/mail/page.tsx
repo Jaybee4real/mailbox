@@ -1011,6 +1011,24 @@ function formatHtmlSource(html: string): string {
   return out.join('\n')
 }
 
+/**
+ * When a message in a conversation arrived, said outright rather than as "3h".
+ * A relative age suits a list being scanned; a thread being read is a record, and a record
+ * wants the day and the hour. The year appears only once it is no longer the current one.
+ */
+function formatStamp(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  const sameYear = date.getFullYear() === new Date().getFullYear()
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 function formatRelative(iso: string, now: number): string {
   const time = new Date(iso).getTime()
   if (Number.isNaN(time)) return ''
@@ -5729,7 +5747,7 @@ export default function DevMailPage() {
             {ICONS.print}
           </button>
           )}
-          <span className={styles.threadMsgDate}>{formatRelative(when, now)}</span>
+          <span className={styles.threadMsgDate} title={new Date(when).toLocaleString()}>{formatStamp(when)}</span>
           {folds && <span className={styles.threadChevron} aria-hidden>{ICONS.chevron}</span>}
         </div>
         {(open || threadEverOpen.has(item.id)) && (
