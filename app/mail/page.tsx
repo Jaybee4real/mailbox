@@ -1390,6 +1390,7 @@ export default function DevMailPage() {
   const [threadExpanded, setThreadExpanded] = useState<Set<string>>(new Set())
   const [threadEverOpen, setThreadEverOpen] = useState<Set<string>>(new Set())
   const [quoteOpen, setQuoteOpen] = useState<Set<string>>(new Set())
+  const [msgDetails, setMsgDetails] = useState<Set<string>>(new Set())
   const [linkVerdicts, setLinkVerdicts] = useState<Record<string, { verdict: LinkVerdict; reasons: string[] }>>({})
   const scanLinksRef = useRef<(urls: string[]) => void>(() => {})
   const [preview, setPreview] = useState<{ items: PreviewItem[]; index: number } | null>(null)
@@ -5667,6 +5668,17 @@ export default function DevMailPage() {
       mine ? (detail ? htmlToSnippetText(detail.html, detail.text) : item.sent.subject) : htmlToSnippetText(item.inbound.html, item.inbound.text)
     ).slice(0, 100)
     const unread = !mine && !item.inbound.read
+    // Who each reply actually went to. A thread quietly gains and loses people in Cc, and
+    // that is the change most worth noticing partway down a conversation.
+    const recips = mine
+      ? { to: item.sent.to, cc: detail?.cc ?? [], bcc: detail?.bcc ?? [] }
+      : { to: item.inbound.to, cc: item.inbound.cc ?? [], bcc: item.inbound.bcc ?? [] }
+    const recipsLine = [
+      `to ${recips.to.join(', ') || 'you'}`,
+      recips.cc.length ? `cc ${recips.cc.join(', ')}` : '',
+      recips.bcc.length ? `bcc ${recips.bcc.join(', ')}` : '',
+    ].filter(Boolean).join('  ·  ')
+    const detailsOpen = msgDetails.has(item.id)
     const hasAttach = mine ? (detail?.attachments?.length ?? 0) > 0 : visibleAttachments(item.inbound).length > 0
     const folds = !messagesAlwaysOpen || layout === 'bubbles'
     const shellClass =
@@ -5707,6 +5719,27 @@ export default function DevMailPage() {
               <Ticker className={styles.threadMsgFromText} enabled={tickerOn('threadFrom')}>{from}</Ticker>
             </span>
             {!open && <Ticker className={styles.threadMsgSnippet} enabled={tickerOn('threadSnippet')}>{snippet}</Ticker>}
+            {open && layout !== 'bubbles' && (
+              <span className={styles.threadMsgRecips}>
+                <Ticker className={styles.threadMsgRecipsText} enabled={tickerOn('readerTo')}>{recipsLine}</Ticker>
+                <button
+                  type="button"
+                  className={styles.threadMsgDetails}
+                  aria-expanded={detailsOpen}
+                  onClick={event => {
+                    event.stopPropagation()
+                    setMsgDetails(current => {
+                      const next = new Set(current)
+                      if (next.has(item.id)) next.delete(item.id)
+                      else next.add(item.id)
+                      return next
+                    })
+                  }}
+                >
+                  {detailsOpen ? 'Hide details' : 'Details'}
+                </button>
+              </span>
+            )}
           </span>
           {hasAttach && (
             <span className={styles.threadMsgTool} title="Carries an attachment" aria-label="Carries an attachment">
@@ -5752,6 +5785,15 @@ export default function DevMailPage() {
         </div>
         {(open || threadEverOpen.has(item.id)) && (
           <div className={`${styles.threadMsgWrap} ${open ? styles.threadMsgWrapOpen : ''}`}>
+          {open && detailsOpen && layout !== 'bubbles' && (
+            <dl className={styles.fullHeaders}>
+              <div><dt>From</dt><dd>{mine ? 'You' : item.inbound.from}</dd></div>
+              <div><dt>To</dt><dd>{recips.to.join(', ') || '—'}</dd></div>
+              {recips.cc.length > 0 && <div><dt>Cc</dt><dd>{recips.cc.join(', ')}</dd></div>}
+              {recips.bcc.length > 0 && <div><dt>Bcc</dt><dd>{recips.bcc.join(', ')}</dd></div>}
+              <div><dt>Date</dt><dd>{new Date(when).toLocaleString()}</dd></div>
+            </dl>
+          )}
           <div className={styles.threadMsgBody}>
             {layout === 'bubbles' ? (
               mine && !detail ? (

@@ -2642,6 +2642,30 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.threadMsgRecips {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 3px;
+}
+.threadMsgRecipsText {
+  flex: 1;
+  min-width: 0;
+  font: 400 11.5px/1.35 var(--nc-font-sans);
+  color: var(--nc-fg-3);
+}
+.threadMsgDetails {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--nc-violet-500);
+  font: 500 11px/1.35 var(--nc-font-sans);
+  cursor: pointer;
+}
+.threadMsgDetails:hover { text-decoration: underline; }
+
 .threadMsgDate {
   font: 400 11px/1 var(--nc-font-mono);
   color: var(--nc-fg-3);
