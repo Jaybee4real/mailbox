@@ -2567,6 +2567,7 @@
   overflow: hidden;
   background: transparent;
 }
+.threadMsgStatic .threadMsgHead { cursor: default; }
 .threadMsg + .threadMsg { border-top: 1px solid var(--nc-line-1); }
 .threadMsgOpen .threadMsgHead { border-bottom: 1px solid var(--nc-line-1); }
 .threadMsgHead {

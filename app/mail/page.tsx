@@ -304,6 +304,8 @@ type MailSettings = {
   mobile: string
   replyAllDefault: boolean
   replyStyle: 'panel' | 'mini'
+  /** Whether a message in a conversation folds away, or stays open so the thread reads straight through. */
+  threadMessages?: 'collapsible' | 'open'
   ticker?: TickerSettings
   notifyEmail: string
   fonts: CustomFont[]
@@ -1399,6 +1401,7 @@ export default function DevMailPage() {
   }, [])
   const [settings, setMailSettings] = useState<MailSettings>(DEFAULT_SETTINGS)
   const tickerOn = (spot: TickerSpot) => settings.ticker?.[spot] ?? tickerDefault(spot)
+  const messagesAlwaysOpen = settings.threadMessages === 'open'
   const { canInstall, installed, install } = useInstall()
   const { permission: notifyPermission, request: requestNotifyPermission, announce } = useNotifications(
     settings.desktopNotifications,
@@ -2620,12 +2623,12 @@ export default function DevMailPage() {
       .then(response => response.json())
       .then(data => {
         if (data.ok && data.settings) {
-          const stored = data.settings as MailSettings & { density?: string; replyStyle?: string; ticker?: unknown }
+          const stored = data.settings as MailSettings & { density?: string; replyStyle?: string; ticker?: unknown; threadMessages?: string }
           // Only the roomy setting is named; anything else — unset, or the retired
           // "comfortable" — is the default. Treating every unrecognised value as roomy put
           // six of the seven mailboxes into a reduced reader none of them had asked for.
           const density: MailSettings['density'] = stored.density === 'relaxed' ? 'relaxed' : 'compact'
-          setMailSettings(current => ({ ...current, ...data.settings, density, replyStyle: stored.replyStyle === 'mini' ? 'mini' : 'panel', ticker: tickerSettingsFrom(stored.ticker) }))
+          setMailSettings(current => ({ ...current, ...data.settings, density, replyStyle: stored.replyStyle === 'mini' ? 'mini' : 'panel', ticker: tickerSettingsFrom(stored.ticker), threadMessages: stored.threadMessages === 'open' ? 'open' : 'collapsible' }))
           const prefs = (data.settings as MailSettings).prefs
           if (prefs?.theme) { setThemePref(prefs.theme); localStorage.setItem(LS_THEME_KEY, prefs.theme) }
           if (prefs?.accent && hexToHsl(prefs.accent)) { setAccent(prefs.accent); localStorage.setItem(LS_ACCENT_KEY, prefs.accent) }
@@ -5605,10 +5608,11 @@ export default function DevMailPage() {
     ).slice(0, 100)
     const unread = !mine && !item.inbound.read
     const hasAttach = mine ? (detail?.attachments?.length ?? 0) > 0 : visibleAttachments(item.inbound).length > 0
+    const folds = !messagesAlwaysOpen || layout === 'bubbles'
     const shellClass =
       layout === 'bubbles'
         ? `${styles.bubble} ${mine ? styles.bubbleOut : styles.bubbleIn} ${open ? styles.bubbleOpen : ''}`
-        : `${styles.threadMsg} ${open ? styles.threadMsgOpen : ''}`
+        : `${styles.threadMsg} ${open ? styles.threadMsgOpen : ''} ${folds ? '' : styles.threadMsgStatic}`
     // Body stays mounted once opened so collapsing animates too, instead of snapping shut.
     const toggleOpen = () => {
       setThreadEverOpen(current => (current.has(item.id) ? current : new Set(current).add(item.id)))
@@ -5621,16 +5625,20 @@ export default function DevMailPage() {
             the attachment mark, and a button cannot hold another button. */}
         <div
           className={styles.threadMsgHead}
-          role="button"
-          tabIndex={0}
-          aria-expanded={open}
-          onClick={toggleOpen}
-          onKeyDown={event => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault()
-              toggleOpen()
-            }
-          }}
+          {...(folds
+            ? {
+                role: 'button' as const,
+                tabIndex: 0,
+                'aria-expanded': open,
+                onClick: toggleOpen,
+                onKeyDown: (event: React.KeyboardEvent) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    toggleOpen()
+                  }
+                },
+              }
+            : {})}
         >
           <span className={styles.avatar}>{initial}</span>
           <span className={styles.threadMsgMeta}>
@@ -5680,7 +5688,7 @@ export default function DevMailPage() {
           </button>
           )}
           <span className={styles.threadMsgDate}>{formatRelative(when, now)}</span>
-          <span className={styles.threadChevron} aria-hidden>{ICONS.chevron}</span>
+          {folds && <span className={styles.threadChevron} aria-hidden>{ICONS.chevron}</span>}
         </div>
         {(open || threadEverOpen.has(item.id)) && (
           <div className={`${styles.threadMsgWrap} ${open ? styles.threadMsgWrapOpen : ''}`}>
@@ -5980,7 +5988,7 @@ export default function DevMailPage() {
             <div className={readerLayout === 'bubbles' ? styles.bubbles : styles.thread}>
               {/* Bubbles stay chronological — a chat reads oldest to newest. */}
               {(readerLayout === 'bubbles' || threadOrder === 'oldest' ? unified : [...unified].reverse()).map(item =>
-                renderThreadMessage(item, threadExpanded.has(item.id), readerLayout),
+                renderThreadMessage(item, messagesAlwaysOpen || threadExpanded.has(item.id), readerLayout),
               )}
             </div>
           ) : (
@@ -7963,6 +7971,25 @@ export default function DevMailPage() {
                   </button>
                 ))}
               </div>
+            </div>
+            <div className={styles.settingsField}>
+              <span>Conversation messages</span>
+              <div className={styles.themeRow}>
+                {([
+                  ['collapsible', 'Collapsible'],
+                  ['open', 'Always open'],
+                ] as Array<[NonNullable<MailSettings['threadMessages']>, string]>).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`${styles.themeChip} ${(settings.threadMessages ?? 'collapsible') === value ? styles.themeChipOn : ''}`}
+                    onClick={() => setMailSettings(current => ({ ...current, threadMessages: value }))}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className={styles.settingsNote}>Collapsible folds each message away until you click it. Always open lays the whole conversation out to read straight through.</p>
             </div>
             <div className={styles.settingsField}>
               <span>Scrolling text</span>
