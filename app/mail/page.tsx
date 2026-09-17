@@ -301,6 +301,7 @@ type MailSettings = {
   uiScale: number
   mobile: string
   replyAllDefault: boolean
+  replyStyle: 'panel' | 'mini'
   notifyEmail: string
   fonts: CustomFont[]
   defaultFont: BaseFont
@@ -323,6 +324,7 @@ const DEFAULT_SETTINGS: MailSettings = {
   uiScale: 100,
   mobile: '',
   replyAllDefault: false,
+  replyStyle: 'panel',
   fonts: [],
   defaultFont: EMPTY_FONT,
 }
@@ -427,6 +429,14 @@ function inlineMd(src: string): string {
 // the markdown path so an existing signature keeps rendering after the editor switch.
 const asRichHtml = (value: string): string =>
   /<[a-z][\s\S]*>/i.test(value) ? value : markdownToHtml(value)
+
+/** A signature is set solid: single line spacing and no paragraph gaps, whatever the message uses. */
+const tightenSignature = (html: string): string =>
+  html.replace(/<(p|div|li|td|th)(\s[^>]*)?>/gi, (match, tag: string, attrs = '') => {
+    const tight = 'line-height:1;margin:0 0 2px;'
+    if (/\sstyle="/i.test(attrs)) return `<${tag}${attrs.replace(/\sstyle="([^"]*)"/i, (_whole: string, css: string) => ` style="${css.trim().replace(/;?$/, ';')}${tight}"`)}>`
+    return `<${tag}${attrs} style="${tight}">`
+  })
 
 // A long reply chain re-embeds the sender's signature and social icons on every hop, so
 // one message can carry a hundred of them. They are part of the body, not files anyone
@@ -1824,6 +1834,35 @@ export default function DevMailPage() {
    * not looked. Null means "no search", so the folder shows the ordinary list.
    */
   const [sentSearchResults, setSentSearchResults] = useState<SentEmail[] | null>(null)
+  const [crossFolder, setCrossFolder] = useState<{ folder: 'sent' | 'inbox'; count: number; more: boolean } | null>(null)
+  const crossFolderSeq = useRef(0)
+  useEffect(() => {
+    const text = search.trim()
+    const seq = ++crossFolderSeq.current
+    if (!text || parseQuery(text).isEmpty || folder === 'drafts' || folder === 'scheduled') {
+      setCrossFolder(null)
+      return
+    }
+    const timer = window.setTimeout(async () => {
+      try {
+        if (folder === 'sent') {
+          const response = await fetch(`/api/mail/inbox?limit=1&folder=inbox&q=${encodeURIComponent(text)}`, { headers: apiHeaders() })
+          const data = await response.json()
+          if (seq !== crossFolderSeq.current) return
+          setCrossFolder(data.ok && typeof data.total === 'number' && data.total > 0 ? { folder: 'inbox', count: data.total, more: false } : null)
+        } else {
+          const response = await fetch(`/api/mail/emails?q=${encodeURIComponent(text)}`, { headers: apiHeaders() })
+          const data = await response.json()
+          if (seq !== crossFolderSeq.current) return
+          const count = Array.isArray(data.emails) ? data.emails.length : 0
+          setCrossFolder(data.ok && count > 0 ? { folder: 'sent', count, more: Boolean(data.truncated) } : null)
+        }
+      } catch {
+        if (seq === crossFolderSeq.current) setCrossFolder(null)
+      }
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [search, folder, apiHeaders])
   const [sentSearching, setSentSearching] = useState(false)
   const [sentSearchTruncated, setSentSearchTruncated] = useState(false)
   const sentSearchSeq = useRef(0)
@@ -2545,12 +2584,12 @@ export default function DevMailPage() {
       .then(response => response.json())
       .then(data => {
         if (data.ok && data.settings) {
-          const stored = data.settings as MailSettings & { density?: string }
+          const stored = data.settings as MailSettings & { density?: string; replyStyle?: string }
           // Only the roomy setting is named; anything else — unset, or the retired
           // "comfortable" — is the default. Treating every unrecognised value as roomy put
           // six of the seven mailboxes into a reduced reader none of them had asked for.
           const density: MailSettings['density'] = stored.density === 'relaxed' ? 'relaxed' : 'compact'
-          setMailSettings(current => ({ ...current, ...data.settings, density }))
+          setMailSettings(current => ({ ...current, ...data.settings, density, replyStyle: stored.replyStyle === 'mini' ? 'mini' : 'panel' }))
           const prefs = (data.settings as MailSettings).prefs
           if (prefs?.theme) { setThemePref(prefs.theme); localStorage.setItem(LS_THEME_KEY, prefs.theme) }
           if (prefs?.accent && hexToHsl(prefs.accent)) { setAccent(prefs.accent); localStorage.setItem(LS_ACCENT_KEY, prefs.accent) }
@@ -2671,23 +2710,6 @@ export default function DevMailPage() {
     return map
   }, [events])
 
-  const statusFor = useCallback(
-    (entry: SentEmail): string => {
-      const tracked = eventsByEmail[entry.id] ?? []
-      const has = (type: string) => tracked.filter(event => event.type === `email.${type}`)
-      if (has('complained').length) return 'complained'
-      if (has('bounced').length) return 'bounced'
-      if (has('failed').length) return 'failed'
-      const clicks = has('clicked').length
-      if (clicks) return clicks > 1 ? `clicked ×${clicks}` : 'clicked'
-      const opens = has('opened').length
-      if (opens) return opens > 1 ? `opened ×${opens}` : 'opened'
-      if (has('delivered').length) return 'delivered'
-      if (has('delivery_delayed').length) return 'delayed'
-      return entry.lastEvent || 'sent'
-    },
-    [eventsByEmail],
-  )
 
   const searchQuery = useMemo(() => parseQuery(search), [search])
 
@@ -2931,7 +2953,7 @@ export default function DevMailPage() {
       unread: false,
       starred: entry.starred,
       hasAttachment: false,
-      chip: (folder === 'scheduled' ? 'scheduled' : statusFor(entry)) as string | null,
+      chip: (folder === 'scheduled' ? 'scheduled' : null) as string | null,
       threadCount: 1,
       latestAt: new Date(entry.createdAt).getTime(),
       labels: [] as string[],
@@ -3050,7 +3072,7 @@ export default function DevMailPage() {
       .filter(entry => searched || matches(`${entry.to.join(' ')} ${entry.subject}`))
       .filter(entry => !(folder === 'sent' && (entry.archived || entry.trashed)))
       .map(entry => sentToItem(entry))
-  }, [folder, isInboundFolder, inboxEmails, drafts, scheduledEmails, deliveredEmails, sentSearchResults, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, statusFor, now, hideForwarded, threadSentMembers, detailCache, threads, search])
+  }, [folder, isInboundFolder, inboxEmails, drafts, scheduledEmails, deliveredEmails, sentSearchResults, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, now, hideForwarded, threadSentMembers, detailCache, threads, search])
 
   const listSettling = searching || sentSearching || ((mailboxLoading || !threadsResolved) && listItems.length === 0)
   const listRefreshing = !listSettling && (mailboxStale || mailboxLoading || !threadsResolved)
@@ -3536,7 +3558,7 @@ export default function DevMailPage() {
   const signatureLogoHtml = signatureMarkSrc
     ? `<div style="margin-bottom:12px;"><img src="${absoluteLogo(signatureMarkSrc)}" alt="${escapeHtml(CLIENT_BRAND.name)}" width="200" style="${clientSignatureMarkStyle(200)}" /></div>`
     : ''
-  const signatureHtml = `<div style="margin-top:26px;padding-top:18px;border-top:1px solid #E8E2F4;">${signatureLogoHtml}${asRichHtml(dropUnreachableImages(signatureBody))}</div>`
+  const signatureHtml = `<div style="margin-top:26px;padding-top:18px;border-top:1px solid #E8E2F4;line-height:1;">${signatureLogoHtml}${tightenSignature(asRichHtml(dropUnreachableImages(signatureBody)))}</div>`
   const signatureText = `\n\n${htmlToPlainText(asRichHtml(signatureBody))}`
   // Airy is not only more room: it is the setting for someone who never wants to see the
   // source of a message or how it was authenticated.
@@ -4503,9 +4525,8 @@ export default function DevMailPage() {
     if (kind === 'forward') void carryForwardAttachments(entry.id)
   }
 
-  // On a phone the launcher opens the full-page composer; on a wider screen the bar comes in.
   const startReply = (entry: InboundEmail, kind: 'reply' | 'all' | 'forward') => {
-    if (!isPhone) return openReplyBar(entry, kind)
+    if (!isPhone && settings.replyStyle === 'mini') return openReplyBar(entry, kind)
     if (kind === 'reply') replyTo(entry)
     else if (kind === 'all') replyAllTo(entry)
     else forwardEmail(entry.subject, entry.html, entry.text, entry.id)
@@ -6318,15 +6339,6 @@ export default function DevMailPage() {
               </>
             ) : (
               <>
-                <span className={styles.chip}>{statusFor(selectedSent)}</span>
-                {selectedSent.opened && (
-                  <span
-                    className={`${styles.chip} ${styles.chipOpened}`}
-                    title={`Opened${selectedSent.openCount > 1 ? ` ${selectedSent.openCount} times` : ''}${selectedSent.openedAt ? ` — first at ${new Date(selectedSent.openedAt).toLocaleString()}` : ''}`}
-                  >
-                    opened{selectedSent.openCount > 1 ? ` ×${selectedSent.openCount}` : ''}
-                  </span>
-                )}
                 <button className={styles.actionBtn} onClick={() => replyToSent(selectedSent, selectedDetail, settings.replyAllDefault)}>
                   {ICONS.reply} Reply
                 </button>
@@ -6409,7 +6421,10 @@ export default function DevMailPage() {
             </div>
           )}
           {(() => {
-            const ordered = [...(eventsByEmail[selectedSent.id] ?? [])].sort(
+            const opened: MailEvent[] = selectedSent.openedAt
+              ? [{ emailId: selectedSent.id, type: 'email.opened', at: selectedSent.openedAt, meta: selectedSent.openCount > 1 ? { count: String(selectedSent.openCount) } : undefined }]
+              : []
+            const ordered = [...(eventsByEmail[selectedSent.id] ?? []), ...opened].sort(
               (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
             )
             const seen = new Set<string>()
@@ -6443,7 +6458,10 @@ export default function DevMailPage() {
                                 : ''
                           }`}
                         />
-                        <span className={styles.eventType}>{event.type.replace('email.', '')}</span>
+                        <span className={styles.eventType}>
+                          {event.type.replace('email.', '')}
+                          {event.meta?.count ? ` ×${event.meta.count}` : ''}
+                        </span>
                         <span className={styles.eventTime}>{new Date(event.at).toLocaleString()}</span>
                       </div>
                       {event.meta?.link && (
@@ -6834,6 +6852,11 @@ export default function DevMailPage() {
             {ICONS.refresh}
           </button>
         </div>
+        {crossFolder && (
+          <button type="button" className={styles.crossFolderHint} onClick={() => setFolder(crossFolder.folder)}>
+            Also {crossFolder.count.toLocaleString()}{crossFolder.more ? '+' : ''} in {crossFolder.folder === 'sent' ? 'Sent' : 'Inbox'} →
+          </button>
+        )}
         <div className={styles.search}>
           {ICONS.search}
           <input
@@ -7535,7 +7558,7 @@ export default function DevMailPage() {
                 />
               )}
               {compose.quoteHtml && !compose.campaign.kind && (
-                <details className={styles.composeQuote} open>
+                <details className={styles.composeQuote}>
                   <summary className={styles.composeQuoteLabel}>Quoted message</summary>
                   <iframe className={styles.composeQuoteFrame} sandbox="allow-same-origin" srcDoc={frameHtml(compose.quoteHtml, true, readerSpacing)} title="Quoted message" />
                 </details>
@@ -8268,6 +8291,14 @@ export default function DevMailPage() {
                 onChange={event => setMailSettings(current => ({ ...current, replyAllDefault: event.target.checked }))}
               />
               <span>Reply to everyone in the conversation by default. With this off, a reply goes to the sender and a separate Reply all sits beside it.</span>
+            </label>
+            <label className={styles.settingsToggle}>
+              <input
+                type="checkbox"
+                checked={settings.replyStyle === 'mini'}
+                onChange={event => setMailSettings(current => ({ ...current, replyStyle: event.target.checked ? 'mini' : 'panel' }))}
+              />
+              <span>Reply in the small bar under the conversation. With this off, Reply, Reply all and Forward open the full composer.</span>
             </label>
             <label className={styles.settingsToggle}>
               <input

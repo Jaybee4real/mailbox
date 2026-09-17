@@ -19,6 +19,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: BRAND.colors.accent,
   viewportFit: 'cover',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {

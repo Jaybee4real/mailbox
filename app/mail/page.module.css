@@ -515,6 +515,18 @@
   transition: color var(--dur-fast) var(--nc-ease-out), border-color var(--dur-fast) var(--nc-ease-out);
 }
 .refreshBtn:hover { color: var(--nc-fg-1); border-color: var(--nc-line-2); }
+.crossFolderHint {
+  align-self: flex-start;
+  margin: 0 16px 8px;
+  padding: 6px 11px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 999px;
+  background: var(--nc-ink-2);
+  color: var(--nc-violet-500);
+  font: 500 12px/1 var(--nc-font-sans);
+  cursor: pointer;
+}
+.crossFolderHint:hover { border-color: var(--nc-violet-500); }
 .refreshBtn svg { width: 14px; height: 14px; }
 .filterChip {
   margin-left: auto;
@@ -1848,8 +1860,8 @@
   max-height: 64px;
   margin-bottom: 10px;
 }
-.composeSignatureBody { font: 400 13px/1.6 var(--nc-font-sans); color: var(--nc-fg-2); }
-.composeSignatureBody p { margin: 0 0 6px; }
+.composeSignatureBody { font: 400 13px/1 var(--nc-font-sans); color: var(--nc-fg-2); }
+.composeSignatureBody p { margin: 0 0 2px; }
 
 /* Logo picker in settings. */
 .sigLogoRow {
@@ -5667,7 +5679,7 @@
 }
 .sigPreviewOpen .sigPreviewFold { max-height: 2000px; }
 .sigPreviewBody {
-  font: 400 13px/1.6 var(--nc-font-sans);
+  font: 400 13px/1 var(--nc-font-sans);
   color: var(--nc-fg-2);
 }
 .sigPreviewBody a { color: var(--nc-violet-500); }
