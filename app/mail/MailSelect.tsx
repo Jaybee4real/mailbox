@@ -27,6 +27,9 @@ export default function MailSelect({
   placeholder = 'Select',
   editable = false,
   optionStyle,
+  prefix,
+  compact = false,
+  title,
 }: {
   value: string
   options: Array<{ value: string; label: string }>
@@ -37,6 +40,11 @@ export default function MailSelect({
   /** Typed values are accepted too: committed on Enter or when the field loses focus. */
   editable?: boolean
   optionStyle?: (value: string) => React.CSSProperties
+  /** A quiet glyph before the value, so three selects in a row can be told apart. */
+  prefix?: React.ReactNode
+  /** Closed, show only the glyph; the value stays in the title and the menu. */
+  compact?: boolean
+  title?: string
 }) {
   const [open, setOpen] = useState(false)
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({})
@@ -76,7 +84,8 @@ export default function MailSelect({
   return (
     <span className={styles.select} ref={wrapRef}>
       {editable ? (
-        <span ref={anchorRef as React.RefObject<HTMLSpanElement>} className={`${styles.selectBtn} ${styles.selectEditable} ${buttonClassName ?? ''}`}>
+        <span ref={anchorRef as React.RefObject<HTMLSpanElement>} className={`${styles.selectBtn} ${styles.selectEditable} ${buttonClassName ?? ''}`} title={title}>
+          {prefix && <span className={styles.selectGlyph} aria-hidden>{prefix}</span>}
           <input
             className={styles.selectInput}
             aria-label={ariaLabel}
@@ -104,10 +113,12 @@ export default function MailSelect({
           className={`${styles.selectBtn} ${buttonClassName ?? ''}`}
           aria-haspopup="listbox"
           aria-expanded={open}
-          aria-label={ariaLabel}
+          aria-label={compact ? `${ariaLabel}: ${current?.label ?? placeholder}` : ariaLabel}
+          title={title ?? (compact ? `${ariaLabel}: ${current?.label ?? placeholder}` : undefined)}
           onClick={toggle}
         >
-          <span style={optionStyle && current?.value ? optionStyle(current.value) : undefined}>{current?.label ?? placeholder}</span>
+          {prefix && <span className={styles.selectGlyph} aria-hidden>{prefix}</span>}
+          {!compact && <span style={optionStyle && current?.value ? optionStyle(current.value) : undefined}>{current?.label ?? placeholder}</span>}
           {CHEVRON}
         </button>
       )}

@@ -2223,6 +2223,15 @@
   transition: border-color var(--dur-fast) var(--nc-ease-out), color var(--dur-fast) var(--nc-ease-out);
 }
 .selectBtn:hover { border-color: var(--nc-line-2); color: var(--nc-fg-1); }
+.selectGlyph {
+  flex-shrink: 0;
+  font: 600 11px/1 var(--nc-font-mono);
+  letter-spacing: .02em;
+  color: var(--nc-fg-4);
+}
+.selectGlyphSerif { font: 600 14px/1 Georgia, 'Times New Roman', serif; color: var(--nc-fg-3); }
+.selectEditable .selectGlyph { margin-left: 9px; }
+.selectEditable .selectGlyph + .selectInput { padding-left: 6px; }
 .selectBtn > span {
   overflow: hidden;
   text-overflow: ellipsis;

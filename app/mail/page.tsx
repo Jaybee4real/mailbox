@@ -8226,6 +8226,7 @@ export default function DevMailPage() {
               <div className={styles.fontAdd}>
                 <MailSelect
                   ariaLabel="Default font"
+                  prefix={<span className={styles.selectGlyphSerif}>A</span>}
                   value={settings.defaultFont?.family ?? ''}
                   options={[{ value: '', label: 'Arial (standard)' }, ...[...BUILTIN_FONTS, ...(settings.fonts ?? []).map(font => font.name)].filter((font, index, all) => all.indexOf(font) === index).map(font => ({ value: font, label: font }))]}
                   optionStyle={font => (font ? { fontFamily: `'${font}', Arial, sans-serif` } : {})}
@@ -8233,6 +8234,7 @@ export default function DevMailPage() {
                 />
                 <MailSelect
                   ariaLabel="Default size"
+                  prefix="tT"
                   editable
                   placeholder="15"
                   value={settings.defaultFont?.size ?? ''}
@@ -8251,6 +8253,7 @@ export default function DevMailPage() {
               <div className={styles.fontAdd}>
                 <MailSelect
                   ariaLabel="Line spacing"
+                  prefix="↕"
                   editable
                   placeholder={String(DEFAULT_LINE_SPACING)}
                   value={settings.defaultFont?.lineSpacing ? String(settings.defaultFont.lineSpacing) : ''}

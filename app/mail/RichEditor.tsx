@@ -589,11 +589,15 @@ function TableTools({ editor }: { editor: Editor }) {
 
 type Pop = 'link' | 'image' | 'table' | null
 
-function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadImage?: (file: File) => Promise<string>; fonts?: string[] }) {
+function Toolbar({ editor, uploadImage, fonts = [], baseFont }: { editor: Editor; uploadImage?: (file: File) => Promise<string>; fonts?: string[]; baseFont?: BaseFont }) {
   const [pop, setPop] = useState<Pop>(null)
   const popRef = useRef<HTMLDivElement>(null)
   const phone = usePhone()
   const [palette, setPalette] = useState(false)
+  const currentFamily = (editor.getAttributes('textStyle').fontFamily as string | undefined)?.replace(/^['"]|['"]$/g, '') ?? ''
+  const defaultFamily = baseFont?.family || 'Arial'
+  const defaultSize = (baseFont?.size || '15px').replace('px', '')
+  const defaultSpacing = String(lineSpacingOf(baseFont))
 
   useEffect(() => {
     if (!pop) return
@@ -627,9 +631,12 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
         <MailSelect
           buttonClassName={styles.rteSelect}
           ariaLabel="Font"
-          placeholder="Font"
-          value={(editor.getAttributes('textStyle').fontFamily as string | undefined)?.replace(/^['"]|['"]$/g, '') ?? ''}
-          options={[{ value: '', label: 'Default font' }, ...[...BUILTIN_FONTS, ...fonts.filter(font => !BUILTIN_FONTS.includes(font))].map(font => ({ value: font, label: font }))]}
+          placeholder={`${defaultFamily} (default)`}
+          prefix={<span className={styles.selectGlyphSerif}>A</span>}
+          compact
+          title={`Font: ${currentFamily || `${defaultFamily} (default)`}`}
+          value={currentFamily}
+          options={[{ value: '', label: `${defaultFamily} (default)` }, ...[...BUILTIN_FONTS, ...fonts.filter(font => !BUILTIN_FONTS.includes(font))].map(font => ({ value: font, label: font }))]}
           optionStyle={font => (font ? { fontFamily: `'${font}', Arial, sans-serif` } : {})}
           onChange={family => {
             if (family) editor.chain().focus().setFontFamily(family).run()
@@ -639,26 +646,30 @@ function Toolbar({ editor, uploadImage, fonts = [] }: { editor: Editor; uploadIm
         <MailSelect
           buttonClassName={`${styles.rteSelect} ${styles.rteSizeSelect}`}
           ariaLabel="Font size"
-          placeholder="Size"
+          placeholder={defaultSize}
+          prefix="tT"
+          title={`Size — default ${defaultSize}`}
           editable
           value={(editor.getAttributes('textStyle').fontSize as string | undefined) ?? ''}
-          options={[{ value: '', label: 'Default' }, ...FONT_SIZES.map(size => ({ value: size, label: size.replace('px', '') }))]}
+          options={[{ value: '', label: `${defaultSize} (default)` }, ...FONT_SIZES.map(size => ({ value: size, label: size.replace('px', '') }))]}
           onChange={raw => {
             const size = /^\d+(\.\d+)?$/.test(raw) ? `${raw}px` : raw
-            if (!size || size === 'Default') editor.chain().focus().unsetFontSize().run()
+            if (!size || /default/i.test(size)) editor.chain().focus().unsetFontSize().run()
             else if (/^\d+(\.\d+)?(px|pt|em|rem|%)$/.test(size)) editor.chain().focus().setFontSize(size).run()
           }}
         />
         <MailSelect
           buttonClassName={`${styles.rteSelect} ${styles.rteSizeSelect}`}
           ariaLabel="Line spacing"
-          placeholder="Spacing"
+          placeholder={defaultSpacing}
+          prefix="↕"
+          title={`Line spacing — default ${defaultSpacing}`}
           editable
           value={editor.getAttributes('paragraph').lineSpacing ? String(editor.getAttributes('paragraph').lineSpacing) : ''}
-          options={[{ value: '', label: 'Default' }, ...LINE_SPACINGS.map(spacing => ({ value: String(spacing), label: String(spacing) }))]}
+          options={[{ value: '', label: `${defaultSpacing} (default)` }, ...LINE_SPACINGS.map(spacing => ({ value: String(spacing), label: String(spacing) }))]}
           onChange={raw => {
             const spacing = parseFloat(raw)
-            if (!raw.trim() || raw === 'Default') editor.chain().focus().updateAttributes('paragraph', { lineSpacing: null }).run()
+            if (!raw.trim() || /default/i.test(raw)) editor.chain().focus().updateAttributes('paragraph', { lineSpacing: null }).run()
             else if (isSpacing(spacing)) editor.chain().focus().updateAttributes('paragraph', { lineSpacing: spacing }).run()
           }}
         />
@@ -957,7 +968,7 @@ export default function RichEditor({
       style={{ '--rte-font': fontStack(baseFont?.family ?? ''), '--rte-size': baseFont?.size || '15px', '--rte-lead': String(lineSpacingOf(baseFont)), '--rte-gap': paragraphGap(lineSpacingOf(baseFont)) } as React.CSSProperties}
     >
       {fontFaceCss && <style>{fontFaceCss}</style>}
-      <Toolbar editor={editor} uploadImage={uploadImage} fonts={fonts} />
+      <Toolbar editor={editor} uploadImage={uploadImage} fonts={fonts} baseFont={baseFont} />
       <EditorContent editor={editor} className={styles.rteContent} />
     </div>
   )
