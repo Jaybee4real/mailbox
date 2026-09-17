@@ -2389,9 +2389,9 @@
   border: none;
   background: transparent;
   color: var(--nc-fg-3);
-  font: 600 12px/1 var(--nc-font-sans);
-  padding: 6px 10px;
-  border-radius: 6px;
+  font: 600 11.5px/1 var(--nc-font-sans);
+  padding: 4px 9px;
+  border-radius: 5px;
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--nc-ease-out), color var(--dur-fast) var(--nc-ease-out);
 }
@@ -2403,16 +2403,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  margin: 0 28px 12px;
+  margin: 0 28px 8px;
 }
 .readerModeTabs {
   display: inline-flex;
   gap: 2px;
   background: var(--nc-ink-2);
   border: 1px solid var(--nc-line-1);
-  border-radius: 8px;
+  border-radius: 7px;
   padding: 2px;
 }
 
@@ -2909,12 +2909,12 @@
   flex-shrink: 0;
 }
 .orderToggle {
-  padding: 5px 10px;
-  border-radius: 7px;
+  padding: 3px 8px;
+  border-radius: 6px;
   border: 1px solid var(--nc-line-1);
   background: transparent;
   color: var(--nc-fg-2);
-  font: 600 11.5px/1 var(--nc-font-mono);
+  font: 600 11px/1 var(--nc-font-mono);
   cursor: pointer;
   white-space: nowrap;
   transition: color var(--dur-fast) var(--nc-ease-out), border-color var(--dur-fast) var(--nc-ease-out), background-color var(--dur-fast) var(--nc-ease-out);
@@ -4828,7 +4828,7 @@
   gap: 2px;
   background: var(--nc-ink-2);
   border: 1px solid var(--nc-line-1);
-  border-radius: 8px;
+  border-radius: 7px;
   padding: 2px;
 }
 
@@ -6822,7 +6822,7 @@
   .modeTab,
   .orderToggle,
   .settingsNavItem {
-    min-height: 40px;
+    min-height: 32px;
   }
   .toolBtn {
     min-width: 40px;
