@@ -6734,6 +6734,16 @@
   .attachGrid { margin: 0 15px 12px; }
   .activity { margin: 0 15px 14px; padding: 10px 12px; }
   .readerAttach { margin: 0 15px 14px; }
+  .attachFloat {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    border-radius: 14px 14px 0 0;
+  }
+  .attachFloatBody .attachGrid { margin: 0 15px 10px; }
   .readerText { padding: 16px 15px; }
   .composeSignature { margin: 0 15px 14px; }
   .quickReplyBar { padding-left: 15px; padding-right: 15px; }
