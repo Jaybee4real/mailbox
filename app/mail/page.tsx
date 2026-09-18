@@ -553,22 +553,34 @@ function markdownToHtml(src: string): string {
   return out.join('\n')
 }
 
-function buildEmailHtml(data: ComposeData, signatureHtml: string, fontCss = '', base: BaseFont = EMPTY_FONT): string {
-  if (data.htmlDirty && data.htmlSource.trim()) return data.htmlSource
+function buildEmailHtml(
+  data: ComposeData,
+  signatureHtml: string,
+  fontCss = '',
+  base: BaseFont = EMPTY_FONT,
+  /**
+   * Links to files too big to attach. They belong with the message, above the signature —
+   * appended at the end they landed below the sign-off AND below the quoted thread, which
+   * in Outlook is behind the "show trimmed content" fold, so the recipient saw a covering
+   * note with no sign of the document it was about.
+   */
+  linksHtml = '',
+): string {
+  if (data.htmlDirty && data.htmlSource.trim()) return data.htmlSource + linksHtml
   // Editor HTML for anything composed here; markdown only for drafts saved before it.
   const body = data.bodyHtml.trim() ? data.bodyHtml : markdownToHtml(data.markdown)
-  const inner = body + (data.useSignature ? signatureHtml : '')
+  const inner = body + linksHtml + (data.useSignature ? signatureHtml : '')
   const fonts = fontCss ? `<style>${fontCss}</style>` : ''
   return `${fonts}<div style="font-family:${fontStack(base.family)};font-size:${base.size || '15px'};line-height:${lineSpacingOf(base)};color:#030712;">${outlookSafeImages(inlineEmailStyles(inner, base))}</div>${data.quoteHtml ?? ''}`
 }
 
-function buildEmailText(data: ComposeData, signatureText: string): string {
+function buildEmailText(data: ComposeData, signatureText: string, linksText = ''): string {
   // Every message carries a text part: some clients prefer it, and its absence reads as spam.
   const quoteText = data.quoteHtml ? `\n\n${htmlToPlainText(data.quoteHtml)}` : ''
   if (data.bodyHtml.trim()) {
-    return (htmlToPlainText(data.bodyHtml) + (data.useSignature ? signatureText : '') + quoteText).trim()
+    return (htmlToPlainText(data.bodyHtml) + linksText + (data.useSignature ? signatureText : '') + quoteText).trim()
   }
-  const body = data.markdown + (data.useSignature ? signatureText : '') + quoteText
+  const body = data.markdown + linksText + (data.useSignature ? signatureText : '') + quoteText
   return body
     // Images first, for the same precedence reason as inlineMd. The replacement must not
     // contain brackets, or the link rule below matches across it and mangles the line.
@@ -4277,15 +4289,10 @@ export default function DevMailPage() {
       setComposeError(`${failedUpload.filename} did not upload. Remove it or try again.`)
       return
     }
-    let html = buildEmailHtml(compose, signatureHtml, fontCss, defaultFont)
-    let text = buildEmailText(compose, signatureText)
-    if (!html.trim() && !text.trim()) {
-      setComposeError('Write something first')
-      return
-    }
-
     const attachable = attachments.filter(entry => entry.size <= ATTACH_LIMIT_BYTES)
     const linked = attachments.filter(entry => entry.size > ATTACH_LIMIT_BYTES)
+    let linksHtml = ''
+    let linksText = ''
     if (linked.length) {
       const rows = linked
         .map(
@@ -4293,8 +4300,15 @@ export default function DevMailPage() {
             `<tr><td style="padding:6px 0"><a href="${entry.shareUrl ?? entry.url}" style="display:inline-block;background:${CLIENT_BRAND.accent};color:#fff;text-decoration:none;font-weight:600;padding:9px 16px;border-radius:8px;font-family:Arial,sans-serif;font-size:14px">Download ${escapeHtml(entry.filename)} (${formatBytes(entry.size)})</a></td></tr>`,
         )
         .join('')
-      html += `<div style="margin-top:20px"><p style="font-family:Arial,sans-serif;font-size:14px;color:#5A5170;margin:0 0 8px">Large files:</p><table role="presentation">${rows}</table></div>`
-      text += `\n\nLarge files:\n${linked.map(entry => `${entry.filename} — ${entry.shareUrl ?? entry.url}`).join('\n')}`
+      linksHtml = `<div style="margin:18px 0"><p style="font-family:Arial,sans-serif;font-size:14px;color:#5A5170;margin:0 0 8px">${linked.length === 1 ? 'Attached, as a download link:' : 'Attached, as download links:'}</p><table role="presentation">${rows}</table></div>`
+      linksText = `\n\n${linked.length === 1 ? 'Attached, as a download link:' : 'Attached, as download links:'}\n${linked.map(entry => `${entry.filename} — ${entry.shareUrl ?? entry.url}`).join('\n')}`
+    }
+
+    const html = buildEmailHtml(compose, signatureHtml, fontCss, defaultFont, linksHtml)
+    const text = buildEmailText(compose, signatureText, linksText)
+    if (!html.trim() && !text.trim()) {
+      setComposeError('Write something first')
+      return
     }
 
     // Resend can't schedule a send that carries attachments, so those go out
