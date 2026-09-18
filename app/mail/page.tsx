@@ -173,6 +173,8 @@ type SentEmail = {
   openedAt: string | null
   owner?: string
   inReplyTo?: string | null
+  /** Sent by the app itself — an invite, a reset, an auto-reply. */
+  isAuto?: boolean
 }
 
 type DownloadAttachment = { filename: string; size: number; downloadUrl: string; shareId?: string; contentType?: string; contentId?: string }
@@ -3132,7 +3134,7 @@ export default function DevMailPage() {
       unread: false,
       starred: entry.starred,
       hasAttachment: (entry.attachmentCount ?? 0) > 0,
-      chip: (folder === 'scheduled' ? 'scheduled' : null) as string | null,
+      chip: (folder === 'scheduled' ? 'scheduled' : entry.isAuto ? 'automated' : null) as string | null,
       threadCount: 1,
       latestAt: new Date(entry.createdAt).getTime(),
       labels: [] as string[],
@@ -7514,7 +7516,9 @@ export default function DevMailPage() {
                               ? styles.chipBounced
                               : item.chip === 'draft'
                                 ? styles.chipDraft
-                                : ''
+                                : item.chip === 'automated'
+                                  ? styles.chipAuto
+                                  : ''
                       }`}
                     >
                       {item.chip}

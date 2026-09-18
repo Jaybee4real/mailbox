@@ -1569,6 +1569,8 @@ export type SentMessage = {
   attachments?: Array<{ filename: string; size?: number; contentType?: string; key?: string }>
   /** How many files the list should raise a paperclip for, counted the way the inbox counts. */
   attachmentCount?: number
+  /** Sent by the app itself — an invite, a reset, an auto-reply — rather than by a person. */
+  isAuto?: boolean
 }
 
 export async function recordSentMessage(message: SentMessage): Promise<void> {
@@ -1665,11 +1667,12 @@ export async function readSentArchive(options: {
   sharedAddress?: string | null
   query?: ParsedQuery | null
   limit?: number
+  includeAuto?: boolean
 } = {}): Promise<SentMessage[]> {
   await ensureMailSchema()
   const sql = db()
   const limit = Math.min(Math.max(options.limit ?? 500, 1), 1000)
-  const where: string[] = ['coalesce(m.is_auto, 0) = 0']
+  const where: string[] = options.includeAuto ? [] : ['coalesce(m.is_auto, 0) = 0']
   const args: unknown[] = []
 
   const owner = options.ownerAddress?.trim().toLowerCase()
@@ -1691,6 +1694,7 @@ export async function readSentArchive(options: {
     sql,
     `SELECT s.id, s.from_addr, s.to_addrs, s.cc, s.bcc, s.reply_to, s.subject, s.created_at, s.last_event,
             json_array_length(CASE WHEN json_valid(s.attachments) THEN s.attachments ELSE '[]' END) AS attach_count,
+            coalesce(m.is_auto, 0) AS is_auto,
             ${textColumn} AS text
      FROM mail_sent s LEFT JOIN mail_sent_meta m ON m.email_id = s.id
      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
@@ -1710,6 +1714,7 @@ export async function readSentArchive(options: {
     createdAt: isoOrNull(row.created_at) ?? new Date(0).toISOString(),
     lastEvent: (row.last_event as string) ?? null,
     attachmentCount: Number(row.attach_count ?? 0),
+    isAuto: Boolean(Number(row.is_auto ?? 0)),
   }))
 }
 

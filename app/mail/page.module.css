@@ -1007,6 +1007,7 @@
 .chipDelivered { color: var(--nc-success); border-color: rgba(52,211,153,.3); }
 .chipBounced { color: var(--nc-danger); border-color: color-mix(in srgb, var(--nc-danger) 30%, transparent); }
 .chipDraft { color: var(--nc-violet-200); border-color: rgba(165,120,255,.3); }
+.chipAuto { color: var(--nc-fg-3); border-color: var(--nc-line-2); }
 
 .emptyList {
   display: flex;

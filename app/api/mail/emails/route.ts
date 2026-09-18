@@ -48,6 +48,8 @@ export async function GET(req: Request) {
     sharedAddress: SHARED_ADDRESS,
     query,
     limit: query ? SEARCH_LIMIT : 500,
+    // Automated sends are shown rather than hidden, tagged so the list can say so.
+    includeAuto: true,
   }).catch(() => [])
   const [flags, opens, sentMeta, accounts] = await Promise.all([
     readSentFlags().catch(() => ({})),
@@ -85,15 +87,23 @@ export async function GET(req: Request) {
     return accountAddresses.has(from) ? from : SHARED_ADDRESS
   }
 
+  const isAutomated = (email: SentEmail): boolean => {
+    const meta = metaMap[email.id]
+    // Sends that predate the tagging carry no meta row, so they are still read by shape.
+    return meta ? meta.isAuto : looksAutomated(email)
+  }
+
   const emails = all
     .filter(email => {
-      const meta = metaMap[email.id]
-      if (meta?.isAuto) return false // tagged automated → never in Sent
-      if (!meta && looksAutomated(email)) return false // pre-existing automated → excluded
       if (ownerScope) return sentOwner(email) === ownerScope
       return true
     })
-    .map(email => ({ ...email, owner: sentOwner(email), inReplyTo: metaMap[email.id]?.inReplyTo ?? null }))
+    .map(email => ({
+      ...email,
+      owner: sentOwner(email),
+      inReplyTo: metaMap[email.id]?.inReplyTo ?? null,
+      isAuto: isAutomated(email),
+    }))
     .filter(email =>
       !query ||
       matchesQuery(query, {
