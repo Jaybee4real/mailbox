@@ -80,9 +80,22 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
         setError(data?.error ?? 'That did not work.')
         return
       }
+      // Ask for the headers first. A download that cannot start otherwise leaves this page
+      // sitting on "Starting download…" for ever, because navigating away and failing
+      // reports nothing back — which is indistinguishable from a dead button.
+      try {
+        const ready = await fetch(data.url, { method: 'HEAD' })
+        if (!ready.ok) {
+          const reason = await ready.json().catch(() => null)
+          setError(reason?.error ?? 'That file could not be fetched. Ask the sender for a fresh link.')
+          return
+        }
+      } catch {
+        setError('Could not reach the file. Check your connection and try again.')
+        return
+      }
       setDone(true)
-      // Navigating rather than opening a tab: a popup blocker would eat the tab,
-      // and the signed URL only lasts two minutes.
+      // Navigating rather than opening a tab: a popup blocker would eat the tab.
       window.location.href = data.url
     } catch {
       setError('Could not reach the server. Try again.')
@@ -90,6 +103,17 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
       setBusy(false)
     }
   }, [id, password])
+
+  // The browser gives no signal that a download began, so if this page is still here and
+  // still saying so a while later, say plainly that it may not have worked.
+  useEffect(() => {
+    if (!done) return
+    const timer = window.setTimeout(() => {
+      setError('If nothing has downloaded, your network may be blocking it. Tell the sender.')
+      setDone(false)
+    }, 20000)
+    return () => window.clearTimeout(timer)
+  }, [done])
 
   if (gone) {
     return (

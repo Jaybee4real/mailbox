@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { getShare, getSharePasswordHash, recordShareDownload } from '@/lib/mailbox'
 import { verifyPassword } from '@/lib/password'
-import { objectExists, presign } from '@/lib/r2'
+import { objectExists } from '@/lib/r2'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
+import { issueShareTicket } from '@/lib/share-ticket'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,7 +38,7 @@ export async function GET(_req: Request, context: { params: Promise<{ id: string
   })
 }
 
-/** Exchanges the password for a short-lived signed URL to the object itself. */
+/** Exchanges the password for a short-lived link to the bytes, served from this domain. */
 export async function POST(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
 
@@ -77,9 +78,13 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
 
   await recordShareDownload(id)
-  // Two minutes: long enough to start the download, too short to pass around.
-  const url = presign(share.objectKey, 'GET', 120, {
-    'response-content-disposition': `attachment; filename="${share.filename.replace(/"/g, '')}"`,
-  })
+  // Served from this domain rather than the bucket: the bucket is a second hostname for
+  // the recipient's network to reach, and when it cannot the download silently never
+  // starts. The ticket carries the password decision the short distance to the bytes.
+  const ticket = issueShareTicket(id)
+  if (!ticket) {
+    return NextResponse.json({ ok: false, error: 'Downloads are not configured.' }, { status: 503 })
+  }
+  const url = `/api/share/${encodeURIComponent(id)}/download?t=${encodeURIComponent(ticket)}`
   return NextResponse.json({ ok: true, url, filename: share.filename })
 }
