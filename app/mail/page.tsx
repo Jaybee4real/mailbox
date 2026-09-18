@@ -6815,16 +6815,28 @@ export default function DevMailPage() {
             const ordered = [...(eventsByEmail[selectedSent.id] ?? []), ...opened].sort(
               (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
             )
-            const seen = new Set<string>()
-            const timeline = ordered
-              .filter(event => {
-                if (seen.has(event.type)) return false
-                seen.add(event.type)
-                return true
-              })
+            // One event arrives per recipient, so a message to nine people that reached
+            // eight of them carries eight "delivered" and one "bounced". Collapsed to a
+            // bare type each, that read as though the whole message had bounced. Group
+            // them instead: keep the count, and name the addresses that actually failed.
+            const groups = new Map<string, { type: string; at: string; count: number; who: string[]; meta?: Record<string, string> }>()
+            for (const event of ordered) {
+              const recipient = event.meta?.to
+              const group = groups.get(event.type)
+              if (!group) {
+                groups.set(event.type, { type: event.type, at: event.at, count: 1, who: recipient ? [recipient] : [], meta: event.meta })
+                continue
+              }
+              group.count += 1
+              if (recipient && !group.who.includes(recipient)) group.who.push(recipient)
+              // Keep the first reason given; they are the same message per bounce type.
+              if (!group.meta?.bounceMessage && event.meta?.bounceMessage) group.meta = event.meta
+            }
+            const timeline = [...groups.values()]
               // sent/delivered often share a timestamp, so order by the email
               // lifecycle rather than time, which can flip them.
               .sort((a, b) => statusRank(a.type) - statusRank(b.type))
+            const audience = groups.get('email.sent')?.who.length ?? 0
             if (!timeline.length) return null
             return (
               <div className={styles.activity}>
@@ -6849,9 +6861,16 @@ export default function DevMailPage() {
                         <span className={styles.eventType}>
                           {event.type.replace('email.', '')}
                           {event.meta?.count ? ` ×${event.meta.count}` : ''}
+                          {audience > 1 && event.count < audience && !/bounce|fail|complain/.test(event.type)
+                            ? ` — ${event.count} of ${audience}`
+                            : ''}
                         </span>
                         <span className={styles.eventTime}>{new Date(event.at).toLocaleString()}</span>
                       </div>
+                      {/* Which addresses failed, not just that something did. */}
+                      {/bounce|fail|complain/.test(event.type) && event.who.length > 0 && (
+                        <span className={styles.eventMeta}>{event.who.join(', ')}</span>
+                      )}
                       {event.meta?.link && (
                         <span className={styles.eventMeta} title={event.meta.link}>
                           {event.meta.link}
