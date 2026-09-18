@@ -1,4 +1,4 @@
-import { BRAND } from '@/lib/brand'
+import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { sendPush } from '@/lib/push'
 import { stripOwnPixel } from '@/lib/email-html'
 import { FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-auth'
@@ -160,10 +160,13 @@ export async function forwardToAccounts(
   const owningAccount = ownerAddress ? await getAccountByAddress(ownerAddress) : null
   const recipient = owningAccount?.email ?? FORWARD_RECIPIENTS[0] // fallback: the admin
   if (!recipient) return
-  // Forwarding exists to put a copy somewhere the recipient already reads. Once this
-  // domain's MX points here, an address on it is somewhere we read — so forwarding to
-  // one would deliver back into this handler and forward again, without end.
-  if (recipient.trim().toLowerCase().endsWith(`@${MAIL_DOMAIN}`)) return
+  // Forwarding exists to put a copy somewhere the recipient already reads. Once a domain's
+  // MX points here, an address on it is somewhere we read — so forwarding to one would
+  // deliver back into this handler and forward again, without end. Every domain this
+  // deployment receives counts, not just the primary one: an account on a secondary domain
+  // forwards to itself once a minute until something outside gives up.
+  const recipientDomain = recipient.trim().toLowerCase().split('@')[1] ?? ''
+  if (recipientDomain === MAIL_DOMAIN || ADDRESS_DOMAINS.includes(recipientDomain)) return
   const from = MAIL_FROM
   // Attachment bytes only come from Resend's receiving API; under another provider the
   // forward still goes out, just without re-attaching the files.
