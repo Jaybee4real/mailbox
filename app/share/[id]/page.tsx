@@ -95,8 +95,17 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
         return
       }
       setDone(true)
-      // Navigating rather than opening a tab: a popup blocker would eat the tab.
-      window.location.href = data.url
+      // An anchor carrying `download`, not a navigation. Pointing location at a response
+      // marked as an attachment is supposed to save it and stay put, and often simply does
+      // nothing instead — no download, no error, no way to tell. The anchor is the path
+      // browsers actually honour for a same-origin file, and it never leaves the page.
+      const link = document.createElement('a')
+      link.href = data.url
+      link.download = data.filename ?? ''
+      link.rel = 'noopener'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
     } catch {
       setError('Could not reach the server. Try again.')
     } finally {

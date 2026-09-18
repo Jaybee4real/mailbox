@@ -6015,13 +6015,16 @@ export default function DevMailPage() {
               )
             ) : mine ? (
               <>
-                {renderSentBody(item.sent)}
+                {/* Files first. The document is what a broker opened the message for; the
+                    covering note is read second, and burying the attachment under a long
+                    quoted thread meant scrolling past the reply to reach the thing itself. */}
                 {renderSentAttachments(item.sent)}
+                {renderSentBody(item.sent)}
               </>
             ) : (
               <>
-                {renderInboundBody(item.inbound, true)}
                 {renderInboundAttachments(item.inbound)}
+                {renderInboundBody(item.inbound, true)}
               </>
             )}
           </div>
