@@ -1442,6 +1442,7 @@ export default function DevMailPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('profile')
   const [pwCurrent, setPwCurrent] = useState('')
+  const [pwReveal, setPwReveal] = useState(false)
   const [pwNext, setPwNext] = useState('')
   const [pwRepeat, setPwRepeat] = useState('')
   const [pwBusy, setPwBusy] = useState(false)
@@ -8297,18 +8298,33 @@ export default function DevMailPage() {
               </p>
               <label className={styles.settingsField}>
                 <span>Current password</span>
-                <input type="password" autoComplete="current-password" value={pwCurrent}
-                  onChange={event => setPwCurrent(event.target.value)} />
+                <div className={styles.pwWrap}>
+                  <input type={pwReveal ? 'text' : 'password'} autoComplete="current-password" value={pwCurrent}
+                    onChange={event => setPwCurrent(event.target.value)} />
+                  <button type="button" className={styles.pwToggle} onClick={() => setPwReveal(show => !show)}>
+                    {pwReveal ? 'Hide' : 'Show'}
+                  </button>
+                </div>
               </label>
               <label className={styles.settingsField}>
                 <span>New password</span>
-                <input type="password" autoComplete="new-password" value={pwNext}
-                  onChange={event => setPwNext(event.target.value)} />
+                <div className={styles.pwWrap}>
+                  <input type={pwReveal ? 'text' : 'password'} autoComplete="new-password" value={pwNext}
+                    onChange={event => setPwNext(event.target.value)} />
+                  <button type="button" className={styles.pwToggle} onClick={() => setPwReveal(show => !show)}>
+                    {pwReveal ? 'Hide' : 'Show'}
+                  </button>
+                </div>
               </label>
               <label className={styles.settingsField}>
                 <span>Repeat new password</span>
-                <input type="password" autoComplete="new-password" value={pwRepeat}
-                  onChange={event => setPwRepeat(event.target.value)} />
+                <div className={styles.pwWrap}>
+                  <input type={pwReveal ? 'text' : 'password'} autoComplete="new-password" value={pwRepeat}
+                    onChange={event => setPwRepeat(event.target.value)} />
+                  <button type="button" className={styles.pwToggle} onClick={() => setPwReveal(show => !show)}>
+                    {pwReveal ? 'Hide' : 'Show'}
+                  </button>
+                </div>
               </label>
               {pwMsg && (
                 <p className={pwMsg.tone === 'ok' ? styles.pwOk : styles.pwBad} role="status">{pwMsg.text}</p>

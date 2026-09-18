@@ -81,6 +81,25 @@
   text-transform: uppercase;
   color: #6e6a7c;
 }
+.pwWrap { position: relative; display: flex; }
+.pwWrap input { flex: 1; min-width: 0; padding-right: 62px; }
+.pwToggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: #6e6a7c;
+  font: 600 11px/1 inherit;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.pwToggle:hover { color: #221d33; }
+
 .field input {
   width: 100%;
   padding: 11px 13px;

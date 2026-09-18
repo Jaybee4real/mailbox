@@ -46,6 +46,7 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
   const [meta, setMeta] = useState<Meta | null>(null)
   const [gone, setGone] = useState(false)
   const [password, setPassword] = useState('')
+  const [reveal, setReveal] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
@@ -131,14 +132,19 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
         {meta.needsPassword && !done && (
           <label className={styles.field}>
             <span>Password</span>
-            <input
-              type="password"
-              value={password}
-              autoFocus
-              placeholder="The password you were given"
-              onChange={event => setPassword(event.target.value)}
-              onKeyDown={event => event.key === 'Enter' && password && claim()}
-            />
+            <div className={styles.pwWrap}>
+              <input
+                type={reveal ? 'text' : 'password'}
+                value={password}
+                autoFocus
+                placeholder="The password you were given"
+                onChange={event => setPassword(event.target.value)}
+                onKeyDown={event => event.key === 'Enter' && password && claim()}
+              />
+              <button type="button" className={styles.pwToggle} onClick={() => setReveal(show => !show)}>
+                {reveal ? 'Hide' : 'Show'}
+              </button>
+            </div>
           </label>
         )}
 

@@ -5407,6 +5407,8 @@
   color: var(--nc-fg-2);
 }
 
+.confirmField .pwWrap { width: 100%; }
+
 .confirmInput {
   width: 100%;
   padding: 10px 12px;

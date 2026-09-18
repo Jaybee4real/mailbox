@@ -41,12 +41,14 @@ export function usePrompt() {
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<Pending | null>(null)
   const [draft, setDraft] = useState('')
+  const [reveal, setReveal] = useState(false)
   const confirmRef = useRef<HTMLButtonElement>(null)
   const fieldRef = useRef<HTMLInputElement>(null)
 
   const confirm = useCallback(
     (request: ConfirmRequest) => new Promise<Settled>(resolve => {
       setDraft(request.field?.initial ?? '')
+      setReveal(false)
       setPending({ ...request, resolve })
     }),
     [],
@@ -92,15 +94,22 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             {pending.field && (
               <label className={styles.confirmField}>
                 <span>{pending.field.label}</span>
-                <input
-                  ref={fieldRef}
-                  className={styles.confirmInput}
-                  type={pending.field.type ?? 'text'}
-                  autoComplete={pending.field.type === 'password' ? 'new-password' : 'off'}
-                  placeholder={pending.field.placeholder}
-                  value={draft}
-                  onChange={event => setDraft(event.target.value)}
-                />
+                <div className={styles.pwWrap}>
+                  <input
+                    ref={fieldRef}
+                    className={styles.confirmInput}
+                    type={pending.field.type === 'password' && !reveal ? 'password' : 'text'}
+                    autoComplete={pending.field.type === 'password' ? 'new-password' : 'off'}
+                    placeholder={pending.field.placeholder}
+                    value={draft}
+                    onChange={event => setDraft(event.target.value)}
+                  />
+                  {pending.field.type === 'password' && (
+                    <button type="button" className={styles.pwToggle} onClick={() => setReveal(show => !show)}>
+                      {reveal ? 'Hide' : 'Show'}
+                    </button>
+                  )}
+                </div>
               </label>
             )}
             <div className={styles.confirmActions}>
