@@ -50,6 +50,8 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  // Kept so a reader whose browser refuses the scripted download still has a plain link.
+  const [fallback, setFallback] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -99,13 +101,17 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
       // marked as an attachment is supposed to save it and stay put, and often simply does
       // nothing instead — no download, no error, no way to tell. The anchor is the path
       // browsers actually honour for a same-origin file, and it never leaves the page.
+      setFallback(data.url)
       const link = document.createElement('a')
       link.href = data.url
       link.download = data.filename ?? ''
       link.rel = 'noopener'
       document.body.appendChild(link)
       link.click()
-      link.remove()
+      // Removed on a later tick, never in the same one. Chromium starts the download from
+      // the live element, and tearing it out synchronously cancels the fetch before it
+      // begins — which looks exactly like a button that does nothing.
+      window.setTimeout(() => link.remove(), 2000)
     } catch {
       setError('Could not reach the server. Try again.')
     } finally {
@@ -182,6 +188,11 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
         )}
 
         {error && <p className={styles.error} role="alert">{error}</p>}
+        {fallback && (
+          <p className={styles.error}>
+            Or <a href={fallback} download>open the file directly</a>.
+          </p>
+        )}
 
         <button
           type="button"
