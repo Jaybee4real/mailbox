@@ -15,9 +15,9 @@ let cached: Client | null = null
 
 function client(): Client {
   if (cached) return cached
-  const url = process.env.TURSO_DATABASE_URL
-  const authToken = process.env.TURSO_AUTH_TOKEN
-  if (!url) throw new Error('TURSO_DATABASE_URL must be configured')
+  const url = process.env.DATABASE_URL ?? process.env.TURSO_DATABASE_URL
+  const authToken = process.env.DATABASE_AUTH_TOKEN ?? process.env.TURSO_AUTH_TOKEN
+  if (!url) throw new Error('DATABASE_URL must be configured')
   // Embedded replicas and file: URLs need no token; a remote libsql:// URL does.
   cached = createClient({ url, ...(authToken ? { authToken } : {}) })
   return cached

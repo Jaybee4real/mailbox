@@ -20,8 +20,8 @@ for (const line of readFileSync(new URL('../.env.local', import.meta.url), 'utf8
 }
 
 const db = createClient({
-  url: process.env.TURSO_DATABASE_URL,
-  authToken: process.env.TURSO_AUTH_TOKEN,
+  url: process.env.DATABASE_URL ?? process.env.TURSO_DATABASE_URL,
+  authToken: process.env.DATABASE_AUTH_TOKEN ?? process.env.TURSO_AUTH_TOKEN,
 })
 
 const DEV_ADDRESS = 'test@example.com'
@@ -103,7 +103,7 @@ async function main() {
   // so opening an attachment in the seeded mailbox opens something. Without a bucket
   // configured the records are written on their own, as they always were.
   const { buildSamples, buildHeavySamples } = await import('./sample-files.mjs')
-  const bucketReady = Boolean(process.env.R2_BUCKET && process.env.R2_ACCESS_KEY_ID && process.env.R2_S3_ENDPOINT)
+  const bucketReady = Boolean((process.env.S3_BUCKET ?? process.env.R2_BUCKET) && (process.env.S3_ACCESS_KEY_ID ?? process.env.R2_ACCESS_KEY_ID) && (process.env.S3_ENDPOINT ?? process.env.R2_S3_ENDPOINT))
   let smallFiles = []
   let heavyFiles = []
   if (bucketReady) {

@@ -1,9 +1,5 @@
 # Tools
 
-> **Never deploy or `git push` unless asked for it in that request.** Pushing
-> `master` auto-deploys the Novacraft mailbox. See the deploying section in the
-> root [README](../README.md).
-
 | File | What it does |
 |---|---|
 | `import-mbox.py` | Import an mbox into a mailbox. Bodies and metadata first, attachments second. |

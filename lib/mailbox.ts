@@ -60,8 +60,8 @@ export type StashItem = {
 const MAX_INBOX = 500
 const MAX_EVENTS = 150
 
-/** Turso once it is configured, D1 until then, so the switch needs no redeploy dance. */
-const tursoConfigured = () => Boolean(process.env.TURSO_DATABASE_URL)
+/** SQLite/libSQL once it is configured, D1 until then, so the switch needs no redeploy dance. */
+const tursoConfigured = () => Boolean(process.env.DATABASE_URL ?? process.env.TURSO_DATABASE_URL)
 
 function db() {
   return tursoConfigured() ? turso() : d1()

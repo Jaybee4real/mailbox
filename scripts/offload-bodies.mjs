@@ -24,8 +24,8 @@ const at = args.indexOf('--batch')
 const BATCH = at === -1 ? 40 : Number(args[at + 1])
 
 const db = createClient({
-  url: process.env.TURSO_DATABASE_URL,
-  authToken: process.env.TURSO_AUTH_TOKEN,
+  url: process.env.DATABASE_URL ?? process.env.TURSO_DATABASE_URL,
+  authToken: process.env.DATABASE_AUTH_TOKEN ?? process.env.TURSO_AUTH_TOKEN,
 })
 
 /** Ids are ours, but these go into string-interpolated SQL: anything unexpected is left alone. */

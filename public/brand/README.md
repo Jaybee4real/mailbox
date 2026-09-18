@@ -1,9 +1,5 @@
 # Brand assets
 
-> **Never deploy or `git push` unless asked for it in that request.** Pushing
-> `master` auto-deploys the Novacraft mailbox. See the deploying section in the
-> root [README](../README.md).
-
 **No tenant's artwork belongs in this repository.** Each mailbox keeps its own
 images on its mounted volume, in the directory named by `BRAND_ASSET_DIR`
 (default `/data/brand`), and the app serves them from `/brand/<file>`.

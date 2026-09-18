@@ -260,8 +260,8 @@ class S3Store:
         self.endpoint = (env('S3_ENDPOINT') or env('R2_S3_ENDPOINT') or '').rstrip('/')
         self.bucket = env('S3_BUCKET') or env('R2_BUCKET') or ''
         self.region = env('S3_REGION') or env('R2_REGION') or 'auto'
-        self.access_key = env('AWS_ACCESS_KEY_ID') or env('R2_ACCESS_KEY_ID') or ''
-        self.secret_key = env('AWS_SECRET_ACCESS_KEY') or env('R2_SECRET_ACCESS_KEY') or ''
+        self.access_key = env('S3_ACCESS_KEY_ID') or env('AWS_ACCESS_KEY_ID') or env('R2_ACCESS_KEY_ID') or ''
+        self.secret_key = env('S3_SECRET_ACCESS_KEY') or env('AWS_SECRET_ACCESS_KEY') or env('R2_SECRET_ACCESS_KEY') or ''
 
     def configured(self):
         return all([self.endpoint, self.bucket, self.access_key, self.secret_key])
@@ -471,10 +471,10 @@ def main():
     if args.max_mbps:
         UPLOAD_BUDGET.__init__(args.max_mbps)
         print(f'upload cap: {args.max_mbps} Mbit/s', flush=True)
-    url, db_token = os.environ.get('TURSO_DATABASE_URL'), os.environ.get('TURSO_AUTH_TOKEN')
+    url, db_token = (os.environ.get('DATABASE_URL') or os.environ.get('TURSO_DATABASE_URL')), (os.environ.get('DATABASE_AUTH_TOKEN') or os.environ.get('TURSO_AUTH_TOKEN'))
     blob_token = None if args.skip_attachments else (os.environ.get('BLOB_READ_WRITE_TOKEN') if STORE == 'blob' else 's3')
     if not args.dry_run and not (url and (db_token or url.startswith('file:'))):
-        sys.exit('TURSO_DATABASE_URL and TURSO_AUTH_TOKEN must be set')
+        sys.exit('DATABASE_URL and DATABASE_AUTH_TOKEN must be set')
     kinds = {kind.strip() for kind in args.kinds.split(',') if kind.strip()}
     if not args.dry_run and not args.skip_attachments and not blob_token:
         print('BLOB_READ_WRITE_TOKEN unset: attachments will be metadata only', flush=True)

@@ -33,7 +33,7 @@ def load_env(path):
 
 
 def query(sql, args=None, attempts=9):
-    host = os.environ['TURSO_DATABASE_URL'].replace('libsql://', 'https://').rstrip('/')
+    host = (os.environ.get('DATABASE_URL') or os.environ['TURSO_DATABASE_URL']).replace('libsql://', 'https://').rstrip('/')
     stmt = {'sql': sql}
     if args:
         stmt['args'] = [{'type': 'text', 'value': str(a)} for a in args]
@@ -42,7 +42,7 @@ def query(sql, args=None, attempts=9):
     for attempt in range(attempts):
         try:
             request = urllib.request.Request(host + '/v2/pipeline', body, {
-                'Authorization': 'Bearer ' + os.environ['TURSO_AUTH_TOKEN'],
+                'Authorization': 'Bearer ' + (os.environ.get('DATABASE_AUTH_TOKEN') or os.environ['TURSO_AUTH_TOKEN']),
                 'Content-Type': 'application/json'})
             with urllib.request.urlopen(request, timeout=180) as response:
                 payload = json.load(response)

@@ -15,17 +15,17 @@ import { createHash, createHmac } from 'node:crypto'
 
 const SERVICE = 's3'
 // R2 ignores the region but SigV4 requires one in the scope; AWS S3 needs the real one.
-const REGION = process.env.R2_REGION ?? process.env.S3_REGION ?? 'auto'
+const REGION = process.env.S3_REGION ?? process.env.R2_REGION ?? 'auto'
 
 type Config = { endpoint: string; bucket: string; accessKeyId: string; secretAccessKey: string }
 
 function config(): Config {
-  const endpoint = process.env.R2_S3_ENDPOINT
-  const bucket = process.env.R2_BUCKET
-  const accessKeyId = process.env.R2_ACCESS_KEY_ID
-  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY
+  const endpoint = process.env.S3_ENDPOINT ?? process.env.R2_S3_ENDPOINT
+  const bucket = process.env.S3_BUCKET ?? process.env.R2_BUCKET
+  const accessKeyId = process.env.S3_ACCESS_KEY_ID ?? process.env.R2_ACCESS_KEY_ID
+  const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY ?? process.env.R2_SECRET_ACCESS_KEY
   if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) {
-    throw new Error('R2_S3_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY must be configured')
+    throw new Error('S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must be configured')
   }
   return { endpoint: endpoint.replace(/\/+$/, ''), bucket, accessKeyId, secretAccessKey }
 }

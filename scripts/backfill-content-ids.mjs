@@ -20,7 +20,7 @@ const args = process.argv.slice(2)
 const at = args.indexOf('--batch')
 const BATCH = at === -1 ? 40 : Number(args[at + 1])
 
-const db = createClient({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN })
+const db = createClient({ url: process.env.DATABASE_URL ?? process.env.TURSO_DATABASE_URL, authToken: process.env.DATABASE_AUTH_TOKEN ?? process.env.TURSO_AUTH_TOKEN })
 const apiKey = process.env.RESEND_API_KEY
 
 async function retry(work) {
