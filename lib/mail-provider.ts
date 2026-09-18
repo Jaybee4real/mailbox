@@ -8,7 +8,7 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { sesSendRaw } from './ses-send'
+import { sesConfigured, sesSendRaw } from './ses-send'
 
 export type MailProvider = 'resend' | 'brevo' | 'ses'
 
@@ -51,6 +51,22 @@ export function activeProvider(): MailProvider {
   const configured = process.env.MAIL_PROVIDER
   if (configured === 'brevo' || configured === 'ses') return configured
   return 'resend'
+}
+
+/**
+ * What the configured provider is still missing, or null when it can send. Callers used to
+ * ask for RESEND_API_KEY directly, which refused every send on a deployment that had
+ * deliberately chosen SES or Brevo.
+ */
+export function providerConfigProblem(): string | null {
+  switch (activeProvider()) {
+    case 'ses':
+      return sesConfigured() ? null : 'SES_ACCESS_KEY_ID and SES_SECRET_ACCESS_KEY are not configured'
+    case 'brevo':
+      return process.env.BREVO_API_KEY ? null : 'BREVO_API_KEY is not configured'
+    default:
+      return process.env.RESEND_API_KEY ? null : 'RESEND_API_KEY is not configured'
+  }
 }
 
 function splitAddress(raw: string): { email: string; name?: string } {

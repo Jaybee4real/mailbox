@@ -59,7 +59,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (id.startsWith('mbox-') || !resend) {
     const archived = await fromArchive(id)
     if (archived) return archived
-    return NextResponse.json({ ok: false, error: resend ? 'Not found' : 'RESEND_API_KEY not configured' }, { status: resend ? 404 : 500 })
+    return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
 
   const { data, error } = await resend.emails.get(id)
@@ -102,7 +102,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const guard = await mailAuthGuard(req)
   if (guard) return guard
   const resend = getResend()
-  if (!resend) return NextResponse.json({ ok: false, error: 'RESEND_API_KEY not configured' }, { status: 500 })
+  // Rescheduling and cancelling live in Resend's API; there is no equivalent to call on
+  // another provider, so this is a missing feature rather than a missing key.
+  if (!resend) {
+    return NextResponse.json({ ok: false, error: 'Scheduled mail can only be changed on the Resend provider' }, { status: 501 })
+  }
 
   const { id } = await params
   if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
@@ -125,7 +129,11 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const guard = await mailAuthGuard(req)
   if (guard) return guard
   const resend = getResend()
-  if (!resend) return NextResponse.json({ ok: false, error: 'RESEND_API_KEY not configured' }, { status: 500 })
+  // Rescheduling and cancelling live in Resend's API; there is no equivalent to call on
+  // another provider, so this is a missing feature rather than a missing key.
+  if (!resend) {
+    return NextResponse.json({ ok: false, error: 'Scheduled mail can only be changed on the Resend provider' }, { status: 501 })
+  }
 
   const { id } = await params
   if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })

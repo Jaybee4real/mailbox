@@ -1,7 +1,7 @@
 import { BRAND } from '@/lib/brand'
 import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { sendMail } from '@/lib/mail-provider'
+import { providerConfigProblem, sendMail } from '@/lib/mail-provider'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { presign } from '@/lib/r2'
 import { recordContact, recordPixel, recordSentMeta, recordSentMessage } from '@/lib/mailbox'
@@ -31,9 +31,9 @@ export async function POST(req: Request) {
 
   const account = await resolveAccount(req)
 
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) {
-    return NextResponse.json({ ok: false, error: 'RESEND_API_KEY not configured' }, { status: 500 })
+  const configProblem = providerConfigProblem()
+  if (configProblem) {
+    return NextResponse.json({ ok: false, error: configProblem }, { status: 500 })
   }
 
   let body: SendBody
