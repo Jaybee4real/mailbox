@@ -342,6 +342,11 @@ export function ensureMailSchema(): Promise<void> {
       // allowed to fail: the second time round the column is already there.
       await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN password_is_default INTEGER NOT NULL DEFAULT 0')
         .catch(() => {})
+      // Where a reset link goes when the account's own mailbox is the thing locked.
+      await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN recovery_email TEXT').catch(() => {})
+      await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN recovery_verified INTEGER NOT NULL DEFAULT 0').catch(() => {})
+      // A link mailed to an unproven address must not be able to set a password.
+      await sqlRaw("ALTER TABLE mail_reset_tokens ADD COLUMN purpose TEXT NOT NULL DEFAULT 'reset'").catch(() => {})
       await sqlRaw("ALTER TABLE mail_webhook_events ADD COLUMN status TEXT NOT NULL DEFAULT 'working'")
         .catch(() => {})
       await sqlRaw('ALTER TABLE mail_sent ADD COLUMN attachments TEXT').catch(() => {})
@@ -1484,6 +1489,9 @@ export type MailAccount = {
   hasPassword: boolean
   createdAt: string | null
   invitedBy: string | null
+  /** Outside address that can receive a reset link. Only usable once proven. */
+  recoveryEmail: string | null
+  recoveryVerified: boolean
 }
 
 function mapAccount(row: Record<string, unknown>): MailAccount {
@@ -1496,27 +1504,29 @@ function mapAccount(row: Record<string, unknown>): MailAccount {
     hasPassword: Boolean(row.has_password),
     createdAt: isoOrNull(row.created_at),
     invitedBy: (row.invited_by as string) ?? null,
+    recoveryEmail: (row.recovery_email as string) ?? null,
+    recoveryVerified: Boolean(Number(row.recovery_verified ?? 0)),
   }
 }
 
 export async function listAccounts(): Promise<MailAccount[]> {
   await ensureMailSchema()
   const sql = db()
-  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, (password_hash IS NOT NULL) AS has_password FROM mail_accounts ORDER BY created_at ASC`
+  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, recovery_email, recovery_verified, (password_hash IS NOT NULL) AS has_password FROM mail_accounts ORDER BY created_at ASC`
   return rows.map(mapAccount)
 }
 
 export async function getAccount(email: string): Promise<MailAccount | null> {
   await ensureMailSchema()
   const sql = db()
-  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, (password_hash IS NOT NULL) AS has_password FROM mail_accounts WHERE email = ${email.trim().toLowerCase()}`
+  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, recovery_email, recovery_verified, (password_hash IS NOT NULL) AS has_password FROM mail_accounts WHERE email = ${email.trim().toLowerCase()}`
   return rows[0] ? mapAccount(rows[0]) : null
 }
 
 export async function getAccountByAddress(address: string): Promise<MailAccount | null> {
   await ensureMailSchema()
   const sql = db()
-  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, (password_hash IS NOT NULL) AS has_password FROM mail_accounts WHERE lower(address) = ${address.trim().toLowerCase()}`
+  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, recovery_email, recovery_verified, (password_hash IS NOT NULL) AS has_password FROM mail_accounts WHERE lower(address) = ${address.trim().toLowerCase()}`
   return rows[0] ? mapAccount(rows[0]) : null
 }
 
@@ -1550,6 +1560,27 @@ export async function deleteAccount(email: string): Promise<void> {
   await ensureMailSchema()
   const sql = db()
   await sql`DELETE FROM mail_accounts WHERE email = ${email.trim().toLowerCase()}`
+}
+
+/** Record a recovery address as claimed but unproven. Re-saving the same one re-arms it. */
+export async function setRecoveryEmail(email: string, recovery: string | null): Promise<void> {
+  await ensureMailSchema()
+  const sql = db()
+  const normalized = recovery ? recovery.trim().toLowerCase() : null
+  await sql`
+    UPDATE mail_accounts SET recovery_email = ${normalized}, recovery_verified = 0
+    WHERE email = ${email.trim().toLowerCase()}`
+}
+
+/** Prove the address: only the one currently on the account, so a stale link cannot land. */
+export async function markRecoveryVerified(email: string, recovery: string): Promise<boolean> {
+  await ensureMailSchema()
+  const sql = db()
+  const rows = await sql`
+    UPDATE mail_accounts SET recovery_verified = 1
+    WHERE email = ${email.trim().toLowerCase()} AND lower(recovery_email) = ${recovery.trim().toLowerCase()}
+    RETURNING email`
+  return rows.length > 0
 }
 
 // ── Sent-mail archive (our own copy, independent of any provider) ─
@@ -1936,13 +1967,29 @@ export async function revokeShare(id: string, owner: string): Promise<boolean> {
   return rows.length > 0
 }
 
-export async function createResetToken(email: string, token: string, expires: number): Promise<void> {
+export async function createResetToken(
+  email: string,
+  token: string,
+  expires: number,
+  purpose: 'reset' | 'verify-recovery' = 'reset',
+): Promise<void> {
   await ensureMailSchema()
   const sql = db()
   await sql`DELETE FROM mail_reset_tokens WHERE expires_at < ${nowIso()}`
   await sql`
-    INSERT INTO mail_reset_tokens (token, email, expires_at)
-    VALUES (${token}, ${email.toLowerCase()}, ${new Date(expires).toISOString()})`
+    INSERT INTO mail_reset_tokens (token, email, expires_at, purpose)
+    VALUES (${token}, ${email.toLowerCase()}, ${new Date(expires).toISOString()}, ${purpose})`
+}
+
+/** Spend a non-reset token, returning the address it was issued for. */
+export async function consumeToken(token: string, purpose: 'verify-recovery'): Promise<string | null> {
+  await ensureMailSchema()
+  const sql = db()
+  const rows = await sql`
+    DELETE FROM mail_reset_tokens
+    WHERE token = ${token} AND purpose = ${purpose} AND expires_at > ${nowIso()}
+    RETURNING email`
+  return rows[0]?.email ? String(rows[0].email) : null
 }
 
 /**
@@ -1953,7 +2000,8 @@ export async function resetTokenEmail(token: string): Promise<string | null> {
   await ensureMailSchema()
   const sql = db()
   const rows = await sql`
-    SELECT email FROM mail_reset_tokens WHERE token = ${token} AND expires_at > ${nowIso()}`
+    SELECT email FROM mail_reset_tokens
+    WHERE token = ${token} AND coalesce(purpose, 'reset') = 'reset' AND expires_at > ${nowIso()}`
   const email = rows[0]?.email
   return email ? String(email) : null
 }
@@ -1963,7 +2011,9 @@ export async function resetPasswordWithToken(token: string, passwordHash: string
   await ensureMailSchema()
   const sql = db()
   const consumed = await sql`
-    DELETE FROM mail_reset_tokens WHERE token = ${token} AND expires_at > ${nowIso()} RETURNING email`
+    DELETE FROM mail_reset_tokens
+    WHERE token = ${token} AND coalesce(purpose, 'reset') = 'reset' AND expires_at > ${nowIso()}
+    RETURNING email`
   const email = consumed[0]?.email
   if (!email) return null
   await sql`

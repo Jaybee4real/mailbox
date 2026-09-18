@@ -1315,6 +1315,12 @@ export default function DevMailPage() {
   const [loginBusy, setLoginBusy] = useState(false)
   const [resetMode, setResetMode] = useState(false)
   const [resetSent, setResetSent] = useState(false)
+  const [resetMessage, setResetMessage] = useState('')
+  const [recoveryEmail, setRecoveryEmail] = useState('')
+  const [recoverySaved, setRecoverySaved] = useState<{ address: string | null; verified: boolean }>({ address: null, verified: false })
+  const [recoveryMsg, setRecoveryMsg] = useState('')
+  const [recoveryBad, setRecoveryBad] = useState(false)
+  const [recoveryBusy, setRecoveryBusy] = useState(false)
   const [resetBusy, setResetBusy] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [loginDomain, setLoginDomain] = useState(DEFAULT_MAIL_DOMAIN)
@@ -2564,6 +2570,50 @@ export default function DevMailPage() {
   useEffect(() => {
     if (isAdmin) loadAccessors()
   }, [isAdmin, loadAccessors])
+
+  const loadRecovery = useCallback(async () => {
+    try {
+      const response = await fetch('/api/mail/recovery', { headers: apiHeaders() })
+      const data = await response.json()
+      if (!data.ok) return
+      setRecoverySaved({ address: data.recoveryEmail ?? null, verified: Boolean(data.verified) })
+      setRecoveryEmail(data.recoveryEmail ?? '')
+    } catch {}
+  }, [apiHeaders])
+
+  useEffect(() => {
+    if (isLoggedIn) loadRecovery()
+  }, [isLoggedIn, loadRecovery])
+
+  const saveRecovery = useCallback(async () => {
+    setRecoveryBusy(true)
+    setRecoveryMsg('')
+    setRecoveryBad(false)
+    try {
+      const response = await fetch('/api/mail/recovery', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ recovery: recoveryEmail.trim() }),
+      })
+      const data = await response.json()
+      if (data.ok) {
+        setRecoverySaved({ address: data.recoveryEmail ?? null, verified: Boolean(data.verified) })
+        setRecoveryMsg(
+          data.recoveryEmail
+            ? `Confirm it from ${data.recoveryEmail} — the link is on its way and expires in 24 hours.`
+            : 'Recovery address removed.',
+        )
+      } else {
+        setRecoveryBad(true)
+        setRecoveryMsg(data.error || 'Could not save that address')
+      }
+    } catch {
+      setRecoveryBad(true)
+      setRecoveryMsg('Could not reach the server')
+    } finally {
+      setRecoveryBusy(false)
+    }
+  }, [apiHeaders, recoveryEmail])
 
   const failInvite = useCallback((message: string) => {
     setAccessorsMsg(message)
@@ -5104,11 +5154,13 @@ export default function DevMailPage() {
     }
     setResetBusy(true)
     try {
-      await fetch('/api/mail/request-reset', {
+      const response = await fetch('/api/mail/request-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       })
+      const data = await response.json().catch(() => ({}))
+      setResetMessage(typeof data.message === 'string' ? data.message : '')
       setResetSent(true)
     } catch {
       setLoginError('Network error — try again')
@@ -5147,9 +5199,11 @@ export default function DevMailPage() {
             {resetSent ? (
               <>
                 <p className={styles.loginSub}>
-                  If {email} is an account, a reset link is on its way. The link expires in 30 minutes.
+                  {resetMessage
+                    ? resetMessage
+                    : `If ${email} is an account, a reset link is on its way.`}
                 </p>
-                <button className={styles.loginBtn} onClick={() => { setResetMode(false); setResetSent(false) }}>
+                <button className={styles.loginBtn} onClick={() => { setResetMode(false); setResetSent(false); setResetMessage('') }}>
                   Back to sign in
                 </button>
               </>
@@ -8288,6 +8342,40 @@ export default function DevMailPage() {
             <div className={styles.settingsField}>
               <span>Your address</span>
               <p className={styles.settingsNote}>{account?.address || email || 'Not signed in'}</p>
+            </div>
+
+            <div className={styles.settingsField}>
+              <span>Recovery email</span>
+              <p className={styles.settingsProse}>
+                Where a password reset is sent. It has to be an address outside this mailbox, and it only
+                counts once you confirm it — otherwise a locked account has to be reset by an administrator.
+              </p>
+              <div className={styles.pwWrap}>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  className={recoveryBad ? styles.fieldBad : ''}
+                  aria-invalid={recoveryBad}
+                  placeholder="you@somewhere-else.com"
+                  value={recoveryEmail}
+                  onChange={event => { setRecoveryEmail(event.target.value); setRecoveryBad(false) }}
+                />
+                <button type="button" className={styles.pwToggle} disabled={recoveryBusy} onClick={saveRecovery}>
+                  {recoveryBusy ? 'Sending…' : recoverySaved.address === recoveryEmail.trim().toLowerCase() && recoverySaved.address ? 'Resend' : 'Save'}
+                </button>
+              </div>
+              {recoverySaved.address && (
+                <p className={styles.settingsNote}>
+                  {recoverySaved.verified
+                    ? `Confirmed — resets go to ${recoverySaved.address}.`
+                    : `${recoverySaved.address} is not confirmed yet, so resets cannot be sent there.`}
+                </p>
+              )}
+              {recoveryMsg && (
+                <p className={`${styles.settingsNote} ${recoveryBad ? styles.msgBad : ''}`} role={recoveryBad ? 'alert' : undefined}>
+                  {recoveryMsg}
+                </p>
+              )}
             </div>
 
             <div
