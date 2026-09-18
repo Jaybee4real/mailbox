@@ -5,7 +5,7 @@ import { extractUrls, inspectUrl, type LinkVerdict } from '@/lib/link-safety'
 import AttachmentLightbox, { attachmentKind, formatSize, type PreviewItem } from './AttachmentLightbox'
 import AccessCheck from './AccessCheck'
 import { parseQuery, matchesQuery, serverSearchParams, splitForServer } from './search'
-import { useConfirm } from './ConfirmDialog'
+import { useConfirm, usePrompt } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
 import RichEditor from './RichEditor'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel, healGooglePrivateImages } from '@/lib/email-html'
@@ -1302,6 +1302,7 @@ const FOLDER_ICONS: Record<Folder, React.ReactNode> = {
 
 export default function DevMailPage() {
   const confirm = useConfirm()
+  const promptFor = usePrompt()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isLoggedIn, setIsLoggedIn] = useState(false)
@@ -5023,13 +5024,24 @@ export default function DevMailPage() {
   }
 
   const revokeShareLink = async (id: string) => {
-    if (!window.confirm('Revoke this link? Anyone holding it loses access immediately.')) return
+    const agreed = await confirm({
+      title: 'Revoke this link?',
+      body: 'Anyone holding it loses access immediately, including people you have already sent it to.',
+      confirmLabel: 'Revoke link',
+      danger: true,
+    })
+    if (!agreed) return
     await fetch(`/api/mail/share?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: apiHeaders() }).catch(() => {})
     loadShares()
   }
 
   const changeSharePassword = async (id: string) => {
-    const next = window.prompt('Password for this link (leave blank to remove it):')
+    const next = await promptFor({
+      title: 'Password for this link',
+      body: 'Anyone opening the link is asked for this. Leave it blank to remove the password entirely.',
+      confirmLabel: 'Save password',
+      field: { label: 'Password', type: 'password', placeholder: 'Blank removes it' },
+    })
     if (next === null) return
     await fetch('/api/mail/share', {
       method: 'PATCH',

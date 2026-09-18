@@ -11,40 +11,62 @@ export type ConfirmRequest = {
   cancelLabel?: string
   /** Paints the confirm button as destructive. */
   danger?: boolean
+  /** Asks for a value as well, replacing window.prompt. */
+  field?: { label: string; type?: 'text' | 'password'; placeholder?: string; initial?: string }
 }
 
-type Pending = ConfirmRequest & { resolve: (value: boolean) => void }
+type Settled = { ok: boolean; value: string }
+type Pending = ConfirmRequest & { resolve: (value: Settled) => void }
 
-const ConfirmContext = createContext<(request: ConfirmRequest) => Promise<boolean>>(async () => false)
+const ConfirmContext = createContext<(request: ConfirmRequest) => Promise<Settled>>(async () => ({ ok: false, value: '' }))
 
 /** Replaces window.confirm, which cannot be styled and looks like the browser, not the app. */
 export function useConfirm() {
-  return useContext(ConfirmContext)
+  const ask = useContext(ConfirmContext)
+  return useCallback(async (request: ConfirmRequest) => (await ask(request)).ok, [ask])
+}
+
+/** Replaces window.prompt. Resolves to null when dismissed, so a blank answer stays meaningful. */
+export function usePrompt() {
+  const ask = useContext(ConfirmContext)
+  return useCallback(
+    async (request: ConfirmRequest & { field: NonNullable<ConfirmRequest['field']> }) => {
+      const settled = await ask(request)
+      return settled.ok ? settled.value : null
+    },
+    [ask],
+  )
 }
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<Pending | null>(null)
+  const [draft, setDraft] = useState('')
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const fieldRef = useRef<HTMLInputElement>(null)
 
   const confirm = useCallback(
-    (request: ConfirmRequest) => new Promise<boolean>(resolve => setPending({ ...request, resolve })),
+    (request: ConfirmRequest) => new Promise<Settled>(resolve => {
+      setDraft(request.field?.initial ?? '')
+      setPending({ ...request, resolve })
+    }),
     [],
   )
 
   const settle = useCallback(
-    (value: boolean) => {
+    (ok: boolean) => {
       setPending(current => {
-        current?.resolve(value)
+        current?.resolve({ ok, value: draft })
         return null
       })
     },
-    [],
+    [draft],
   )
 
   // Escape cancels and Enter confirms, matching what the native dialog did.
   useEffect(() => {
     if (!pending) return
-    confirmRef.current?.focus()
+    if (pending.field) fieldRef.current?.focus()
+    else confirmRef.current?.focus()
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); settle(false) }
       if (event.key === 'Enter') { event.preventDefault(); settle(true) }
@@ -67,6 +89,20 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           >
             <p className={styles.confirmTitle}>{pending.title}</p>
             {pending.body && <div className={styles.confirmBody}>{pending.body}</div>}
+            {pending.field && (
+              <label className={styles.confirmField}>
+                <span>{pending.field.label}</span>
+                <input
+                  ref={fieldRef}
+                  className={styles.confirmInput}
+                  type={pending.field.type ?? 'text'}
+                  autoComplete={pending.field.type === 'password' ? 'new-password' : 'off'}
+                  placeholder={pending.field.placeholder}
+                  value={draft}
+                  onChange={event => setDraft(event.target.value)}
+                />
+              </label>
+            )}
             <div className={styles.confirmActions}>
               <button type="button" className={styles.confirmCancel} onClick={() => settle(false)}>
                 {pending.cancelLabel ?? 'Cancel'}

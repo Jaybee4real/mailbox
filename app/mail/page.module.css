@@ -5395,6 +5395,30 @@
   word-break: break-word;
 }
 
+.confirmField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.confirmField > span {
+  font: 500 12.5px/1.4 var(--nc-font-sans);
+  color: var(--nc-fg-2);
+}
+
+.confirmInput {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 10px;
+  background: var(--nc-ink-1);
+  color: var(--nc-fg-1);
+  font: 400 14px/1.4 var(--nc-font-sans);
+}
+
+.confirmInput:focus { border-color: var(--nc-violet-400); outline: none; }
+
 .confirmActions {
   display: flex;
   justify-content: flex-end;
