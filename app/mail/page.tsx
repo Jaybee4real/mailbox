@@ -2615,6 +2615,29 @@ export default function DevMailPage() {
     }
   }, [apiHeaders, recoveryEmail])
 
+  const mintResetLink = useCallback(async (target: string) => {
+    setAccessorsBad(false)
+    setAccessorsMsg('')
+    try {
+      const response = await fetch('/api/mail/accessors/reset-link', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ email: target }),
+      })
+      const data = await response.json()
+      if (!data.ok) {
+        setAccessorsBad(true)
+        setAccessorsMsg(data.error || 'Could not make a reset link')
+        return
+      }
+      await navigator.clipboard?.writeText(data.url).catch(() => {})
+      setAccessorsMsg(`Reset link for ${data.email} copied — it works once and expires in ${data.expiresInMinutes} minutes.`)
+    } catch {
+      setAccessorsBad(true)
+      setAccessorsMsg('Could not reach the server')
+    }
+  }, [apiHeaders])
+
   const failInvite = useCallback((message: string) => {
     setAccessorsMsg(message)
     setAccessorsBad(true)
@@ -8972,6 +8995,14 @@ export default function DevMailPage() {
                     buttonClassName={styles.accessorRoleBtn}
                     onChange={value => changeAccessorRole(entry.email, value as 'admin' | 'member')}
                   />
+                  <button
+                    className={styles.mailboxTag}
+                    onClick={() => mintResetLink(entry.email)}
+                    title={`Copy a one-time password reset link for ${entry.email}`}
+                    type="button"
+                  >
+                    Reset link
+                  </button>
                   <button
                     className={styles.accessorRemove}
                     onClick={() => removeAccessor(entry.email)}
