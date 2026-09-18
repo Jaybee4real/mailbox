@@ -950,6 +950,10 @@ function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SP
   const csp = allowRemote
     ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * data:; style-src 'unsafe-inline' *; font-src * data:; media-src * data:">`
     : `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${OWN_IMAGE_HOSTS} data:; style-src 'unsafe-inline'; font-src data:">`
+  // Links open in a new tab, which a sandboxed frame may only do with allow-popups. Without
+  // it every link in every message was dead: the click was swallowed with no error and no
+  // navigation, which reads as a broken button rather than a blocked one. Scripts are still
+  // not allowed, so nothing here can open a tab on its own — only a real click can.
   return `<!doctype html><html><head><meta charset="utf-8">${csp}${readerTheme(spacing, dark)}<base target="_blank"></head><body><div class="nc-paper">${stripOwnPixel(html)}</div></body>`
 }
 
@@ -5723,7 +5727,7 @@ export default function DevMailPage() {
         <>
           <iframe
             className={styles.threadFrame}
-            sandbox="allow-same-origin"
+            sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
             srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme === 'dark')}
             title="Email content"
             onLoad={event => {
@@ -5739,7 +5743,7 @@ export default function DevMailPage() {
     }
     return (
       <>
-        <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme === 'dark')} title="Email content" />
+        <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme === 'dark')} title="Email content" />
         {split.tail && renderQuoteLine(message.id, quoteShown)}
       </>
     )
@@ -5757,7 +5761,7 @@ export default function DevMailPage() {
       return (
         <iframe
           className={styles.threadFrame}
-          sandbox="allow-same-origin"
+          sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
           srcDoc={frameHtml(healGooglePrivateImages(detail.html, CLIENT_BRAND.markUrl), true, readerSpacing, resolvedTheme === 'dark')}
           title="Sent email"
           onLoad={event => {
@@ -6612,7 +6616,7 @@ export default function DevMailPage() {
                   <div className={styles.replyPreviewWrap}>
                     <iframe
                       className={styles.replyPreview}
-                      sandbox="allow-same-origin"
+                      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                       srcDoc={frameHtml(replyEffHtml, true, readerSpacing, resolvedTheme === 'dark')}
                       title="Reply preview"
                       onLoad={event => {
@@ -6864,7 +6868,7 @@ export default function DevMailPage() {
             {!selectedDetail ? (
               <BodySkeleton />
             ) : selectedDetail.html ? (
-              <iframe className={styles.readerFrame} sandbox="" srcDoc={frameHtml(selectedDetail.html, true, readerSpacing, resolvedTheme === 'dark')} title="Email content" />
+              <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(selectedDetail.html, true, readerSpacing, resolvedTheme === 'dark')} title="Email content" />
             ) : (
               <pre className={styles.readerText}>{selectedDetail.text ?? '(no content)'}</pre>
             )}
@@ -7969,7 +7973,7 @@ export default function DevMailPage() {
               {compose.quoteHtml && !compose.campaign.kind && (
                 <details className={styles.composeQuote}>
                   <summary className={styles.composeQuoteLabel}>Quoted message</summary>
-                  <iframe className={styles.composeQuoteFrame} sandbox="allow-same-origin" srcDoc={frameHtml(compose.quoteHtml, true, readerSpacing, resolvedTheme === 'dark')} title="Quoted message" />
+                  <iframe className={styles.composeQuoteFrame} sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(compose.quoteHtml, true, readerSpacing, resolvedTheme === 'dark')} title="Quoted message" />
                 </details>
               )}
               {/* The signature is appended on send, so show it here rather than leaving the
