@@ -1,6 +1,6 @@
 {
   "name": "@novacraft-engineering/mailbox",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "A shared webmail app: one codebase, one deployment per mailbox. Threads, a rich composer with signatures, attachments on S3-compatible storage, sharing links, full-text search, web push and PWA install.",
   "keywords": [
     "webmail",
