@@ -119,7 +119,11 @@ export async function verifyMailAuth(
   const passwordHashEnv = process.env.DEV_ADMIN_PASSWORD_HASH ?? ''
   if (emailHashEnv && passwordHashEnv) {
     if (sha256(email) === emailHashEnv && sha256(password) === passwordHashEnv) {
-      return { ok: true, email: normalized }
+      // The env pair is a password, not an identity: it opens an address this deployment
+      // actually hosts, never an arbitrary one. The same pair installed on two tenants
+      // would otherwise be one key to both mailboxes.
+      if (await isMailAccount(normalized)) return { ok: true, email: normalized }
+      return { ok: false, error: 'Invalid credentials' }
     }
   }
 

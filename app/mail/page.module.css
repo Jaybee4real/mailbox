@@ -7007,3 +7007,35 @@
     width: auto;
   }
 }
+
+
+/* ── Field-level validation ─────────────────────────────────────────────── */
+/* Shake stays on transform so it composites; the ring is a box-shadow rather
+   than a border so the field does not reflow by a pixel when it errors. */
+@keyframes ncFieldShake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  15%      { transform: translate3d(-5px, 0, 0); }
+  30%      { transform: translate3d(4px, 0, 0); }
+  45%      { transform: translate3d(-3px, 0, 0); }
+  60%      { transform: translate3d(2px, 0, 0); }
+  80%      { transform: translate3d(-1px, 0, 0); }
+}
+
+.fieldBad,
+.fieldBad input {
+  border-color: var(--nc-danger) !important;
+  box-shadow: 0 0 0 1px var(--nc-danger);
+}
+.fieldBad {
+  animation: ncFieldShake .4s cubic-bezier(.36, .07, .19, .97) both;
+  will-change: transform;
+}
+.msgBad {
+  color: var(--nc-danger);
+  animation: ncFieldShake .4s cubic-bezier(.36, .07, .19, .97) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fieldBad,
+  .msgBad { animation: none; }
+}

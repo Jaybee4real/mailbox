@@ -91,6 +91,22 @@ export async function POST(req: Request) {
   if (existing && existing.status === 'active') {
     return NextResponse.json({ ok: false, error: 'That person already has an account' }, { status: 409 })
   }
+  if (email === inviter.email || email === inviter.address) {
+    return NextResponse.json({ ok: false, error: 'That is your own address' }, { status: 400 })
+  }
+  // An invite has to reach somebody. Sending it to a mailbox on our own domain that nobody
+  // can open yet — the very address this invite would create, most often — posts the link
+  // into a box only the new person could read once they had already accepted it.
+  const inviteeDomain = email.split('@')[1] ?? ''
+  if (ADDRESS_DOMAINS.includes(inviteeDomain)) {
+    const holder = await getAccountByAddress(email)
+    if (!holder || holder.status !== 'active') {
+      return NextResponse.json(
+        { ok: false, error: `Nobody can read ${email} yet. Send the invite to an address they already have.` },
+        { status: 400 },
+      )
+    }
+  }
 
   const role: MailRole = body.role === 'admin' ? 'admin' : 'member'
   const name = body.name?.trim() || null

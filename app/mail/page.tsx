@@ -1525,6 +1525,7 @@ export default function DevMailPage() {
   const [renameDomain, setRenameDomain] = useState('')
   const [inviteBusy, setInviteBusy] = useState(false)
   const [accessorsMsg, setAccessorsMsg] = useState('')
+  const [accessorsBad, setAccessorsBad] = useState(false)
   const isAdmin = account?.role === 'admin'
 
   const [composeOpen, setComposeOpen] = useState(false)
@@ -2560,14 +2561,29 @@ export default function DevMailPage() {
     if (isAdmin) loadAccessors()
   }, [isAdmin, loadAccessors])
 
+  const failInvite = useCallback((message: string) => {
+    setAccessorsMsg(message)
+    setAccessorsBad(true)
+  }, [])
+
+  useEffect(() => {
+    if (!accessorsBad) return
+    const timer = setTimeout(() => {
+      setAccessorsBad(false)
+      setAccessorsMsg('')
+    }, 6000)
+    return () => clearTimeout(timer)
+  }, [accessorsBad, accessorsMsg])
+
   const inviteAccessor = useCallback(async () => {
     const target = inviteEmail.trim().toLowerCase()
-    if (!target.includes('@')) {
-      setAccessorsMsg('Enter a valid email')
+    if (!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(target)) {
+      failInvite('That is not an email address we can send to.')
       return
     }
     setInviteBusy(true)
     setAccessorsMsg('')
+    setAccessorsBad(false)
     try {
       const response = await fetch('/api/mail/accessors', {
         method: 'POST',
@@ -2582,6 +2598,7 @@ export default function DevMailPage() {
       })
       const data = await response.json()
       if (data.ok) {
+        setAccessorsBad(false)
         setAccessorsMsg(`Invite sent to ${data.email} — mailbox ${data.address}.`)
         setInviteEmail('')
         setInviteName('')
@@ -2589,14 +2606,14 @@ export default function DevMailPage() {
         setInviteRole('member')
         loadAccessors()
       } else {
-        setAccessorsMsg(data.error || 'Could not send the invite')
+        failInvite(data.error || 'Could not send the invite')
       }
     } catch {
-      setAccessorsMsg('Could not reach the server')
+      failInvite('Could not reach the server')
     } finally {
       setInviteBusy(false)
     }
-  }, [apiHeaders, inviteEmail, inviteName, inviteRole, inviteHandle, inviteDomain, loadAccessors])
+  }, [apiHeaders, inviteEmail, inviteName, inviteRole, inviteHandle, inviteDomain, loadAccessors, failInvite])
 
   const saveMailboxName = useCallback(
     async (targetEmail: string) => {
@@ -8716,11 +8733,12 @@ export default function DevMailPage() {
           <div className={styles.accessorInvite}>
             <div className={styles.accessorInviteRow}>
               <input
-                className={styles.accessorInput}
+                className={`${styles.accessorInput} ${accessorsBad ? styles.fieldBad : ''}`}
                 type="email"
+                aria-invalid={accessorsBad}
                 placeholder="name@email.com"
                 value={inviteEmail}
-                onChange={event => setInviteEmail(event.target.value)}
+                onChange={event => { setInviteEmail(event.target.value); setAccessorsBad(false) }}
               />
               <input
                 className={styles.accessorInput}
@@ -8765,7 +8783,11 @@ export default function DevMailPage() {
               They&apos;ll get an email to set their password. Members see only their own mail; admins see every mailbox.
               Leave the mailbox blank to derive one from their name.
             </p>
-            {accessorsMsg && <p className={styles.accessorMsg}>{accessorsMsg}</p>}
+            {accessorsMsg && (
+              <p className={`${styles.accessorMsg} ${accessorsBad ? styles.msgBad : ''}`} role={accessorsBad ? 'alert' : undefined}>
+                {accessorsMsg}
+              </p>
+            )}
           </div>
 
           <ul className={styles.accessorList}>
