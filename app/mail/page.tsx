@@ -5294,7 +5294,11 @@ export default function DevMailPage() {
                 onChange={event => {
                   const typed = event.target.value
                   setLoginRaw(typed)
-                  setEmail(`${typed.split('@')[0].trim()}@${loginDomain}`)
+                  // A seat's sign-in address can live outside this mailbox's own domains, so a
+                  // full address is taken as typed; the picker only completes a bare local part.
+                  const trimmed = typed.trim()
+                  const [local, domain] = trimmed.split('@')
+                  setEmail(domain ? trimmed.toLowerCase() : `${local}@${loginDomain}`)
                 }}
                 autoComplete="username"
                 placeholder="you"

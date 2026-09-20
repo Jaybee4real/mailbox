@@ -9,7 +9,7 @@ import { BRAND } from './brand'
 
 import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { getAccount, getAccountPasswordHash, setAccountPassword, MAIL_SEATS, type MailRole } from '@/lib/mailbox'
+import { getAccount, getAccountByAddress, getAccountPasswordHash, setAccountPassword, MAIL_SEATS, type MailRole } from '@/lib/mailbox'
 import { hashPassword, verifyPassword, isLegacyHash } from '@/lib/password'
 import { passwordFingerprint, readSession } from '@/lib/session'
 
@@ -34,12 +34,23 @@ function isLegacyDefaultAccount(email: string): boolean {
   return MAIL_ACCOUNTS.includes(email.trim().toLowerCase())
 }
 
-/** An address is a valid accessor if it exists in mail_accounts. */
+/**
+ * A seat can be named by either identifier: the account email it was created with, or the
+ * mailbox address it reads. Those differ whenever someone signs in with an outside address,
+ * and a person typing the mailbox they are opening should not be told it does not exist.
+ */
+export async function resolveSeat(identifier: string) {
+  const normalized = identifier.trim().toLowerCase()
+  if (!normalized) return null
+  return (await getAccount(normalized)) ?? (await getAccountByAddress(normalized))
+}
+
+/** An address is a valid accessor if it exists in mail_accounts, under either identifier. */
 export async function isMailAccount(email: string): Promise<boolean> {
   const normalized = email.trim().toLowerCase()
   if (!normalized) return false
   if (isLegacyDefaultAccount(normalized)) return true
-  return (await getAccount(normalized)) !== null
+  return (await resolveSeat(normalized)) !== null
 }
 
 /** Domain every mailbox address lives on. */
@@ -122,27 +133,32 @@ export async function verifyMailAuth(
       // The env pair is a password, not an identity: it opens an address this deployment
       // actually hosts, never an arbitrary one. The same pair installed on two tenants
       // would otherwise be one key to both mailboxes.
-      if (await isMailAccount(normalized)) return { ok: true, email: normalized }
+      const seat = await resolveSeat(normalized)
+      if (seat) return { ok: true, email: seat.email }
+      if (isLegacyDefaultAccount(normalized)) return { ok: true, email: normalized }
       return { ok: false, error: 'Invalid credentials' }
     }
   }
 
-  const account = await getAccount(normalized)
+  const account = await resolveSeat(normalized)
   const legacy = isLegacyDefaultAccount(normalized)
   if (!account && !legacy) {
     return { ok: false, error: 'Invalid credentials' }
   }
 
-  const custom = account?.hasPassword ? await getAccountPasswordHash(normalized) : undefined
+  // Everything downstream keys on the account email, so an address sign-in resolves to it
+  // before a session is issued — otherwise the session names a seat no lookup can find.
+  const identity = account?.email ?? normalized
+  const custom = account?.hasPassword ? await getAccountPasswordHash(identity) : undefined
 
   if (custom) {
     if (await verifyPassword(password, custom)) {
       // Anyone still on an unsalted digest is upgraded the moment they sign in,
       // so the weak hashes drain out of the table without a migration.
       if (isLegacyHash(custom)) {
-        await setAccountPassword(normalized, await hashPassword(password)).catch(() => {})
+        await setAccountPassword(identity, await hashPassword(password)).catch(() => {})
       }
-      return { ok: true, email: normalized }
+      return { ok: true, email: identity }
     }
     return { ok: false, error: 'Invalid credentials' }
   }
@@ -150,7 +166,7 @@ export async function verifyMailAuth(
   // No stored password: only the bootstrap admin gets the address-derived default.
   // Invited people must set their own via the link they were sent.
   if (legacy && password === defaultPasswordFor(normalized)) {
-    return { ok: true, email: normalized }
+    return { ok: true, email: identity }
   }
   return { ok: false, error: 'Invalid credentials' }
 }
