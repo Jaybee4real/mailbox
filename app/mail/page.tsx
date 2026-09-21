@@ -1347,6 +1347,9 @@ export default function DevMailPage() {
   const [folder, setFolder] = useState<Folder>('inbox')
   const [search, setSearch] = useState('')
   const [sentEmails, setSentEmails] = useState<SentEmail[]>([])
+  // What is waiting to be sent lives here now, not at the provider: a delayed message is
+  // held by this app, so the folder has to read the app's own queue to see it.
+  const [queuedSends, setQueuedSends] = useState<SentEmail[]>([])
   const [inboxEmails, setInboxEmails] = useState<InboundEmail[]>([])
   // The server owns search and paging now; the client holds one page at a time
   // rather than the whole mailbox.
@@ -2001,6 +2004,33 @@ export default function DevMailPage() {
     } catch {}
   }, [apiHeaders, mailboxQuery])
 
+  const loadQueued = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/mail/scheduled${mailboxQuery}`, { headers: apiHeaders() })
+      const data = await response.json()
+      if (!data.ok) return
+      type Waiting = { id: string; subject: string; to: string[]; sendAfter: string; createdAt: string; owner: string }
+      setQueuedSends(
+        (data.scheduled as Waiting[]).map(entry => ({
+          id: entry.id,
+          from: entry.owner,
+          to: entry.to,
+          subject: entry.subject,
+          createdAt: entry.createdAt,
+          scheduledAt: entry.sendAfter,
+          lastEvent: 'scheduled',
+          starred: false,
+          archived: false,
+          trashed: false,
+          opened: false,
+          openCount: 0,
+          openedAt: null,
+          owner: entry.owner,
+        })),
+      )
+    } catch {}
+  }, [apiHeaders, mailboxQuery])
+
   /**
    * Searching Sent asks the server. The list holds the newest few hundred sends and a
    * search that only looked through those found nothing older, with no sign that it had
@@ -2547,7 +2577,7 @@ export default function DevMailPage() {
   const refreshAll = useCallback(async () => {
     setRefreshing(true)
     try {
-      await Promise.all([loadSent(), refreshInbox(), loadThreads(), loadEvents()])
+      await Promise.all([loadSent(), loadQueued(), refreshInbox(), loadThreads(), loadEvents()])
       lastRefreshAt.current = Date.now()
     } finally {
       setRefreshing(false)
@@ -2883,13 +2913,21 @@ export default function DevMailPage() {
       .catch(() => {})
   }, [isLoggedIn, apiHeaders])
 
-  const scheduledEmails = useMemo(
-    () =>
-      sentEmails
-        .filter(entry => entry.lastEvent === 'scheduled' || (entry.scheduledAt && new Date(entry.scheduledAt).getTime() > now))
-        .sort((a, b) => new Date(a.scheduledAt ?? a.createdAt).getTime() - new Date(b.scheduledAt ?? b.createdAt).getTime()),
-    [sentEmails, now],
-  )
+  const scheduledEmails = useMemo(() => {
+    // The app's own queue, plus anything a provider is still holding from before this was
+    // ours to keep. Matched on id so one message cannot appear twice.
+    const waiting = [...queuedSends]
+    const seen = new Set(waiting.map(entry => entry.id))
+    for (const entry of sentEmails) {
+      if (seen.has(entry.id)) continue
+      if (entry.lastEvent === 'scheduled' || (entry.scheduledAt && new Date(entry.scheduledAt).getTime() > now)) {
+        waiting.push(entry)
+      }
+    }
+    return waiting.sort(
+      (a, b) => new Date(a.scheduledAt ?? a.createdAt).getTime() - new Date(b.scheduledAt ?? b.createdAt).getTime(),
+    )
+  }, [queuedSends, sentEmails, now])
   const deliveredEmails = useMemo(
     () => sentEmails.filter(entry => !scheduledEmails.some(scheduled => scheduled.id === entry.id)),
     [sentEmails, scheduledEmails],
@@ -3367,7 +3405,10 @@ export default function DevMailPage() {
   const selectedInbound = selectedId ? inboxEmails.find(entry => entry.id === selectedId) ?? null : null
   const selectedSent =
     selectedId && !selectedInbound
-      ? sentEmails.find(entry => entry.id === selectedId) ?? sentSearchResults?.find(entry => entry.id === selectedId) ?? null
+      ? sentEmails.find(entry => entry.id === selectedId)
+        ?? queuedSends.find(entry => entry.id === selectedId)
+        ?? sentSearchResults?.find(entry => entry.id === selectedId)
+        ?? null
       : null
   const selectedDetail = selectedSent ? detailCache[selectedSent.id] ?? null : null
   const selectedIsThread = selectedInbound ? unifiedThread(selectedInbound.id).length > 1 : false
@@ -3728,14 +3769,22 @@ export default function DevMailPage() {
   const bulkCancelScheduled = useCallback(async () => {
     const ids = Array.from(selectedBulk)
     if (!ids.length) return
+    // Two kinds of waiting message, two places to cancel it: one this app is holding, and
+    // one a provider still has from before the queue was ours.
+    const queuedIds = new Set(queuedSends.map(entry => entry.id))
     await Promise.all(
-      ids.map(id => fetch(`/api/mail/emails/${id}`, { method: 'DELETE', headers: apiHeaders() }).catch(() => {})),
+      ids.map(id =>
+        queuedIds.has(id)
+          ? fetch(`/api/mail/scheduled?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: apiHeaders() }).catch(() => {})
+          : fetch(`/api/mail/emails/${id}`, { method: 'DELETE', headers: apiHeaders() }).catch(() => {}),
+      ),
     )
     setSelectedBulk(new Set())
     setSentFlash('Canceled')
     window.setTimeout(() => setSentFlash(''), 2500)
     loadSent()
-  }, [selectedBulk, apiHeaders, loadSent])
+    loadQueued()
+  }, [selectedBulk, apiHeaders, loadSent, loadQueued, queuedSends])
 
   // Admin: bulk-reassign the selection to a mailbox (routes inbound + sent ids separately).
   const bulkAssign = useCallback(
@@ -4402,6 +4451,7 @@ export default function DevMailPage() {
         setSentFlash('Canceled — back to draft')
         window.setTimeout(() => setSentFlash(''), 2500)
         loadSent()
+        loadQueued()
       } else {
         setSentFlash(data.error?.includes('cancel') ? 'Too late — already sent' : `Could not cancel: ${data.error}`)
         window.setTimeout(() => setSentFlash(''), 3000)
@@ -4418,33 +4468,45 @@ export default function DevMailPage() {
       setSentFlash('Sent')
       window.setTimeout(() => setSentFlash(''), 2500)
       loadSent()
+      loadQueued()
     }
   }, [undo, now, loadSent])
 
   const cancelScheduled = async (id: string) => {
     try {
-      const response = await fetch(`/api/mail/emails/${id}`, { method: 'DELETE', headers: apiHeaders() })
+      const waiting = queuedSends.some(entry => entry.id === id)
+      const response = waiting
+        ? await fetch(`/api/mail/scheduled?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: apiHeaders() })
+        : await fetch(`/api/mail/emails/${id}`, { method: 'DELETE', headers: apiHeaders() })
       const data = await response.json()
       setSentFlash(data.ok ? 'Canceled' : `Could not cancel: ${data.error}`)
       window.setTimeout(() => setSentFlash(''), 2500)
       if (data.ok) {
         setSelectedId(null)
         loadSent()
+        loadQueued()
       }
     } catch {}
   }
 
   const rescheduleScheduled = async (id: string, iso: string) => {
     try {
-      const response = await fetch(`/api/mail/emails/${id}`, {
-        method: 'PATCH',
-        headers: apiHeaders(),
-        body: JSON.stringify({ scheduledAt: iso }),
-      })
+      const waiting = queuedSends.some(entry => entry.id === id)
+      const response = waiting
+        ? await fetch('/api/mail/scheduled', {
+            method: 'PATCH',
+            headers: apiHeaders(),
+            body: JSON.stringify({ id, scheduledAt: iso }),
+          })
+        : await fetch(`/api/mail/emails/${id}`, {
+            method: 'PATCH',
+            headers: apiHeaders(),
+            body: JSON.stringify({ scheduledAt: iso }),
+          })
       const data = await response.json()
       setSentFlash(data.ok ? 'Rescheduled' : `Could not reschedule: ${data.error}`)
       window.setTimeout(() => setSentFlash(''), 2500)
-      if (data.ok) loadSent()
+      if (data.ok) { loadSent(); loadQueued() }
     } catch {}
   }
 

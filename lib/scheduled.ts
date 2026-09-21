@@ -106,6 +106,16 @@ export async function recordSend(send: ScheduledSend, id: string | null): Promis
   ])
 }
 
+/** Moving the time is only the owner's to do, and only while it is still waiting. */
+export async function rescheduleSend(id: string, owner: string, sendAfter: string): Promise<boolean> {
+  await ensureMailSchema()
+  const rows = await db()`
+    UPDATE mail_scheduled SET send_after = ${sendAfter}
+    WHERE id = ${id} AND lower(owner) = ${owner.toLowerCase()} AND status = 'pending'
+    RETURNING id`
+  return rows.length > 0
+}
+
 const MAX_ATTEMPTS = 5
 
 /**
