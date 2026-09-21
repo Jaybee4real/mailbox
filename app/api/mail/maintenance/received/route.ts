@@ -43,22 +43,27 @@ export async function POST(req: Request) {
   if (!apiKey) return NextResponse.json({ ok: false, error: 'No provider key' }, { status: 400 })
   const url = new URL(req.url)
   const one = url.searchParams.get('id')
+  // Repair works on messages already stored, so the delivery claim is deliberately not
+  // consulted: it says "handled", which is exactly the state being corrected.
+  const repair = url.searchParams.get('repair') === '1'
   const targets = one ? [one] : (await findMissingReceived(apiKey, sinceFrom(req))).map(item => item.id)
 
   const taken: Array<{ id: string; owner: string; subject: string }> = []
   const skipped: string[] = []
   const failed: Array<{ id: string; error: string }> = []
   for (const id of targets) {
-    const claim = await claimWebhookEvent(`received:${id}`)
-    if (claim !== 'claimed') { skipped.push(id); continue }
+    if (!repair) {
+      const claim = await claimWebhookEvent(`received:${id}`)
+      if (claim !== 'claimed') { skipped.push(id); continue }
+    }
     try {
-      const result = await ingestReceived(id)
-      await completeWebhookEvent(`received:${id}`)
+      const result = await ingestReceived(id, {}, repair ? 'repair' : 'store')
+      if (!repair) await completeWebhookEvent(`received:${id}`)
       taken.push({ id, owner: result.owner, subject: result.subject })
     } catch (err) {
-      await releaseWebhookEvent(`received:${id}`)
+      if (!repair) await releaseWebhookEvent(`received:${id}`)
       failed.push({ id, error: err instanceof Error ? err.message : String(err) })
     }
   }
-  return NextResponse.json({ ok: true, taken, skipped, failed })
+  return NextResponse.json({ ok: true, repaired: repair, taken, skipped, failed })
 }

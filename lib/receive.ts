@@ -2,8 +2,19 @@ import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { sendPush } from '@/lib/push'
 import { stripOwnPixel } from '@/lib/email-html'
 import { FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-auth'
-import { ADDRESS_ALIASES, appendInbound, getAccountByAddress, inboundExists, recordContact, recordSentMeta } from '@/lib/mailbox'
+import { ADDRESS_ALIASES, appendInbound, getAccountByAddress, inboundExists, recordContact, recordSentMeta, repairInbound } from '@/lib/mailbox'
 import { sendMail } from '@/lib/mail-provider'
+
+/**
+ * Where the receiving API lives. The Resend SDK reads RESEND_BASE_URL for sending, so a
+ * deployment pointed at another Resend-compatible host sends there — these calls are hand
+ * rolled and have to honour the same variable, or receiving silently talks to a host that
+ * has never seen the message and every body arrives empty.
+ */
+function receivingBase(): string {
+  const configured = (process.env.RESEND_BASE_URL ?? '').trim().replace(/\/+$/, '')
+  return configured || 'https://api.resend.com'
+}
 
 // The address we send from, and the inbox that owns mail addressed to nobody specific.
 const MAIL_FROM = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
@@ -57,7 +68,7 @@ export type ReceivedEmail = {
 // lives on Resend and must be pulled from the receiving endpoint, or the inbox stores blanks.
 export async function fetchReceivedEmail(emailId: string, apiKey: string): Promise<ReceivedEmail | null> {
   try {
-    const response = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(emailId)}`, {
+    const response = await fetch(`${receivingBase()}/emails/receiving/${encodeURIComponent(emailId)}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
     if (!response.ok) return null
@@ -118,7 +129,7 @@ async function rehostAttachments(
 
 async function fetchAttachmentBytes(emailId: string, apiKey: string): Promise<SendAttachment[]> {
   try {
-    const response = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(emailId)}/attachments`, {
+    const response = await fetch(`${receivingBase()}/emails/receiving/${encodeURIComponent(emailId)}/attachments`, {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
     if (!response.ok) return []
@@ -135,8 +146,13 @@ async function fetchAttachmentBytes(emailId: string, apiKey: string): Promise<Se
         size: Number(entry.size ?? 0) || undefined,
       }
       try {
-        const binary = url ? await fetch(url) : null
-        if (binary?.ok) file.content = Buffer.from(await binary.arrayBuffer()).toString('base64')
+        // Inline base64 when the host sends the bytes with the listing; a download_url is
+        // fetched only when it doesn't.
+        if (entry.content) file.content = String(entry.content)
+        else {
+          const binary = url ? await fetch(url) : null
+          if (binary?.ok) file.content = Buffer.from(await binary.arrayBuffer()).toString('base64')
+        }
       } catch (err) {
         console.warn(`[mail] attachment pull failed for ${emailId}/${file.filename}:`, err)
       }
@@ -199,6 +215,12 @@ export async function forwardToAccounts(
 export async function ingestReceived(
   emailId: string,
   data: Record<string, unknown> = {},
+  /**
+   * Repairing a message already in the mailbox: fill in the body and attachments it was
+   * stored without, and stop there. The owner was notified and the copy forwarded when it
+   * first arrived, so doing either again would be a second delivery of old mail.
+   */
+  mode: 'store' | 'repair' = 'store',
 ): Promise<{ owner: string; subject: string; from: string }> {
   const apiKey = process.env.RESEND_API_KEY
   // The webhook payload has no body — pull the full email (html/text/attachments) from Resend.
@@ -240,6 +262,13 @@ export async function ingestReceived(
   const files = apiKey ? await fetchAttachmentBytes(emailId, apiKey) : []
   if (files.length) inbound.attachments = await rehostAttachments(emailId, files)
   const forwardable = files.filter(file => file.content)
+
+  if (mode === 'repair') {
+    if (!full) throw new Error('provider returned no body; nothing to repair with')
+    const filled = await repairInbound(inbound)
+    if (!filled) throw new Error('no such message in this mailbox')
+    return { owner: inbound.owner, subject: inbound.subject, from: inbound.from }
+  }
 
   await appendInbound(inbound)
   const sender = parseSender(inbound.from)
@@ -283,7 +312,7 @@ export async function listReceived(apiKey: string, since: Date): Promise<Receive
   for (let page = 0; page < 200; page += 1) {
     const params = new URLSearchParams({ limit: '50' })
     if (after) params.set('after', after)
-    const response = await fetch(`https://api.resend.com/emails/receiving?${params}`, {
+    const response = await fetch(`${receivingBase()}/emails/receiving?${params}`, {
       headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     })
     if (!response.ok) throw new Error(`provider list failed (${response.status})`)

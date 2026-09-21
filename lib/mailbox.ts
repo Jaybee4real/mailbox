@@ -975,6 +975,31 @@ export async function appendInbound(
   await invalidateCounts(email.owner)
 }
 
+/**
+ * Fill in what a hollow row is missing, for messages stored before the body could be
+ * fetched. Only ever writes content that is absent — read, starred, archived, trashed,
+ * labels and owner are the reader's, not the repair's, and a row that already has a body
+ * is left exactly as it is.
+ */
+export async function repairInbound(
+  email: Pick<InboundEmail, 'id' | 'html' | 'text' | 'headers' | 'attachments'>,
+): Promise<boolean> {
+  await ensureMailSchema()
+  const sql = db()
+  const rows = await sql`
+    UPDATE mail_inbox SET
+      html = CASE WHEN coalesce(html, '') = '' THEN ${email.html} ELSE html END,
+      body_text = CASE WHEN coalesce(body_text, '') = '' THEN ${email.text} ELSE body_text END,
+      headers = CASE WHEN coalesce(headers, '') IN ('', '{}') THEN ${JSON.stringify(email.headers)} ELSE headers END,
+      attachments = CASE WHEN coalesce(attachments, '') IN ('', '[]') THEN ${JSON.stringify(email.attachments)} ELSE attachments END,
+      attach_meta = CASE WHEN coalesce(attach_meta, '') IN ('', '[]') THEN ${attachMeta(email.attachments)} ELSE attach_meta END,
+      snippet = CASE WHEN coalesce(snippet, '') = '' THEN ${listSnippet(email.text)} ELSE snippet END,
+      thread_meta = CASE WHEN coalesce(thread_meta, '') IN ('', '{}') THEN ${threadMeta(email.headers)} ELSE thread_meta END
+    WHERE id = ${email.id}
+    RETURNING id`
+  return rows.length > 0
+}
+
 export async function getInboundSource(
   id: string,
 ): Promise<{ owner: string | null; attachments: Array<Record<string, unknown>> } | null> {
@@ -2175,7 +2200,8 @@ export async function backfillAttachments(limit: number, countRemaining = false)
     rows.map(async row => {
       const id = String(row.id)
       try {
-        const listing = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(id)}/attachments`, {
+        const base = (process.env.RESEND_BASE_URL ?? '').trim().replace(/\/+$/, '') || 'https://api.resend.com'
+        const listing = await fetch(`${base}/emails/receiving/${encodeURIComponent(id)}/attachments`, {
           headers: { authorization: `Bearer ${apiKey}` },
         })
         if (!listing.ok) {
@@ -2198,10 +2224,14 @@ export async function backfillAttachments(limit: number, countRemaining = false)
             const contentType = entry.content_type ? String(entry.content_type) : undefined
             const source = entry.download_url ? String(entry.download_url) : ''
             const meta: Record<string, unknown> = { filename, contentType, size: Number(entry.size ?? 0) }
-            if (!source) return meta
-            const binary = await fetch(source)
-            if (!binary.ok) return meta
-            const bytes = Buffer.from(await binary.arrayBuffer())
+            if (!source && !entry.content) return meta
+            let bytes: Buffer
+            if (entry.content) bytes = Buffer.from(String(entry.content), 'base64')
+            else {
+              const binary = await fetch(source)
+              if (!binary.ok) return meta
+              bytes = Buffer.from(await binary.arrayBuffer())
+            }
             const safeName = filename.replace(/[^\w.\- ]+/g, '_').slice(-120)
             const key = `attachments/${id}/${index}-${safeName}`
             if (!(await putObject(key, bytes, contentType))) return meta
