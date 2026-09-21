@@ -596,9 +596,13 @@ const COUNTS_CACHE_MS = 5 * 60 * 1000
 
 /** countFolders through a durable cache: one row read when fresh, a full scan only when stale. */
 export async function invalidateCounts(owner: string | null | undefined): Promise<void> {
-  if (!owner) return
   try {
-    await db()`DELETE FROM mail_counts_cache WHERE owner = ${owner.toLowerCase()}`
+    const sql = db()
+    // The '*all' row sums every mailbox, so one person's mail moving makes it wrong too.
+    // Dropping only the owner's row left the all-inboxes view quoting figures from before
+    // the delete, and an owner of null dropped nothing at all.
+    if (owner) await sql`DELETE FROM mail_counts_cache WHERE owner = ${owner.toLowerCase()}`
+    await sql`DELETE FROM mail_counts_cache WHERE owner = '*all'`
   } catch {
   }
 }
@@ -1248,12 +1252,17 @@ export async function setInboxOwner(id: string, owner: string | null): Promise<v
   const sql = db()
   const before = await sql`SELECT owner, thread_id FROM mail_inbox WHERE id = ${id}`
   await sql`UPDATE mail_inbox SET owner = ${owner ? owner.toLowerCase() : null}, thread_id = NULL WHERE id = ${id}`
+  // Both sides change: the mailbox it left and the one it arrived in.
+  await invalidateCounts(before[0]?.owner == null ? null : String(before[0].owner))
+  await invalidateCounts(owner)
   await rethreadAfterChange(id, before[0]?.owner == null ? null : String(before[0].owner), before[0]?.thread_id == null ? null : String(before[0].thread_id))
 }
 
 export async function markInboundRead(id: string): Promise<void> {
   const sql = db()
   await sql`UPDATE mail_inbox SET read = 1 WHERE id = ${id}`
+  const owned = await sql`SELECT owner FROM mail_inbox WHERE id = ${id}`
+  await invalidateCounts(owned[0]?.owner == null ? null : String(owned[0].owner))
   await rethreadAfterChange(id)
 }
 
@@ -1329,6 +1338,8 @@ export async function inboundExists(ids: string[]): Promise<Set<string>> {
 export async function setInboundLabels(id: string, labels: string[]): Promise<void> {
   const sql = db()
   await sql`UPDATE mail_inbox SET labels = ${JSON.stringify(labels)} WHERE id = ${id}`
+  const owned = await sql`SELECT owner FROM mail_inbox WHERE id = ${id}`
+  await invalidateCounts(owned[0]?.owner == null ? null : String(owned[0].owner))
 }
 
 // ── Sent-mail flags (star / archive / trash on Resend-sent emails) ──

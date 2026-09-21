@@ -3,14 +3,14 @@ import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
 import { countFolders, countFoldersCached } from '@/lib/mailbox'
 
-const COUNTS_TTL_MS = 20 * 1000
-const countsCache = new Map<string, { at: number; value: Awaited<ReturnType<typeof countFolders>> }>()
+/**
+ * Counts come from the durable cache, which every write that moves mail clears. An extra
+ * in-process copy used to sit in front of it, and nothing could reach in to drop it: a
+ * delete cleared the shared row and this map went on answering with figures from before
+ * it for another twenty seconds, per running instance.
+ */
 async function cachedCounts(owner: string | null, fresh: boolean) {
-  const hit = countsCache.get(owner ?? '*all')
-  if (!fresh && hit && Date.now() - hit.at < COUNTS_TTL_MS) return hit.value
-  const value = fresh ? await countFolders(owner ?? undefined) : await countFoldersCached(owner)
-  countsCache.set(owner ?? '*all', { at: Date.now(), value })
-  return value
+  return fresh ? countFolders(owner ?? undefined) : countFoldersCached(owner)
 }
 
 export const runtime = 'nodejs'
