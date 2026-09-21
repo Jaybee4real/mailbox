@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { extractUrls, inspectUrl, type LinkVerdict } from '@/lib/link-safety'
-import AttachmentLightbox, { attachmentKind, formatSize, type PreviewItem } from './AttachmentLightbox'
+import AttachmentLightbox, { attachmentKind, formatSize, inlineUrl, type PreviewItem } from './AttachmentLightbox'
 import AccessCheck from './AccessCheck'
 import { parseQuery, matchesQuery, serverSearchParams, splitForServer } from './search'
 import { useConfirm, usePrompt } from './ConfirmDialog'
@@ -5661,6 +5661,42 @@ export default function DevMailPage() {
     )
   }
 
+/**
+   * A message whose whole content is its attachment — a scan, a statement, a DMARC report —
+   * used to read as "(no content)". Show the file itself where the body would have been,
+   * for the types a browser can actually render; the rest get named rather than hidden.
+   */
+  const renderBodylessAttachment = (list: DownloadAttachment[]) => {
+    const file = list.find(entry => entry.downloadUrl && !entry.shareId)
+    if (!file) return null
+    const kind = attachmentKind(file.filename, file.contentType)
+    const source = inlineUrl(file.downloadUrl)
+
+    if (kind === 'image') {
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className={styles.bodyFileImage} src={source} alt={file.filename} />
+      )
+    }
+    if (kind === 'pdf') {
+      return <iframe className={styles.bodyFileFrame} src={source} title={file.filename} />
+    }
+    if (kind === 'video') return <video className={styles.bodyFileImage} src={source} controls preload="metadata" />
+    if (kind === 'audio') return <audio className={styles.bodyFileAudio} src={source} controls preload="metadata" />
+
+    // Office documents and archives have no native viewer; naming the file and offering it
+    // beats a blank panel, and beats pretending a preview exists.
+    return (
+      <a className={styles.bodyFileCard} href={file.downloadUrl} target="_blank" rel="noopener noreferrer">
+        <span className={styles.bodyFileGlyph}>{ICONS.file}</span>
+        <span>
+          <strong>{file.filename}</strong>
+          <small>{formatSize(file.size)} · opens in a new tab</small>
+        </span>
+      </a>
+    )
+  }
+
   const renderInboundAttachments = (message: InboundEmail) => {
     if (!visibleAttachments(message).length) return null
     // The stored-blob lookup answers with an empty array for anything it does not
@@ -5713,7 +5749,9 @@ export default function DevMailPage() {
       const textShown = quoteOpen.has(message.id)
       return (
         <>
-          <pre className={styles.readerText}>{(textShown ? message.text : plain.head) || '(no content)'}</pre>
+          {(textShown ? message.text : plain.head)
+            ? <pre className={styles.readerText}>{textShown ? message.text : plain.head}</pre>
+            : renderBodylessAttachment(inboundAttachments[message.id] ?? []) ?? <pre className={styles.readerText}>(no content)</pre>}
           {plain.tail && renderQuoteLine(message.id, textShown)}
         </>
       )
@@ -5777,7 +5815,9 @@ export default function DevMailPage() {
         />
       )
     }
-    return <pre className={styles.readerText}>{detail.text?.trim() || '(no content)'}</pre>
+    return detail.text?.trim()
+      ? <pre className={styles.readerText}>{detail.text}</pre>
+      : renderBodylessAttachment(detail.attachments ?? []) ?? <pre className={styles.readerText}>(no content)</pre>
   }
 
   /** What we attached to a message we sent. The inbound side has always shown these. */
@@ -6892,8 +6932,10 @@ export default function DevMailPage() {
               <BodySkeleton />
             ) : selectedDetail.html ? (
               <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(selectedDetail.html, true, readerSpacing, resolvedTheme === 'dark')} title="Email content" />
+            ) : selectedDetail.text ? (
+              <pre className={styles.readerText}>{selectedDetail.text}</pre>
             ) : (
-              <pre className={styles.readerText}>{selectedDetail.text ?? '(no content)'}</pre>
+              renderBodylessAttachment(selectedDetail.attachments ?? []) ?? <pre className={styles.readerText}>(no content)</pre>
             )}
           </div>
         </>

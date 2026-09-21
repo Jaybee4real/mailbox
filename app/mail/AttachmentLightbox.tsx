@@ -35,7 +35,7 @@ export function attachmentKind(filename: string, contentType?: string): Attachme
  * browser to save. Anything rendered here asks for the inline form instead, or a PDF opens
  * the save dialog the moment the viewer appears.
  */
-function inlineUrl(url: string): string {
+export function inlineUrl(url: string): string {
   if (!url.startsWith('/api/mail/')) return url
   return `${url}${url.includes('?') ? '&' : '?'}inline=1`
 }
