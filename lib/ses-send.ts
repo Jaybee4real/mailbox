@@ -7,14 +7,26 @@ export function sesConfigured(): boolean {
   return Boolean(process.env.SES_ACCESS_KEY_ID && process.env.SES_SECRET_ACCESS_KEY)
 }
 
-export async function sesSendRaw(raw: string, region = process.env.AWS_SES_REGION ?? 'eu-north-1'): Promise<string | null> {
+/**
+ * `blindCopies` are envelope recipients only. A Bcc header inside the MIME would be handed
+ * to everyone the message reaches, so the address is named to SES instead of written down
+ * where the recipient can read it.
+ */
+export async function sesSendRaw(
+  raw: string,
+  region = process.env.AWS_SES_REGION ?? 'eu-north-1',
+  blindCopies: string[] = [],
+): Promise<string | null> {
   const id = process.env.SES_ACCESS_KEY_ID
   const secret = process.env.SES_SECRET_ACCESS_KEY
   if (!id || !secret) throw new Error('SES_ACCESS_KEY_ID and SES_SECRET_ACCESS_KEY must be configured')
 
   const host = `email.${region}.amazonaws.com`
   const path = '/v2/email/outbound-emails'
-  const body = JSON.stringify({ Content: { Raw: { Data: Buffer.from(raw, 'utf8').toString('base64') } } })
+  const body = JSON.stringify({
+    Content: { Raw: { Data: Buffer.from(raw, 'utf8').toString('base64') } },
+    ...(blindCopies.length ? { Destination: { BccAddresses: blindCopies } } : {}),
+  })
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '')
   const stamp = amzDate.slice(0, 8)
   const payloadHash = sha256(body)

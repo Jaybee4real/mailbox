@@ -67,6 +67,23 @@ Attachments go to any S3-compatible bucket through the `S3_*` variables: AWS
 S3, Cloudflare R2, Backblaze B2, MinIO, Wasabi. The older `R2_*` names still
 work if you already set them.
 
+**The bucket needs a CORS rule.** The browser uploads straight to it with a
+signed URL, so the bucket has to allow `PUT`, `GET` and `HEAD` from the address
+the app is served on. Without one every attachment fails, and the browser
+reports it the same way it reports being offline — so it reads as a network
+problem rather than a missing rule. On R2:
+
+```json
+[{ "AllowedOrigins": ["https://mail.example.com"],
+   "AllowedMethods": ["PUT", "GET", "HEAD"],
+   "AllowedHeaders": ["*"],
+   "ExposeHeaders": ["ETag", "Content-Length", "Content-Type", "Content-Disposition", "Content-Range", "Accept-Ranges", "Last-Modified"],
+   "MaxAgeSeconds": 3600 }]
+```
+
+List only your own origin. A wildcard lets any page that obtains a signed URL
+upload with it.
+
 ## Sending
 
 `MAIL_PROVIDER` picks `ses`, `resend` or `brevo` behind one seam, so switching

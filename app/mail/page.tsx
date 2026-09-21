@@ -4098,7 +4098,17 @@ export default function DevMailPage() {
           if (request.status >= 200 && request.status < 300) resolve()
           else reject(new Error(`Upload failed (${request.status})`))
         }
-        request.onerror = () => { settle(); reject(new Error('Upload failed. Check your connection and retry.')) }
+        // A browser reports a refused cross-origin PUT exactly as it reports being
+        // offline: status 0, no headers, no detail. Sending everyone to check their
+        // connection is what made a bucket missing its CORS rules look like flaky wifi.
+        request.onerror = () => {
+          settle()
+          reject(new Error(
+            navigator.onLine
+              ? 'The storage bucket refused the upload. If it keeps happening the bucket is not accepting uploads from this site, which is its CORS rules rather than your connection.'
+              : 'You are offline. Retry once the connection is back.',
+          ))
+        }
         request.onabort = () => settle()
         request.send(file)
       }),

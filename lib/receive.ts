@@ -196,6 +196,8 @@ export async function forwardToAccounts(
       to: [recipient],
       replyTo: inbound.from || undefined,
       subject: inbound.subject.startsWith('Fwd:') ? inbound.subject : `Fwd: ${inbound.subject}`,
+      // The archive already holds the message this forwards; a second copy is noise.
+      skipArchive: true,
       text: inbound.text?.trim() || snippet(inbound.html, inbound.text) || ' ',
       ...(inbound.html ? { html: `${header}${stripOwnPixel(inbound.html)}` } : {}),
       ...(attachments.length ? { attachments } : {}),

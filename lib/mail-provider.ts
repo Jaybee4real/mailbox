@@ -27,6 +27,8 @@ export type SendPayload = {
   headers?: Record<string, string>
   scheduledAt?: string
   attachments?: SendAttachment[]
+  /** Set on copies that are themselves relays of mail we already hold. */
+  skipArchive?: boolean
 }
 
 export type SendResult = { id: string | null }
@@ -164,10 +166,28 @@ function buildRawMime(payload: SendPayload): string {
 }
 
 async function sendViaSes(payload: SendPayload): Promise<SendResult> {
-  return { id: await sesSendRaw(buildRawMime(payload)) }
+  // buildRawMime deliberately writes no Bcc header; SES is told the blind recipients here.
+  const region = process.env.AWS_SES_REGION ?? 'eu-north-1'
+  return { id: await sesSendRaw(buildRawMime(payload), region, payload.bcc ?? []) }
 }
 
-export function sendMail(payload: SendPayload): Promise<SendResult> {
+/**
+ * A mailbox this deployment owns that keeps a copy of everything the app sends on its own
+ * behalf. Product mail is invisible otherwise: it leaves for the recipient and no account
+ * here ever sees it. Skipped when the archive is already a recipient, so a message never
+ * arrives twice.
+ */
+function withArchive(payload: SendPayload): SendPayload {
+  const archive = (process.env.MAIL_ARCHIVE_BCC ?? '').trim().toLowerCase()
+  if (!archive || payload.skipArchive) return payload
+  const already = [...payload.to, ...(payload.cc ?? []), ...(payload.bcc ?? [])]
+    .some(entry => entry.toLowerCase().includes(archive))
+  if (already) return payload
+  return { ...payload, bcc: [...(payload.bcc ?? []), archive] }
+}
+
+export function sendMail(raw: SendPayload): Promise<SendResult> {
+  const payload = withArchive(raw)
   switch (activeProvider()) {
     case 'ses': return sendViaSes(payload)
     case 'brevo': return sendViaBrevo(payload)
