@@ -5,6 +5,7 @@ import { providerConfigProblem, sendMail } from '@/lib/mail-provider'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { presign } from '@/lib/r2'
 import { recordContact, recordPixel, recordSentMeta, recordSentMessage } from '@/lib/mailbox'
+import { scheduleSend } from '@/lib/scheduled'
 import { publicOrigin } from '@/lib/public-url'
 
 export const runtime = 'nodejs'
@@ -93,9 +94,10 @@ export async function POST(req: Request) {
 
   const rawAttachments = (body.attachments ?? []).filter(entry => entry.filename && (entry.content || entry.path || entry.key))
   if (rawAttachments.length && body.scheduledAt) {
-    // Resend rejects attachments on scheduled sends — surface it before the API does.
+    // The message waits here rather than at a provider, and holding file bytes in the
+    // queue for hours is a cost this has not taken on yet.
     return NextResponse.json(
-      { ok: false, error: 'Resend does not support attachments on scheduled emails — send now or drop the attachments' },
+      { ok: false, error: 'A scheduled email cannot carry attachments yet — send it now, or schedule it without files' },
       { status: 400 },
     )
   }
@@ -155,6 +157,37 @@ export async function POST(req: Request) {
   const fromEmail = from.replace(/^.*<|>$/g, '').trim()
   const fromName = from.includes('<') ? from.slice(0, from.indexOf('<')).replace(/["']/g, '').trim() : undefined
 
+  const dueAt = body.scheduledAt ? new Date(body.scheduledAt) : null
+  if (dueAt && !Number.isNaN(dueAt.getTime()) && dueAt.getTime() > Date.now() + 5_000) {
+    // Held here, not handed over: SES has no scheduling and drops the instruction without
+    // a word, so "in an hour" arrived at once. The dispatcher sends it when it is due.
+    const scheduledId = await scheduleSend(account.address ?? fromEmail, dueAt.toISOString(), {
+      owner: account.address ?? fromEmail,
+      pixelId: trackedHtml ? pixelId : null,
+      subject: body.subject.trim(),
+      from,
+      recipients,
+      cc: body.cc ?? [],
+      bcc: body.bcc ?? [],
+      replyTo: replyTo ? [replyTo] : [],
+      inReplyTo: body.inReplyTo ?? null,
+      storedAttachments: [],
+      payload: {
+        from: fromEmail,
+        fromName: fromName || undefined,
+        to: recipients,
+        cc: body.cc,
+        bcc: body.bcc,
+        replyTo,
+        subject: body.subject.trim(),
+        html: trackedHtml,
+        text: body.text,
+        ...(inReplyToId ? { headers: { 'In-Reply-To': inReplyToId, References: inReplyToId } } : {}),
+      },
+    })
+    return NextResponse.json({ ok: true, id: scheduledId, scheduled: true, scheduledAt: dueAt.toISOString() })
+  }
+
   let data: { id: string | null }
   try {
     data = await sendMail({
@@ -167,7 +200,6 @@ export async function POST(req: Request) {
       subject: body.subject.trim(),
       html: trackedHtml,
       text: body.text,
-      scheduledAt: body.scheduledAt,
       attachments,
       ...(inReplyToId ? { headers: { 'In-Reply-To': inReplyToId, References: inReplyToId } } : {}),
     })

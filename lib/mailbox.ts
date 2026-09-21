@@ -63,7 +63,7 @@ const MAX_EVENTS = 150
 /** SQLite/libSQL once it is configured, D1 until then, so the switch needs no redeploy dance. */
 const tursoConfigured = () => Boolean(process.env.DATABASE_URL ?? process.env.TURSO_DATABASE_URL)
 
-function db() {
+export function db() {
   return tursoConfigured() ? turso() : d1()
 }
 
@@ -290,6 +290,23 @@ export function ensureMailSchema(): Promise<void> {
           computed_at TEXT NOT NULL,
           counts TEXT NOT NULL
         )`,
+        // Sending later is ours to keep, not the provider's. SES has no notion of it and
+        // dropped the instruction silently; Brevo refuses outright; a Resend-shaped host
+        // may or may not honour it. Parking the prepared message here means the delay
+        // behaves the same whoever carries the mail in the end.
+        `CREATE TABLE IF NOT EXISTS mail_scheduled (
+          id TEXT PRIMARY KEY,
+          owner TEXT NOT NULL,
+          send_after TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          payload TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          sent_id TEXT,
+          created_at TEXT NOT NULL
+        )`,
+        `CREATE INDEX IF NOT EXISTS mail_scheduled_due_idx ON mail_scheduled (status, send_after)`,
+        `CREATE INDEX IF NOT EXISTS mail_scheduled_owner_idx ON mail_scheduled (lower(owner), send_after)`,
         // Full-text search belongs in the database, not the browser. The client used to
         // pull the mailbox down and filter it in JS, which cannot hold once the archive
         // runs to six figures.
