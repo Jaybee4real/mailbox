@@ -28,6 +28,8 @@ export type InboundEmail = {
   /** What the spam, virus and sender-authentication checks said. */
   risk?: Risk
   riskReasons?: string[]
+  /** Held out of the inbox entirely, rather than only labelled. */
+  spam?: boolean
   bcc: string[]
   replyTo: string[]
   subject: string
@@ -290,6 +292,20 @@ export function ensureMailSchema(): Promise<void> {
         // Folder counts walk the whole mailbox index and Turso meters every entry; an
         // in-memory cache dies with the instance, and instances churn under polling. One
         // row here outlives them all.
+        // What this mailbox has learned about a correspondent by handling their mail.
+        // Judgement comes from here first and from fixed rules second, so the same sender
+        // can be trusted in one mailbox and refused in another.
+        `CREATE TABLE IF NOT EXISTS mail_sender_reputation (
+          owner TEXT NOT NULL,
+          domain TEXT NOT NULL,
+          received INTEGER NOT NULL DEFAULT 0,
+          trashed INTEGER NOT NULL DEFAULT 0,
+          marked_spam INTEGER NOT NULL DEFAULT 0,
+          replied INTEGER NOT NULL DEFAULT 0,
+          first_seen TEXT,
+          last_seen TEXT,
+          PRIMARY KEY (owner, domain)
+        )`,
         `CREATE TABLE IF NOT EXISTS mail_counts_cache (
           owner TEXT PRIMARY KEY,
           computed_at TEXT NOT NULL,
@@ -370,9 +386,15 @@ export function ensureMailSchema(): Promise<void> {
       await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN addressed TEXT").catch(() => {})
       // What the scanners and the sender's own domain said about this message.
       await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN risk TEXT").catch(() => {})
+      // High-confidence spam is held out of the inbox rather than merely labelled.
+      await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN spam INTEGER NOT NULL DEFAULT 0").catch(() => {})
+      await sqlRaw("CREATE INDEX IF NOT EXISTS mail_inbox_spam_idx ON mail_inbox (lower(owner), spam, received_at DESC)").catch(() => {})
       await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN risk_reasons TEXT").catch(() => {})
       // The row in the list follows its newest message, so the conversation carries it too.
       await sqlRaw("ALTER TABLE mail_threads ADD COLUMN addressed TEXT").catch(() => {})
+      // Worst verdict in the conversation, so a warning cannot hide behind a later reply.
+      await sqlRaw("ALTER TABLE mail_threads ADD COLUMN risk TEXT").catch(() => {})
+      await sqlRaw("ALTER TABLE mail_threads ADD COLUMN spam_count INTEGER NOT NULL DEFAULT 0").catch(() => {})
       await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_addressed_idx ON mail_inbox (lower(owner), addressed, received_at DESC)')
         .catch(() => {})
       // Where a reset link goes when the account's own mailbox is the thing locked.
@@ -436,6 +458,56 @@ export function ensureMailSchema(): Promise<void> {
 
 // ── Inbox ──────────────────────────────────────────────────────
 
+export type SenderStanding = {
+  received: number
+  trashed: number
+  markedSpam: number
+  replied: number
+  firstSeen: string | null
+}
+
+/** What this mailbox has done with this sender's domain before. */
+export async function senderStanding(owner: string | null, domain: string): Promise<SenderStanding> {
+  const empty = { received: 0, trashed: 0, markedSpam: 0, replied: 0, firstSeen: null }
+  if (!owner || !domain) return empty
+  await ensureMailSchema()
+  const rows = await db()`
+    SELECT received, trashed, marked_spam, replied, first_seen FROM mail_sender_reputation
+    WHERE owner = ${owner.toLowerCase()} AND domain = ${domain.toLowerCase()}`
+  const row = rows[0]
+  if (!row) return empty
+  return {
+    received: Number(row.received ?? 0),
+    trashed: Number(row.trashed ?? 0),
+    markedSpam: Number(row.marked_spam ?? 0),
+    replied: Number(row.replied ?? 0),
+    firstSeen: row.first_seen == null ? null : String(row.first_seen),
+  }
+}
+
+/** Records one more thing this mailbox did with a sender. Every judgement feeds the next. */
+export async function noteSender(
+  owner: string | null,
+  domain: string,
+  what: 'received' | 'trashed' | 'marked_spam' | 'replied',
+): Promise<void> {
+  if (!owner || !domain) return
+  await ensureMailSchema()
+  const now = nowIso()
+  const sql = db()
+  await sql`
+    INSERT INTO mail_sender_reputation (owner, domain, received, trashed, marked_spam, replied, first_seen, last_seen)
+    VALUES (${owner.toLowerCase()}, ${domain.toLowerCase()},
+      ${what === 'received' ? 1 : 0}, ${what === 'trashed' ? 1 : 0},
+      ${what === 'marked_spam' ? 1 : 0}, ${what === 'replied' ? 1 : 0}, ${now}, ${now})
+    ON CONFLICT (owner, domain) DO UPDATE SET
+      received = mail_sender_reputation.received + ${what === 'received' ? 1 : 0},
+      trashed = mail_sender_reputation.trashed + ${what === 'trashed' ? 1 : 0},
+      marked_spam = mail_sender_reputation.marked_spam + ${what === 'marked_spam' ? 1 : 0},
+      replied = mail_sender_reputation.replied + ${what === 'replied' ? 1 : 0},
+      last_seen = ${now}`
+}
+
 /** What the scanners and the sender's own domain said. */
 export type Risk = 'clean' | 'suspicious' | 'spam' | 'virus'
 
@@ -445,43 +517,153 @@ export type RiskSignals = {
   spf?: string | null
   dkim?: string | null
   dmarc?: string | null
+  /** The message itself, for the tells authentication cannot see. */
+  from?: string | null
+  replyTo?: string[] | null
+  subject?: string | null
+  text?: string | null
+}
+
+/** Defaults only. Each is overridable per deployment, so a list can change without a
+ *  release — metroperil can drop a word its own trade uses every day. */
+const FREE_MAIL_DEFAULT = new Set([
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'hotmail.com', 'outlook.com',
+  'live.com', 'aol.com', 'protonmail.com', 'proton.me', 'mail.com', 'gmx.com', 'yandex.com',
+  'icloud.com', 'zoho.com', 'inbox.lv', 'consultant.com', 'qq.com', '163.com',
+])
+
+const THROWAWAY_TLDS_DEFAULT = new Set([
+  'xyz', 'top', 'buzz', 'click', 'link', 'work', 'gq', 'cf', 'ml', 'tk', 'ga',
+  'loan', 'men', 'date', 'racing', 'win', 'stream', 'download', 'review', 'country', 'kim',
+])
+
+/** The shape of an advance-fee approach. Counted, never single-word: one alone is innocent. */
+const SCAM_PHRASES_DEFAULT = [
+  'next of kin', 'sole beneficiary', 'beneficiary', 'late client', 'deceased client',
+  'unclaimed', 'inheritance', 'died without', 'without a will', 'fund transfer',
+  'business proposal', 'strictly confidential', 'bank draft', 'consignment',
+  'compensation fund', 'lottery', 'winning notification', 'atm card', 'western union',
+]
+
+/** The registrable domain behind an address, for reputation to be keyed on. */
+export const senderDomainOf = (address: string): string => registrable(domainOf(address))
+
+const domainOf = (address: string): string => {
+  const angled = address.match(/<([^>]+)>/)
+  const bare = (angled ? angled[1] : address).trim().toLowerCase()
+  return bare.split('@').pop() ?? ''
+}
+
+/** example.co.uk and example.com both reduce to the name somebody actually registered. */
+const registrable = (host: string): string => {
+  const parts = host.split('.').filter(Boolean)
+  if (parts.length <= 2) return parts.join('.')
+  const twoLevel = /^(co|com|org|net|gov|ac|edu|ltd|plc)\.[a-z]{2}$/.test(parts.slice(-2).join('.'))
+  return parts.slice(twoLevel ? -3 : -2).join('.')
 }
 
 const failed = (verdict: string | null | undefined): boolean =>
   typeof verdict === 'string' && /^(fail|softfail|permerror)$/i.test(verdict.trim())
 
-/**
- * A verdict per message, from the checks that already ran upstream. Amazon scans every
- * inbound message for spam and for viruses, and the sending domain's own SPF, DKIM and
- * DMARC records say whether the sender is who the envelope claims. All of it was being
- * recorded and then dropped before the mailbox ever saw it.
- *
- * Judged, never hidden: a message is marked and the reader decides. Filing suspected spam
- * out of sight silently is how real mail goes missing.
- */
-export function classifyRisk(signals: RiskSignals): { risk: Risk; reasons: string[] } {
-  const reasons: string[] = []
-  if (/^fail$/i.test((signals.virus ?? '').trim())) {
-    return { risk: 'virus', reasons: ['A virus scan failed on this message'] }
-  }
-  if (/^fail$/i.test((signals.spam ?? '').trim())) reasons.push('The provider’s spam filter flagged this message')
-
-  // DMARC is the verdict that settles it, because it passes when either SPF or DKIM lines
-  // up with the sending domain. Mail sent through SES routinely shows spf=fail while DKIM
-  // carries it — flagging that would put a warning on ordinary mail, our own included, and
-  // a warning that cries wolf is worse than none.
-  const authenticated = /^pass$/i.test((signals.dmarc ?? '').trim())
-  if (failed(signals.dmarc)) {
-    reasons.push('The sending domain says this message is not from them (DMARC failed)')
-  } else if (!authenticated) {
-    if (failed(signals.spf)) reasons.push('The sending server is not authorised by that domain (SPF failed)')
-    if (failed(signals.dkim)) reasons.push('The signature does not match the sending domain (DKIM failed)')
-  }
-
-  if (!reasons.length) return { risk: 'clean', reasons }
-  const spam = /^fail$/i.test((signals.spam ?? '').trim())
-  return { risk: spam ? 'spam' : 'suspicious', reasons }
+const listFrom = (raw: string | undefined, fallback: Iterable<string>): Set<string> => {
+  const parsed = (raw ?? '').split(',').map(entry => entry.trim().toLowerCase()).filter(Boolean)
+  return parsed.length ? new Set(parsed) : new Set(fallback)
 }
+
+// Read per call, so a deployment can change any of them without a release.
+const freeProviders = () => listFrom(process.env.MAIL_FREE_PROVIDERS, FREE_MAIL_DEFAULT)
+const throwawayTlds = () => listFrom(process.env.MAIL_THROWAWAY_TLDS, THROWAWAY_TLDS_DEFAULT)
+const scamPhrases = () => [...listFrom(process.env.MAIL_SCAM_PHRASES, SCAM_PHRASES_DEFAULT)]
+
+/** Weight at which a message stops being labelled and is held out of the inbox instead. */
+const quarantineAt = () => Number(process.env.MAIL_SPAM_THRESHOLD ?? 6)
+
+/** Below this nothing is said at all. One small oddity is not a case. */
+const flagAt = () => Number(process.env.MAIL_SUSPICION_THRESHOLD ?? 3)
+
+export type RiskJudgement = { risk: Risk; reasons: string[]; score: number; quarantine: boolean }
+
+/**
+ * What this mailbox knows, then what is true of the message. The standing a sender has
+ * built here leads: somebody you have written back to is not spam because their subject
+ * shouts, and somebody whose mail you have binned repeatedly does not get the benefit of
+ * the doubt again. The fixed rules only decide the cases with no history to go on, and
+ * every one of their lists can be changed per deployment without a release.
+ */
+export function judgeMessage(signals: RiskSignals, standing: SenderStanding): RiskJudgement {
+  const reasons: string[] = []
+  let score = 0
+  const add = (weight: number, why: string) => { score += weight; reasons.push(why) }
+
+  if (/^fail$/i.test((signals.virus ?? '').trim())) {
+    return { risk: 'virus', reasons: ['A virus scan failed on this message'], score: 100, quarantine: true }
+  }
+
+  // Trust is earned by being written back to, never by volume alone: a sender whose mail
+  // arrives forty times and is binned every time has not earned anything.
+  const trusted = standing.replied > 0 && standing.markedSpam === 0
+  if (standing.markedSpam > 0) {
+    add(4 + Math.min(standing.markedSpam, 4),
+      `You marked ${standing.markedSpam} earlier message${standing.markedSpam === 1 ? '' : 's'} from this sender as spam`)
+  } else if (standing.trashed >= 3 && standing.replied === 0) {
+    add(3, `You have deleted ${standing.trashed} messages from this sender without ever replying`)
+  }
+
+  if (/^fail$/i.test((signals.spam ?? '').trim())) add(4, 'The provider\u2019s spam filter flagged this message')
+
+  const authenticated = /^pass$/i.test((signals.dmarc ?? '').trim())
+  // Heavy, but not enough on its own to hide a message: mail forwarded through a list
+  // breaks alignment and fails DMARC while being perfectly legitimate. It warns loudly;
+  // it takes a second finding to put a message out of sight.
+  if (failed(signals.dmarc)) add(4, 'The sending domain says this message is not from them (DMARC failed)')
+  else if (!authenticated) {
+    if (failed(signals.spf)) add(2, 'The sending server is not authorised by that domain (SPF failed)')
+    if (failed(signals.dkim)) add(2, 'The signature does not match the sending domain (DKIM failed)')
+  }
+
+  const fromDomain = registrable(domainOf(signals.from ?? ''))
+  const replyDomains = (signals.replyTo ?? [])
+    .map(entry => registrable(domainOf(entry)))
+    .filter(entry => entry && entry !== fromDomain)
+  const free = freeProviders()
+  const freeReply = replyDomains.find(entry => free.has(entry))
+  if (freeReply && fromDomain && !free.has(fromDomain)) {
+    add(4, `Replies to this message go to ${freeReply}, not to ${fromDomain}`)
+  } else if (replyDomains.length) {
+    add(1, `Replies go to ${replyDomains[0]} rather than ${fromDomain || 'the sender'}`)
+  }
+
+  const tld = fromDomain.split('.').pop() ?? ''
+  if (throwawayTlds().has(tld)) add(2, `The sender\u2019s domain ends in .${tld}, which is cheap to register and often disposable`)
+  if (/^\d{4,}$/.test(fromDomain.split('.')[0] ?? '')) add(2, 'The sender\u2019s domain name is just a string of digits')
+
+  const subject = (signals.subject ?? '').trim()
+  const letters = subject.replace(/[^A-Za-z]/g, '')
+  if (letters.length >= 12 && letters === letters.toUpperCase()) add(1, 'The subject is written entirely in capitals')
+
+  const body = (signals.text ?? '').toLowerCase()
+  const hits = scamPhrases().filter(phrase => body.includes(phrase))
+  if (hits.length >= 2) add(3, `The wording follows a known advance-fee approach (${hits.slice(0, 3).join(', ')})`)
+  else if (hits.length === 1) add(1, `Wording associated with advance-fee mail (${hits[0]})`)
+
+  // Never heard from before is not suspicious by itself — everyone writes once for the
+  // first time — but it is what turns a couple of small oddities into a pattern.
+  if (!trusted && standing.received <= 1 && score > 0) add(1, 'This is the first message from this sender')
+
+  // Someone this mailbox corresponds with is forgiven the small stuff; only findings heavy
+  // enough to stand on their own still count against them.
+  const limit = quarantineAt()
+  if (trusted && score < limit) return { risk: 'clean', reasons: [], score: 0, quarantine: false }
+
+  // One small oddity is not a case to answer. A subject in capitals from somebody writing
+  // for the first time is a stranger in a hurry, not a scam, and saying otherwise every
+  // time teaches the reader to ignore the warning.
+  if (score < flagAt()) return { risk: 'clean', reasons: [], score, quarantine: false }
+
+  const quarantine = score >= limit
+  return { risk: quarantine ? 'spam' : 'suspicious', reasons, score, quarantine }
+}
+
 
 /** How the mailbox came to hold a message, from that mailbox's own point of view. */
 export type Addressed = 'direct' | 'copied' | 'other'
@@ -523,6 +705,7 @@ function mapInbound(row: Record<string, unknown>): InboundEmail {
       : classifyAddressed(row.owner == null ? null : String(row.owner), parseArray(row.to_addrs), parseArray(row.cc))) as Addressed,
     risk: (['clean', 'suspicious', 'spam', 'virus'].includes(String(row.risk)) ? String(row.risk) : 'clean') as Risk,
     riskReasons: parseJson<string[]>(row.risk_reasons, []),
+    spam: Boolean(row.spam),
     bcc: parseArray(row.bcc),
     replyTo: parseArray(row.reply_to),
     subject: (row.subject as string) ?? '',
@@ -564,7 +747,7 @@ export type InboxPage = {
 export async function searchInbox(options: {
   text?: string
   owner?: string
-  folder?: 'inbox' | 'archive' | 'trash' | 'starred' | 'snoozed'
+  folder?: 'inbox' | 'archive' | 'trash' | 'starred' | 'snoozed' | 'spam'
   unread?: boolean
   starred?: boolean
   hasAttachment?: boolean
@@ -616,11 +799,14 @@ export async function searchInbox(options: {
   // does the waking, so nothing has to run on a timer.
   const nowIso = new Date().toISOString()
   const awake = "(m.snoozed_until IS NULL OR m.snoozed_until <= ?)"
-  if (options.folder === 'trash') where.push('m.trashed = 1')
-  else if (options.folder === 'archive') where.push('m.archived = 1 AND m.trashed = 0')
-  else if (options.folder === 'starred') where.push('m.starred = 1 AND m.trashed = 0')
-  else if (options.folder === 'snoozed') { where.push('m.snoozed_until > ? AND m.trashed = 0'); args.push(nowIso) }
-  else if (options.folder === 'inbox') { where.push(`m.archived = 0 AND m.trashed = 0 AND ${awake}`); args.push(nowIso) }
+  // Quarantined mail belongs to exactly one folder and appears in no other, or holding it
+  // back would be pointless — it would still be sitting in the inbox under a label.
+  if (options.folder === 'spam') where.push('m.spam = 1 AND m.trashed = 0')
+  else if (options.folder === 'trash') where.push('m.trashed = 1')
+  else if (options.folder === 'archive') where.push('m.archived = 1 AND m.trashed = 0 AND m.spam = 0')
+  else if (options.folder === 'starred') where.push('m.starred = 1 AND m.trashed = 0 AND m.spam = 0')
+  else if (options.folder === 'snoozed') { where.push('m.snoozed_until > ? AND m.trashed = 0 AND m.spam = 0'); args.push(nowIso) }
+  else if (options.folder === 'inbox') { where.push(`m.archived = 0 AND m.trashed = 0 AND m.spam = 0 AND ${awake}`); args.push(nowIso) }
 
   const filterClause = where.length ? `WHERE ${where.join(' AND ')}` : ''
 
@@ -650,7 +836,8 @@ export async function searchInbox(options: {
                 'contentType', json_extract(value, '$.contentType'),
                 'size', json_extract(value, '$.size')))
               FROM json_each(CASE WHEN json_valid(m.attachments) THEN m.attachments ELSE '[]' END)), '[]') AS attachments,
-            m.starred, m.archived, m.trashed, m.snoozed_until, m.labels, m.owner, m.thread_id
+            m.starred, m.archived, m.trashed, m.snoozed_until, m.labels, m.owner, m.thread_id,
+            m.addressed, m.risk, m.risk_reasons, m.spam
      FROM ${ftsFrom}mail_inbox m ${ftsFrom ? 'ON m.rowid = fts.fts_rid' : ''} ${pageClause}
      ORDER BY m.received_at DESC, m.id DESC LIMIT ?${cursor ? '' : ' OFFSET ?'}`,
     cursor ? [...pageArgs, limit] : [...pageArgs, limit, offset],
@@ -696,6 +883,7 @@ export type FolderTally = {
   starred: number
   archived: number
   trashed: number
+  spam: number
   snoozed: number
 }
 
@@ -760,12 +948,13 @@ export async function countFolders(owner?: string): Promise<FolderCounts> {
   const rows = await tagged(
     sql,
     `SELECT
-       SUM(CASE WHEN archived = 0 AND trashed = 0 AND (snoozed_until IS NULL OR snoozed_until <= ?) THEN 1 ELSE 0 END) AS inbox,
-       SUM(CASE WHEN archived = 0 AND trashed = 0 AND read = 0 AND (snoozed_until IS NULL OR snoozed_until <= ?) THEN 1 ELSE 0 END) AS unread,
-       SUM(CASE WHEN starred = 1 AND trashed = 0 THEN 1 ELSE 0 END) AS starred,
-       SUM(CASE WHEN archived = 1 AND trashed = 0 THEN 1 ELSE 0 END) AS archived,
+       SUM(CASE WHEN archived = 0 AND trashed = 0 AND spam = 0 AND (snoozed_until IS NULL OR snoozed_until <= ?) THEN 1 ELSE 0 END) AS inbox,
+       SUM(CASE WHEN archived = 0 AND trashed = 0 AND spam = 0 AND read = 0 AND (snoozed_until IS NULL OR snoozed_until <= ?) THEN 1 ELSE 0 END) AS unread,
+       SUM(CASE WHEN starred = 1 AND trashed = 0 AND spam = 0 THEN 1 ELSE 0 END) AS starred,
+       SUM(CASE WHEN archived = 1 AND trashed = 0 AND spam = 0 THEN 1 ELSE 0 END) AS archived,
        SUM(CASE WHEN trashed = 1 THEN 1 ELSE 0 END) AS trashed,
-       SUM(CASE WHEN snoozed_until > ? AND trashed = 0 THEN 1 ELSE 0 END) AS snoozed
+       SUM(CASE WHEN spam = 1 AND trashed = 0 THEN 1 ELSE 0 END) AS spam,
+       SUM(CASE WHEN snoozed_until > ? AND trashed = 0 AND spam = 0 THEN 1 ELSE 0 END) AS snoozed
      FROM mail_inbox ${scope}`,
     [nowIso, nowIso, nowIso, ...args],
   )
@@ -786,6 +975,7 @@ export async function countFolders(owner?: string): Promise<FolderCounts> {
          SUM(CASE WHEN starred_count > 0 THEN 1 ELSE 0 END) AS starred,
          SUM(CASE WHEN archived_count > 0 THEN 1 ELSE 0 END) AS archived,
          SUM(CASE WHEN trashed_count > 0 THEN 1 ELSE 0 END) AS trashed,
+         0 AS spam,
          SUM(CASE WHEN snoozed_until > ? THEN 1 ELSE 0 END) AS snoozed
        FROM mail_threads WHERE owner = ?`,
       [nowIso, nowIso, nowIso, owner.toLowerCase()],
@@ -798,6 +988,7 @@ export async function countFolders(owner?: string): Promise<FolderCounts> {
       starred: threadValue('starred'),
       archived: threadValue('archived'),
       trashed: threadValue('trashed'),
+      spam: threadValue('spam'),
       snoozed: threadValue('snoozed'),
     }
   }
@@ -808,6 +999,7 @@ export async function countFolders(owner?: string): Promise<FolderCounts> {
     starred: value('starred'),
     archived: value('archived'),
     trashed: value('trashed'),
+    spam: value('spam'),
     snoozed: value('snoozed'),
     conversations,
   }
@@ -819,10 +1011,10 @@ export async function readInbox(filter?: { owner?: string }): Promise<InboundEma
   const owner = filter?.owner?.trim().toLowerCase()
   const rows = owner
     ? await sql`
-        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id, addressed, risk, risk_reasons
+        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id, addressed, risk, risk_reasons, spam
         FROM mail_inbox WHERE lower(owner) = ${owner} ORDER BY received_at DESC LIMIT ${MAX_INBOX}`
     : await sql`
-        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id, addressed, risk, risk_reasons
+        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id, addressed, risk, risk_reasons, spam
         FROM mail_inbox ORDER BY received_at DESC LIMIT ${MAX_INBOX}`
   return rows.map(mapInbound)
 }
@@ -840,6 +1032,7 @@ export type ThreadRow = {
   inboxCount: number
   archivedCount: number
   trashedCount: number
+  spamCount: number
   attachCount: number
   senders: string[]
   snippet: string
@@ -878,12 +1071,14 @@ export async function refreshThread(ownerRaw: string, threadId: string): Promise
   const owner = ownerRaw.toLowerCase()
   const agg = await sql`
     SELECT COUNT(*) AS n,
-      SUM(CASE WHEN read = 0 AND trashed = 0 THEN 1 ELSE 0 END) AS unread,
-      SUM(CASE WHEN starred = 1 AND trashed = 0 THEN 1 ELSE 0 END) AS starred,
-      SUM(CASE WHEN archived = 0 AND trashed = 0 THEN 1 ELSE 0 END) AS inbox,
-      SUM(CASE WHEN archived = 1 AND trashed = 0 THEN 1 ELSE 0 END) AS archived,
+      SUM(CASE WHEN read = 0 AND trashed = 0 AND spam = 0 THEN 1 ELSE 0 END) AS unread,
+      SUM(CASE WHEN starred = 1 AND trashed = 0 AND spam = 0 THEN 1 ELSE 0 END) AS starred,
+      SUM(CASE WHEN archived = 0 AND trashed = 0 AND spam = 0 THEN 1 ELSE 0 END) AS inbox,
+      SUM(CASE WHEN archived = 1 AND trashed = 0 AND spam = 0 THEN 1 ELSE 0 END) AS archived,
+      SUM(CASE WHEN spam = 1 THEN 1 ELSE 0 END) AS spam,
       SUM(CASE WHEN trashed = 1 THEN 1 ELSE 0 END) AS trashed,
       SUM(CASE WHEN attachments IS NOT NULL AND attachments NOT IN ('', '[]') THEN 1 ELSE 0 END) AS attach,
+      MAX(CASE risk WHEN 'virus' THEN 3 WHEN 'spam' THEN 2 WHEN 'suspicious' THEN 1 ELSE 0 END) AS worst_risk,
       MIN(received_at) AS first_at, MAX(received_at) AS latest_at
     FROM mail_inbox WHERE lower(owner) = ${owner} AND thread_id = ${threadId}`
   const total = Number(agg[0]?.n ?? 0)
@@ -908,21 +1103,22 @@ export async function refreshThread(ownerRaw: string, threadId: string): Promise
   const head = latest[0]
   await sql`
     INSERT INTO mail_threads (owner, thread_id, subject_key, subject, first_at, latest_at, latest_id, count,
-      unread_count, starred_count, inbox_count, archived_count, trashed_count, attach_count, senders, snippet, labels, addressed)
+      unread_count, starred_count, inbox_count, archived_count, trashed_count, spam_count, attach_count, senders, snippet, labels, addressed)
     VALUES (${owner}, ${threadId}, ${subjectKey(String(head?.subject ?? ''))}, ${head?.subject ?? null},
       ${String(agg[0].first_at)}, ${String(agg[0].latest_at)}, ${head?.id ?? null}, ${total},
       ${Number(agg[0].unread ?? 0)}, ${Number(agg[0].starred ?? 0)}, ${Number(agg[0].inbox ?? 0)},
-      ${Number(agg[0].archived ?? 0)}, ${Number(agg[0].trashed ?? 0)}, ${Number(agg[0].attach ?? 0)},
+      ${Number(agg[0].archived ?? 0)}, ${Number(agg[0].trashed ?? 0)}, ${Number(agg[0].spam ?? 0)}, ${Number(agg[0].attach ?? 0)},
       ${JSON.stringify(senders)}, ${String(head?.snippet ?? '')}, ${JSON.stringify([...labels])},
-      ${head?.addressed == null ? null : String(head.addressed)})
+      ${head?.addressed == null ? null : String(head.addressed)},
+      ${['clean', 'suspicious', 'spam', 'virus'][Number(agg[0]?.worst_risk ?? 0)] ?? 'clean'})
     ON CONFLICT (owner, thread_id) DO UPDATE SET
       subject_key = excluded.subject_key, subject = excluded.subject, first_at = excluded.first_at,
       latest_at = excluded.latest_at, latest_id = excluded.latest_id, count = excluded.count,
       unread_count = excluded.unread_count, starred_count = excluded.starred_count,
       inbox_count = excluded.inbox_count, archived_count = excluded.archived_count,
-      trashed_count = excluded.trashed_count, attach_count = excluded.attach_count,
+      trashed_count = excluded.trashed_count, spam_count = excluded.spam_count, attach_count = excluded.attach_count,
       senders = excluded.senders, snippet = excluded.snippet, labels = excluded.labels,
-      addressed = excluded.addressed`
+      addressed = excluded.addressed, risk = excluded.risk`
 }
 
 /** Thread the message and refresh its summary; never lets a threading fault fail a write. */
@@ -963,7 +1159,7 @@ async function rethreadAfterChange(id: string, previousOwner?: string | null, pr
   }
 }
 
-export type ThreadFolder = 'inbox' | 'archive' | 'trash' | 'starred' | 'snoozed'
+export type ThreadFolder = 'inbox' | 'archive' | 'trash' | 'starred' | 'snoozed' | 'spam'
 
 /** The newest conversations in a folder: one row each, already summarised. */
 export type ThreadPage = { rows: ThreadRow[]; nextCursor: string | null }
@@ -973,7 +1169,8 @@ export async function listThreads(ownerRaw: string | null, folder: ThreadFolder,
   const owner = ownerRaw === null ? null : ownerRaw.toLowerCase()
   const nowIso = new Date().toISOString()
   const predicate =
-    folder === 'archive' ? 'archived_count > 0'
+    folder === 'spam' ? 'spam_count > 0'
+    : folder === 'archive' ? 'archived_count > 0'
     : folder === 'trash' ? 'trashed_count > 0'
     : folder === 'starred' ? 'starred_count > 0'
     : folder === 'snoozed' ? 'snoozed_until > ?'
@@ -993,8 +1190,8 @@ export async function listThreads(ownerRaw: string | null, folder: ThreadFolder,
         SELECT thread_id, subject, MIN(first_at) AS first_at, MAX(latest_at) AS latest_at, latest_id,
           SUM(count) AS count, SUM(unread_count) AS unread_count, SUM(starred_count) AS starred_count,
           SUM(inbox_count) AS inbox_count, SUM(archived_count) AS archived_count,
-          SUM(trashed_count) AS trashed_count, SUM(attach_count) AS attach_count,
-          senders, snippet, labels, snoozed_until, addressed
+          SUM(trashed_count) AS trashed_count, SUM(spam_count) AS spam_count, SUM(attach_count) AS attach_count,
+          senders, snippet, labels, snoozed_until, addressed, risk
         FROM mail_threads
         GROUP BY thread_id
         HAVING ${predicate}${cursorClause ? ` AND ${cursorClause}` : ''}
@@ -1002,7 +1199,7 @@ export async function listThreads(ownerRaw: string | null, folder: ThreadFolder,
         [...folderArgs, ...cursorArgs, limit])
     : await tagged(db(), `
         SELECT thread_id, subject, first_at, latest_at, latest_id, count, unread_count, starred_count,
-          inbox_count, archived_count, trashed_count, attach_count, senders, snippet, labels, snoozed_until, addressed
+          inbox_count, archived_count, trashed_count, spam_count, attach_count, senders, snippet, labels, snoozed_until, addressed, risk
         FROM mail_threads WHERE owner = ? AND ${predicate}
           ${cursorClause ? `AND ${cursorClause}` : ''}
         ORDER BY latest_at DESC, thread_id DESC LIMIT ?`,
@@ -1021,12 +1218,14 @@ export async function listThreads(ownerRaw: string | null, folder: ThreadFolder,
     inboxCount: Number(row.inbox_count ?? 0),
     archivedCount: Number(row.archived_count ?? 0),
     trashedCount: Number(row.trashed_count ?? 0),
+    spamCount: Number(row.spam_count ?? 0),
     attachCount: Number(row.attach_count ?? 0),
     senders: parseJson<string[]>(row.senders, []),
     snippet: String(row.snippet ?? ''),
     labels: parseJson<string[]>(row.labels, []),
     snoozedUntil: row.snoozed_until == null ? null : String(row.snoozed_until),
     addressed: (['direct', 'copied', 'other'].includes(String(row.addressed)) ? String(row.addressed) : 'direct') as Addressed,
+    risk: (['clean', 'suspicious', 'spam', 'virus'].includes(String(row.risk)) ? String(row.risk) : 'clean') as Risk,
   }))
   return { rows: mapped, nextCursor }
 }
@@ -1096,8 +1295,8 @@ export async function appendInbound(
   await ensureMailSchema()
   const sql = db()
   await sql`
-    INSERT INTO mail_inbox (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, owner, snippet, thread_meta, attach_meta, addressed, risk, risk_reasons)
-    VALUES (${email.id}, ${email.from}, ${JSON.stringify(email.to)}, ${JSON.stringify(email.cc)}, ${JSON.stringify(email.bcc)}, ${JSON.stringify(email.replyTo)}, ${email.subject}, ${email.html}, ${email.text}, ${JSON.stringify(email.headers)}, ${email.receivedAt}, ${email.read}, ${JSON.stringify(email.attachments)}, ${email.owner ?? null}, ${listSnippet(email.text)}, ${threadMeta(email.headers)}, ${attachMeta(email.attachments)}, ${classifyAddressed(email.owner, email.to, email.cc)}, ${email.risk ?? 'clean'}, ${JSON.stringify(email.riskReasons ?? [])})
+    INSERT INTO mail_inbox (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, owner, snippet, thread_meta, attach_meta, addressed, risk, risk_reasons, spam)
+    VALUES (${email.id}, ${email.from}, ${JSON.stringify(email.to)}, ${JSON.stringify(email.cc)}, ${JSON.stringify(email.bcc)}, ${JSON.stringify(email.replyTo)}, ${email.subject}, ${email.html}, ${email.text}, ${JSON.stringify(email.headers)}, ${email.receivedAt}, ${email.read}, ${JSON.stringify(email.attachments)}, ${email.owner ?? null}, ${listSnippet(email.text)}, ${threadMeta(email.headers)}, ${attachMeta(email.attachments)}, ${classifyAddressed(email.owner, email.to, email.cc)}, ${email.risk ?? 'clean'}, ${JSON.stringify(email.riskReasons ?? [])}, ${email.spam ? 1 : 0})
     ON CONFLICT (id) DO NOTHING`
   await threadMessage({ id: email.id, owner: email.owner ?? null, subject: email.subject, receivedAt: email.receivedAt })
   await invalidateCounts(email.owner)
@@ -1109,6 +1308,75 @@ export async function appendInbound(
  * labels and owner are the reader's, not the repair's, and a row that already has a body
  * is left exactly as it is.
  */
+export async function rejudgeStored(options: { before?: string; limit?: number } = {}): Promise<{
+  scanned: number
+  changed: number
+  quarantined: number
+  cursor: string | null
+}> {
+  await ensureMailSchema()
+  const sql = db()
+  const limit = Math.min(Math.max(options.limit ?? 200, 1), 500)
+  const before = options.before ?? '9999-12-31'
+  const rows = await sql`
+    SELECT id, owner, from_addr, reply_to, subject, body_text, headers, received_at,
+           read, starred, archived, trashed, risk, spam
+    FROM mail_inbox
+    WHERE received_at < ${before}
+    ORDER BY received_at DESC
+    LIMIT ${limit}`
+
+  const result = { scanned: rows.length, changed: 0, quarantined: 0, cursor: null as string | null }
+  if (rows.length === 0) return result
+  result.cursor = String(rows[rows.length - 1].received_at ?? '')
+
+  const standings = new Map<string, SenderStanding>()
+  const touchedOwners = new Set<string>()
+  for (const row of rows) {
+    const owner = String(row.owner ?? '')
+    const senderDomain = senderDomainOf(String(row.from_addr ?? ''))
+    const key = `${owner.toLowerCase()}\u0000${senderDomain}`
+    let standing = standings.get(key)
+    if (!standing) {
+      standing = await senderStanding(owner, senderDomain)
+      standings.set(key, standing)
+    }
+
+    const headers = parseJson<Record<string, unknown>>(row.headers, {})
+    const authHeader = headerString(headers, 'authentication-results').toLowerCase()
+    const mechanism = (name: string) => authHeader.match(new RegExp(`${name}=(\\w+)`))?.[1] ?? null
+    const verdict = judgeMessage({
+      spam: null,
+      virus: null,
+      spf: mechanism('spf'),
+      dkim: mechanism('dkim'),
+      dmarc: mechanism('dmarc'),
+      from: String(row.from_addr ?? ''),
+      replyTo: parseJson<string[]>(row.reply_to, []),
+      subject: String(row.subject ?? ''),
+      text: row.body_text == null ? null : String(row.body_text),
+    }, standing)
+
+    // A message the reader has already read, starred, filed or binned stays exactly where
+    // they put it — back-fill may label it, never move it out from under them.
+    const untouched = !Number(row.read) && !Number(row.starred) && !Number(row.archived) && !Number(row.trashed)
+    const quarantine = verdict.quarantine && untouched
+    if (String(row.risk ?? 'clean') === verdict.risk && Boolean(Number(row.spam)) === quarantine) continue
+
+    await sql`
+      UPDATE mail_inbox
+      SET risk = ${verdict.risk}, risk_reasons = ${JSON.stringify(verdict.reasons)}, spam = ${quarantine ? 1 : 0}
+      WHERE id = ${String(row.id)}`
+    await rethreadAfterChange(String(row.id))
+    result.changed += 1
+    if (quarantine) result.quarantined += 1
+    if (owner) touchedOwners.add(owner)
+  }
+
+  for (const owner of touchedOwners) await invalidateCounts(owner)
+  return result
+}
+
 export async function repairInbound(
   email: Pick<InboundEmail, 'id' | 'html' | 'text' | 'headers' | 'attachments'>,
 ): Promise<boolean> {
@@ -1393,13 +1661,41 @@ export async function markInboundRead(id: string): Promise<void> {
   await rethreadAfterChange(id)
 }
 
+/**
+ * Moves a message in or out of quarantine and remembers the decision. This is the loop:
+ * what the reader does with a sender's mail decides how the next one is treated, so the
+ * same message can be spam in one mailbox and ordinary correspondence in another.
+ */
+export async function setInboundSpam(id: string, spam: boolean): Promise<void> {
+  await ensureMailSchema()
+  const sql = db()
+  const rows = await sql`SELECT owner, from_addr FROM mail_inbox WHERE id = ${id}`
+  const row = rows[0]
+  // A reader who says "not spam" has overruled the judgement, so the warning goes with the
+  // quarantine — leaving the badge on would argue with them every time they open it.
+  await (spam
+    ? sql`UPDATE mail_inbox SET spam = 1, archived = 0, trashed = 0 WHERE id = ${id}`
+    : sql`UPDATE mail_inbox SET spam = 0, archived = 0, trashed = 0, risk = 'clean', risk_reasons = '[]' WHERE id = ${id}`)
+  if (row?.owner) {
+    await noteSender(String(row.owner), senderDomainOf(String(row.from_addr ?? '')), spam ? 'marked_spam' : 'replied')
+      .catch(() => {})
+  }
+  await invalidateCounts(row?.owner == null ? null : String(row.owner))
+  await rethreadAfterChange(id)
+}
+
 export async function setInboundFlags(id: string, flags: InboundFlags): Promise<void> {
   const sql = db()
   if (flags.read !== undefined) await sql`UPDATE mail_inbox SET read = ${flags.read} WHERE id = ${id}`
   if (flags.starred !== undefined) await sql`UPDATE mail_inbox SET starred = ${flags.starred} WHERE id = ${id}`
   if (flags.archived !== undefined) await sql`UPDATE mail_inbox SET archived = ${flags.archived} WHERE id = ${id}`
   if (flags.trashed !== undefined) await sql`UPDATE mail_inbox SET trashed = ${flags.trashed} WHERE id = ${id}`
-  const owned = await sql`SELECT owner FROM mail_inbox WHERE id = ${id}`
+  const owned = await sql`SELECT owner, from_addr FROM mail_inbox WHERE id = ${id}`
+  // Binning a sender's mail counts against them; it is the commonest way a reader says
+  // "not this one" without ever pressing a button marked spam.
+  if (flags.trashed === true && owned[0]?.owner) {
+    await noteSender(String(owned[0].owner), senderDomainOf(String(owned[0].from_addr ?? '')), 'trashed').catch(() => {})
+  }
   await invalidateCounts(owned[0]?.owner == null ? null : String(owned[0].owner))
   await rethreadAfterChange(id)
 }
@@ -1914,6 +2210,11 @@ export async function readSentArchive(options: {
 
 // ── Sent-mail attribution (owner + automated flag + thread link) ─
 export type SentMeta = { owner: string | null; isAuto: boolean; inReplyTo: string | null }
+
+/** Writing back to somebody is the clearest statement that their mail is wanted. */
+export async function noteReplyTo(owner: string | null, address: string): Promise<void> {
+  await noteSender(owner, senderDomainOf(address), 'replied').catch(() => {})
+}
 
 export async function recordSentMeta(
   emailId: string,

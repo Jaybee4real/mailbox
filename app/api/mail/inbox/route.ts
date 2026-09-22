@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, isLocalOrigin, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
-import { searchInbox, appendEvent, appendInbound, recordContact, setInboundFlags, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
+import { searchInbox, appendEvent, appendInbound, recordContact, setInboundFlags, setInboundSpam, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
 import { addressedToUs, attributeOwner, forwardToAccounts, ingestReceived, parseSender } from '@/lib/receive'
 import { isBrevoInbound, normalizeBrevoInbound } from '@/lib/mail-provider'
 
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   const threadId = params.get('thread') ?? undefined
   if (text || limitRaw || offset || cursor || threadId) {
     const folderParam = params.get('folder')
-    const folder = (['inbox', 'archive', 'trash', 'starred', 'snoozed'] as const).find(f => f === folderParam)
+    const folder = (['inbox', 'archive', 'trash', 'starred', 'snoozed', 'spam'] as const).find(f => f === folderParam)
     const { rows, total, nextCursor } = await searchInbox({
       text,
       owner: ownerFilter ?? undefined,
@@ -57,7 +57,7 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
-  let body: { id?: string; ids?: string[]; threadId?: string; labels?: string[]; owner?: string; snoozedUntil?: string | null } & InboundFlags
+  let body: { id?: string; ids?: string[]; threadId?: string; labels?: string[]; owner?: string; snoozedUntil?: string | null; spam?: boolean } & InboundFlags
   try {
     body = await req.json()
   } catch {
@@ -109,6 +109,11 @@ export async function PATCH(req: Request) {
     const account = await resolveAccount(req)
     const changed = await setInboundFlagsForThread(account.address ?? ' no-address', body.threadId, flags)
     return NextResponse.json({ ok: true, ids: changed })
+  }
+  // Quarantine is its own move: it teaches the sender's standing, which a flag does not.
+  if (body.spam !== undefined) {
+    await Promise.all(ids.map(id => setInboundSpam(id, Boolean(body.spam))))
+    return NextResponse.json({ ok: true, ids })
   }
   await Promise.all(ids.map(id => setInboundFlags(id, flags)))
   return NextResponse.json({ ok: true, ids })

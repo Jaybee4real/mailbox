@@ -2,7 +2,7 @@ import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { sendPush } from '@/lib/push'
 import { stripOwnPixel } from '@/lib/email-html'
 import { FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-auth'
-import { ADDRESS_ALIASES, appendInbound, classifyRisk, getAccountByAddress, inboundExists, recordContact, recordSentMeta, repairInbound } from '@/lib/mailbox'
+import { ADDRESS_ALIASES, appendInbound, judgeMessage, noteSender, senderStanding, senderDomainOf, getAccountByAddress, inboundExists, recordContact, recordSentMeta, repairInbound } from '@/lib/mailbox'
 import { sendMail } from '@/lib/mail-provider'
 
 /**
@@ -252,13 +252,36 @@ export async function ingestReceived(
     (full?.headers as Record<string, unknown> | undefined)?.['authentication-results'] ?? '',
   ).toLowerCase()
   const fromHeader = (mech: string): string | null => authHeader.match(new RegExp(`${mech}=(\\w+)`))?.[1] ?? null
-  const verdicts = classifyRisk({
+
+  // Who this is for has to be settled before the message can be judged: standing is what
+  // this mailbox has done with this sender, and a different mailbox may have done the
+  // opposite. Resolved once here and reused below.
+  const recipients = [
+    ...(Array.isArray(full?.to) ? full!.to : []),
+    ...(Array.isArray(data.to) ? (data.to as string[]) : [String(data.to ?? '')]),
+    ...(Array.isArray(full?.cc) ? full!.cc : []),
+    ...(Array.isArray(data.cc) ? (data.cc as string[]) : []),
+    ...(Array.isArray(full?.bcc) ? full!.bcc : []),
+    ...(Array.isArray(data.bcc) ? (data.bcc as string[]) : []),
+  ].filter(Boolean)
+  const owner = await attributeOwner(recipients)
+  const fromAddress = full?.from || String(data.from ?? '')
+  const senderDomain = senderDomainOf(fromAddress)
+  const standing = await senderStanding(owner, senderDomain)
+
+  const verdicts = judgeMessage({
     spam: data.spam == null ? null : String(data.spam),
     virus: data.virus == null ? null : String(data.virus),
+    // Where no provider hands us a verdict — a deployment reading its mail through Resend,
+    // say — the receiving server's own Authentication-Results header carries the same answer.
     spf: data.spf == null ? fromHeader('spf') : String(data.spf),
     dkim: data.dkim == null ? fromHeader('dkim') : String(data.dkim),
     dmarc: data.dmarc == null ? fromHeader('dmarc') : String(data.dmarc),
-  })
+    from: full?.from || String(data.from ?? ''),
+    replyTo: full?.replyTo ?? (Array.isArray(data.reply_to) ? (data.reply_to as string[]) : []),
+    subject: full?.subject || String(data.subject ?? ''),
+    text: full?.text ?? (data.text ? String(data.text) : null),
+  }, standing)
   if (verdicts.risk !== 'clean') {
     console.warn(`[mail] ${verdicts.risk} inbound ${emailId}:`, verdicts.reasons.join('; '))
   }
@@ -267,6 +290,8 @@ export async function ingestReceived(
     id: emailId,
     risk: verdicts.risk,
     riskReasons: verdicts.reasons,
+    // Held out of the inbox, not merely labelled, once the weight passes the threshold.
+    spam: verdicts.quarantine,
     from: full?.from || String(data.from ?? ''),
     to: full?.to ?? (Array.isArray(data.to) ? (data.to as string[]) : [String(data.to ?? '')]),
     cc: full?.cc ?? (Array.isArray(data.cc) ? (data.cc as string[]) : []),
@@ -289,12 +314,7 @@ export async function ingestReceived(
     // Attribute (and therefore forward) to the accessor actually addressed — to, cc, OR bcc.
     // Anything not matching a member's personal address stays in the shared (admin) inbox,
     // so a member never receives mail they aren't a party to.
-    owner: await attributeOwner([
-      ...(Array.isArray(full?.to) ? full!.to : []),
-      ...(Array.isArray(data.to) ? (data.to as string[]) : [String(data.to ?? '')]),
-      ...(full?.cc ?? []),
-      ...(full?.bcc ?? []),
-    ]),
+    owner,
   }
   // Refuse mail that was never addressed to this mailbox, before a copy is stored, pushed
   // or forwarded. Without this, every message the provider account receives for any tenant
@@ -318,6 +338,7 @@ export async function ingestReceived(
   }
 
   await appendInbound(inbound)
+  await noteSender(owner, senderDomain, 'received').catch(() => {})
   const sender = parseSender(inbound.from)
   await recordContact(sender.email, sender.name)
   await sendPush(inbound.owner, {

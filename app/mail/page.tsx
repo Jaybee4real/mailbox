@@ -152,7 +152,7 @@ type Accessor = {
   invitedBy: string | null
 }
 
-type Folder = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'scheduled' | 'drafts' | 'archived' | 'trash'
+type Folder = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'scheduled' | 'drafts' | 'archived' | 'spam' | 'trash'
 
 type SentEmail = {
   id: string
@@ -191,6 +191,7 @@ type SentDetail = SentEmail & {
 
 type ConversationRow = {
   addressed?: 'direct' | 'copied' | 'other'
+  risk?: 'clean' | 'suspicious' | 'spam' | 'virus'
   threadId: string
   snoozedUntil?: string | null
   subject: string
@@ -203,6 +204,7 @@ type ConversationRow = {
   inboxCount: number
   archivedCount: number
   trashedCount: number
+  spamCount: number
   attachCount: number
   senders: string[]
   snippet: string
@@ -219,6 +221,7 @@ type InboundEmail = {
   addressed?: 'direct' | 'copied' | 'other'
   risk?: 'clean' | 'suspicious' | 'spam' | 'virus'
   riskReasons?: string[]
+  spam?: boolean
   bcc: string[]
   replyTo: string[]
   subject: string
@@ -1323,6 +1326,7 @@ const FOLDER_ICONS: Record<Folder, React.ReactNode> = {
   scheduled: ICONS.scheduled,
   drafts: ICONS.drafts,
   archived: ICONS.archive,
+  spam: ICONS.warn,
   trash: ICONS.trash,
 }
 
@@ -1365,7 +1369,7 @@ export default function DevMailPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [inboxCursor, setInboxCursor] = useState<string | null>(null)
   const inboxFetch = useRef<string | null>(null)
-  type FolderTally = { inbox: number; unread: number; starred: number; archived: number; trashed: number; snoozed: number }
+  type FolderTally = { inbox: number; unread: number; starred: number; archived: number; trashed: number; spam: number; snoozed: number }
   const [serverCounts, setServerCounts] = useState<(FolderTally & { conversations: FolderTally | null }) | null>(null)
   const [countsLoading, setCountsLoading] = useState(false)
   const [composeExpanded, setComposeExpanded] = useState(true)
@@ -1699,7 +1703,7 @@ export default function DevMailPage() {
 
   const [threads, setThreads] = useState<ConversationRow[]>([])
   const [threadsResolved, setThreadsResolved] = useState(false)
-  const threadFolder = folder === 'archived' ? 'archive' : folder === 'trash' ? 'trash' : folder === 'starred' ? 'starred' : folder === 'snoozed' ? 'snoozed' : 'inbox'
+  const threadFolder = folder === 'archived' ? 'archive' : folder === 'trash' ? 'trash' : folder === 'starred' ? 'starred' : folder === 'snoozed' ? 'snoozed' : folder === 'spam' ? 'spam' : 'inbox'
   const threadsFetch = useRef<string | null>(null)
   const threadsLoadedFolder = useRef<string | null>(null)
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null)
@@ -2993,6 +2997,7 @@ export default function DevMailPage() {
       starred: serverCounts?.starred ?? 0,
       archived: serverCounts?.archived ?? 0,
       trashed: serverCounts?.trashed ?? 0,
+      spam: serverCounts?.spam ?? 0,
       snoozed: serverCounts?.snoozed ?? 0,
     }),
     [serverCounts],
@@ -3011,6 +3016,7 @@ export default function DevMailPage() {
     if (folder === 'trash') return tally.trashed
     if (folder === 'starred') return tally.starred
     if (folder === 'snoozed') return tally.snoozed
+    if (folder === 'spam') return tally.spam
     if (folder === 'inbox') return tally.inbox
     return null
   }, [serverCounts, search, folder])
@@ -3166,7 +3172,8 @@ export default function DevMailPage() {
       if (folder === 'starred') return entry.starred && !entry.trashed
       if (folder === 'archived') return entry.archived && !entry.trashed
       if (folder === 'trash') return entry.trashed
-      return !entry.archived && !entry.trashed && !asleep
+      if (folder === 'spam') return Boolean(entry.spam)
+      return !entry.archived && !entry.trashed && !asleep && !entry.spam
     },
     [folder],
   )
@@ -3257,7 +3264,8 @@ export default function DevMailPage() {
 
   /** The folders backed by the paged inbound list, as opposed to ones loaded whole. */
   const isInboundFolder =
-    folder === 'inbox' || folder === 'starred' || folder === 'snoozed' || folder === 'archived' || folder === 'trash'
+    folder === 'inbox' || folder === 'starred' || folder === 'snoozed' || folder === 'archived' ||
+    folder === 'spam' || folder === 'trash'
 
   const listItems = useMemo(() => {
     const sentToItem = (entry: SentEmail) => ({
@@ -3294,6 +3302,7 @@ export default function DevMailPage() {
       }
       const inThreadFolder = (thread: ConversationRow) => {
         const asleep = Boolean(thread.snoozedUntil && Date.parse(thread.snoozedUntil) > Date.now())
+        if (folder === 'spam') return thread.spamCount > 0
         if (folder === 'snoozed') return asleep
         if (folder === 'archived') return thread.archivedCount > 0
         if (folder === 'trash') return thread.trashedCount > 0
@@ -3319,7 +3328,7 @@ export default function DevMailPage() {
                 hasAttachment: thread.attachCount > 0,
                 chip: null as string | null,
                 addressed: thread.addressed ?? 'direct',
-                risk: 'clean' as const,
+                risk: thread.risk ?? 'clean',
                 threadCount: thread.count,
                 latestAt: new Date(thread.latestAt).getTime(),
                 labels: thread.labels,
@@ -3643,6 +3652,36 @@ export default function DevMailPage() {
   type InboundFlagPatch = Partial<Pick<InboundEmail, 'read' | 'starred' | 'archived' | 'trashed'>>
   const setInboundFlagRef = useRef<(ids: string[], flags: InboundFlagPatch) => void>(() => {})
   const threadIdsRef = useRef<(id: string) => string[]>(id => [id])
+
+  /**
+   * Moves mail into or out of quarantine. Both directions teach: marking spam counts
+   * against the sender, rescuing counts for them, and the next message from that domain
+   * is judged with the answer already in hand.
+   */
+  const markSpam = useCallback(
+    async (ids: string[], spam: boolean) => {
+      if (!ids.length) return
+      setInboxEmails(list => list.map(entry => (ids.includes(entry.id) ? { ...entry, spam } : entry)))
+      setSelectedId(null)
+      setSelectedBulk(new Set())
+      try {
+        await fetch('/api/mail/inbox', {
+          method: 'PATCH',
+          headers: apiHeaders(),
+          body: JSON.stringify({ ids, spam }),
+        })
+      } catch {}
+      setSentFlash(spam ? 'Moved to Spam' : 'Moved back to the inbox')
+      window.setTimeout(() => setSentFlash(''), 2500)
+      // The refresh dedupes on folder+query, which is unchanged here — clearing the key is
+      // what lets the list re-read the folder the message just left.
+      inboxFetch.current = null
+      refreshInbox()
+      loadThreads()
+      loadCounts(true)
+    },
+    [apiHeaders],
+  )
 
   const setInboundFlag = useCallback(
     (ids: string[], flags: Partial<Pick<InboundEmail, 'read' | 'starred' | 'archived' | 'trashed'>>) => {
@@ -5320,6 +5359,7 @@ export default function DevMailPage() {
     scheduled: 'Scheduled',
     drafts: 'Drafts',
     archived: 'Archive',
+    spam: 'Spam',
     trash: 'Trash',
   }
 
@@ -7322,7 +7362,7 @@ export default function DevMailPage() {
           <span className={styles.composePen}>{ICONS.pencil}</span>
           <span className={styles.railLabel}>Compose</span>
         </button>
-        {(['inbox', 'starred', 'snoozed', 'sent', 'scheduled', 'drafts', 'archived', 'trash'] as Folder[]).map(key => {
+        {(['inbox', 'starred', 'snoozed', 'sent', 'scheduled', 'drafts', 'archived', 'spam', 'trash'] as Folder[]).map(key => {
           const count =
             key === 'inbox'
               ? folderCounts.inbox || ''
@@ -7338,7 +7378,9 @@ export default function DevMailPage() {
                       ? drafts.length || ''
                       : key === 'archived'
                         ? folderCounts.archived || ''
-                        : folderCounts.trashed || ''
+                        : key === 'spam'
+                          ? folderCounts.spam || ''
+                          : folderCounts.trashed || ''
           return (
             <button
               key={key}
@@ -7512,6 +7554,11 @@ export default function DevMailPage() {
                 {ICONS.trash}
                 <span className={styles.bulkBtnLabel}>Delete</span>
               </button>
+            ) : folder === 'spam' ? (
+              <button className={styles.bulkBtn} onClick={() => markSpam(Array.from(selectedBulk), false)} title="Not spam">
+                {ICONS.inbox}
+                <span className={styles.bulkBtnLabel}>Not spam</span>
+              </button>
             ) : folder === 'scheduled' ? (
               <button className={styles.bulkBtn} onClick={bulkCancelScheduled} title="Cancel sends">
                 {ICONS.trash}
@@ -7521,6 +7568,10 @@ export default function DevMailPage() {
               <>
                 {folder === 'inbox' && (
                   <>
+                    <button className={styles.bulkBtn} onClick={() => markSpam(Array.from(selectedBulk), true)} title="Report spam">
+                      {ICONS.warn}
+                      <span className={styles.bulkBtnLabel}>Spam</span>
+                    </button>
                     <button className={styles.bulkBtn} onClick={() => bulkFlag({ read: true })} title="Mark read">
                       {ICONS.unread}
                       <span className={styles.bulkBtnLabel}>Read</span>
