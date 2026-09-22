@@ -1103,7 +1103,7 @@ export async function refreshThread(ownerRaw: string, threadId: string): Promise
   const head = latest[0]
   await sql`
     INSERT INTO mail_threads (owner, thread_id, subject_key, subject, first_at, latest_at, latest_id, count,
-      unread_count, starred_count, inbox_count, archived_count, trashed_count, spam_count, attach_count, senders, snippet, labels, addressed)
+      unread_count, starred_count, inbox_count, archived_count, trashed_count, spam_count, attach_count, senders, snippet, labels, addressed, risk)
     VALUES (${owner}, ${threadId}, ${subjectKey(String(head?.subject ?? ''))}, ${head?.subject ?? null},
       ${String(agg[0].first_at)}, ${String(agg[0].latest_at)}, ${head?.id ?? null}, ${total},
       ${Number(agg[0].unread ?? 0)}, ${Number(agg[0].starred ?? 0)}, ${Number(agg[0].inbox ?? 0)},
@@ -1361,7 +1361,12 @@ export async function rejudgeStored(options: { before?: string; limit?: number }
     // they put it — back-fill may label it, never move it out from under them.
     const untouched = !Number(row.read) && !Number(row.starred) && !Number(row.archived) && !Number(row.trashed)
     const quarantine = verdict.quarantine && untouched
-    if (String(row.risk ?? 'clean') === verdict.risk && Boolean(Number(row.spam)) === quarantine) continue
+    if (String(row.risk ?? 'clean') === verdict.risk && Boolean(Number(row.spam)) === quarantine) {
+      // The verdict is unchanged, but the conversation summary the list reads from may still
+      // predate it — worth one refresh for the few that carry a warning.
+      if (verdict.risk !== 'clean') await rethreadAfterChange(String(row.id))
+      continue
+    }
 
     await sql`
       UPDATE mail_inbox

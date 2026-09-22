@@ -1086,6 +1086,8 @@
 
 .riskBanner strong { display: block; font-weight: 650; }
 .riskBannerWhy { display: block; margin-top: 3px; opacity: 0.92; font-size: 12.5px; }
+.riskBannerReasons { margin: 4px 0 0; padding-left: 16px; opacity: 0.92; font-size: 12.5px; list-style: disc; }
+.riskBannerReasons li { margin-top: 2px; }
 
 .riskNoteIcon,
 .riskBannerIcon { display: inline-flex; flex-shrink: 0; }

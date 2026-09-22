@@ -6312,7 +6312,11 @@ export default function DevMailPage() {
                         : 'This message may not be from who it claims'}
                   </strong>
                   {(inbound.riskReasons ?? []).length > 0 && (
-                    <span className={styles.riskBannerWhy}>{(inbound.riskReasons ?? []).join(' \u00b7 ')}</span>
+                    <ul className={styles.riskBannerReasons}>
+                      {(inbound.riskReasons ?? []).map(reason => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
                   )}
                   <span className={styles.riskBannerWhy}>
                     Treat links and attachments here with care, and do not enter passwords or payment details.
