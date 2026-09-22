@@ -593,7 +593,15 @@ export type RiskJudgement = { risk: Risk; reasons: string[]; score: number; quar
 export function judgeMessage(signals: RiskSignals, standing: SenderStanding): RiskJudgement {
   const reasons: string[] = []
   let score = 0
-  const add = (weight: number, why: string) => { score += weight; reasons.push(why) }
+  // A finding is "telling" when it is hard to trip by accident. Failing an authentication
+  // check or shouting in the subject line is neither: ordinary mail does both. Holding a
+  // message back takes at least one finding of the first kind, however the weights add up.
+  let telling = 0
+  const add = (weight: number, why: string, isTelling = false) => {
+    score += weight
+    if (isTelling) telling += 1
+    reasons.push(why)
+  }
 
   if (/^fail$/i.test((signals.virus ?? '').trim())) {
     return { risk: 'virus', reasons: ['A virus scan failed on this message'], score: 100, quarantine: true }
@@ -604,12 +612,12 @@ export function judgeMessage(signals: RiskSignals, standing: SenderStanding): Ri
   const trusted = standing.replied > 0 && standing.markedSpam === 0
   if (standing.markedSpam > 0) {
     add(4 + Math.min(standing.markedSpam, 4),
-      `You marked ${standing.markedSpam} earlier message${standing.markedSpam === 1 ? '' : 's'} from this sender as spam`)
+      `You marked ${standing.markedSpam} earlier message${standing.markedSpam === 1 ? '' : 's'} from this sender as spam`, true)
   } else if (standing.trashed >= 3 && standing.replied === 0) {
-    add(3, `You have deleted ${standing.trashed} messages from this sender without ever replying`)
+    add(3, `You have deleted ${standing.trashed} messages from this sender without ever replying`, true)
   }
 
-  if (/^fail$/i.test((signals.spam ?? '').trim())) add(4, 'The provider\u2019s spam filter flagged this message')
+  if (/^fail$/i.test((signals.spam ?? '').trim())) add(4, 'The provider\u2019s spam filter flagged this message', true)
 
   const authenticated = /^pass$/i.test((signals.dmarc ?? '').trim())
   // Heavy, but not enough on its own to hide a message: mail forwarded through a list
@@ -628,14 +636,14 @@ export function judgeMessage(signals: RiskSignals, standing: SenderStanding): Ri
   const free = freeProviders()
   const freeReply = replyDomains.find(entry => free.has(entry))
   if (freeReply && fromDomain && !free.has(fromDomain)) {
-    add(4, `Replies to this message go to ${freeReply}, not to ${fromDomain}`)
+    add(4, `Replies to this message go to ${freeReply}, not to ${fromDomain}`, true)
   } else if (replyDomains.length) {
     add(1, `Replies go to ${replyDomains[0]} rather than ${fromDomain || 'the sender'}`)
   }
 
   const tld = fromDomain.split('.').pop() ?? ''
-  if (throwawayTlds().has(tld)) add(2, `The sender\u2019s domain ends in .${tld}, which is cheap to register and often disposable`)
-  if (/^\d{4,}$/.test(fromDomain.split('.')[0] ?? '')) add(2, 'The sender\u2019s domain name is just a string of digits')
+  if (throwawayTlds().has(tld)) add(2, `The sender\u2019s domain ends in .${tld}, which is cheap to register and often disposable`, true)
+  if (/^\d{4,}$/.test(fromDomain.split('.')[0] ?? '')) add(2, 'The sender\u2019s domain name is just a string of digits', true)
 
   const subject = (signals.subject ?? '').trim()
   const letters = subject.replace(/[^A-Za-z]/g, '')
@@ -643,7 +651,7 @@ export function judgeMessage(signals: RiskSignals, standing: SenderStanding): Ri
 
   const body = (signals.text ?? '').toLowerCase()
   const hits = scamPhrases().filter(phrase => body.includes(phrase))
-  if (hits.length >= 2) add(3, `The wording follows a known advance-fee approach (${hits.slice(0, 3).join(', ')})`)
+  if (hits.length >= 2) add(3, `The wording follows a known advance-fee approach (${hits.slice(0, 3).join(', ')})`, true)
   else if (hits.length === 1) add(1, `Wording associated with advance-fee mail (${hits[0]})`)
 
   // Never heard from before is not suspicious by itself — everyone writes once for the
@@ -660,7 +668,7 @@ export function judgeMessage(signals: RiskSignals, standing: SenderStanding): Ri
   // time teaches the reader to ignore the warning.
   if (score < flagAt()) return { risk: 'clean', reasons: [], score, quarantine: false }
 
-  const quarantine = score >= limit
+  const quarantine = score >= limit && telling > 0
   return { risk: quarantine ? 'spam' : 'suspicious', reasons, score, quarantine }
 }
 
