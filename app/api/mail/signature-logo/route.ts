@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { publicOrigin } from '@/lib/public-url'
 import { presign } from '@/lib/r2'
 
 export const runtime = 'nodejs'
@@ -88,5 +89,5 @@ export async function POST(req: Request) {
   }).catch(() => null)
   if (!put?.ok) return NextResponse.json({ ok: false, error: 'Could not store that image.' }, { status: 502 })
 
-  return NextResponse.json({ ok: true, url: `/api/mail/signature-logo?key=${encodeURIComponent(key)}` })
+  return NextResponse.json({ ok: true, url: `${publicOrigin(req)}/api/mail/signature-logo?key=${encodeURIComponent(key)}` })
 }
