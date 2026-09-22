@@ -663,6 +663,12 @@ function htmlToQuoteText(html: string | null, text: string | null): string {
  * imported without ids fall back to the names mail clients give such parts. Anything
  * larger, or not an image, is a real file.
  */
+// Some senders put the plain-text body straight into the HTML part. Rendered as markup its
+// line breaks are just whitespace and the message collapses into one paragraph, so a part
+// carrying no tags has to be treated as the text it actually is.
+const hasMarkup = (html: string | null | undefined): html is string =>
+  typeof html === 'string' && /<[a-z!/][^>]*>/i.test(html)
+
 const INLINE_IMAGE_MAX_BYTES = 150_000
 const INLINE_IMAGE_NAME = /^(image\d*|outlook-[\w-]+|blocked|[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(png|gif|jpe?g)$/i
 function inlineAttachmentNames(message: InboundEmail): Set<string> {
@@ -4978,7 +4984,7 @@ export default function DevMailPage() {
       img { max-width: 100%; }
     </style>`
     doc.open()
-    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title>${printCss}</head><body>${meta}${html ? stripOwnPixel(html) : `<pre style="font-family:Arial,sans-serif;white-space:pre-wrap;">${escapeHtml(text ?? '')}</pre>`}</body></html>`)
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title>${printCss}</head><body>${meta}${hasMarkup(html) ? stripOwnPixel(html) : `<pre style="font-family:Arial,sans-serif;white-space:pre-wrap;">${escapeHtml(text?.trim() || html || '')}</pre>`}</body></html>`)
     doc.close()
     frame.contentWindow?.focus()
     window.setTimeout(() => {
@@ -5881,13 +5887,14 @@ export default function DevMailPage() {
     if (readerMode === 'html') return <pre className={styles.readerSource}>{formatHtmlSource(message.html ?? '')}</pre>
     if (readerMode === 'raw') return <pre className={styles.readerSource}>{rawInboundMessage(message)}</pre>
     // preview
-    if (!message.html) {
-      const plain = splitQuotedText(message.text ?? '')
+    if (!hasMarkup(message.html)) {
+      const source = message.text?.trim() ? message.text : (message.html ?? '')
+      const plain = splitQuotedText(source)
       const textShown = quoteOpen.has(message.id)
       return (
         <>
-          {(textShown ? message.text : plain.head)
-            ? <pre className={styles.readerText}>{textShown ? message.text : plain.head}</pre>
+          {(textShown ? source : plain.head)
+            ? <pre className={styles.readerText}>{textShown ? source : plain.head}</pre>
             : renderBodylessAttachment(inboundAttachments[message.id] ?? []) ?? <pre className={styles.readerText}>(no content)</pre>}
           {plain.tail && renderQuoteLine(message.id, textShown)}
         </>
@@ -5936,7 +5943,7 @@ export default function DevMailPage() {
   const renderSentBody = (sent: SentEmail) => {
     const detail = detailCache[sent.id]
     if (!detail) return <div className={styles.threadPending}>Loading message…</div>
-    if (detail.html && detail.html.trim()) {
+    if (hasMarkup(detail.html)) {
       return (
         <iframe
           className={styles.threadFrame}
@@ -5952,8 +5959,9 @@ export default function DevMailPage() {
         />
       )
     }
-    return detail.text?.trim()
-      ? <pre className={styles.readerText}>{detail.text}</pre>
+    const plainSent = detail.text?.trim() ? detail.text : (detail.html ?? '').trim()
+    return plainSent
+      ? <pre className={styles.readerText}>{plainSent}</pre>
       : renderBodylessAttachment(detail.attachments ?? []) ?? <pre className={styles.readerText}>(no content)</pre>
   }
 
