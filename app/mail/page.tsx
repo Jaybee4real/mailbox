@@ -7,6 +7,7 @@ import AccessCheck from './AccessCheck'
 import { parseQuery, matchesQuery, serverSearchParams, splitForServer } from './search'
 import { useConfirm, usePrompt } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
+import { InstallGuide } from './InstallGuide'
 import RichEditor from './RichEditor'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel, healGooglePrivateImages } from '@/lib/email-html'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
@@ -216,6 +217,8 @@ type InboundEmail = {
   cc: string[]
   /** Written to, copied in, or reached some other way — judged for the holding mailbox. */
   addressed?: 'direct' | 'copied' | 'other'
+  risk?: 'clean' | 'suspicious' | 'spam' | 'virus'
+  riskReasons?: string[]
   bcc: string[]
   replyTo: string[]
   subject: string
@@ -1258,6 +1261,7 @@ const ICONS = {
   sent: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4 20-7z"/><path d="M22 2 11 13"/></svg>,
   scheduled: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>,
   info: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>,
+  warn: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>,
   drafts: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>,
   refresh: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>,
   search: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>,
@@ -1498,7 +1502,7 @@ export default function DevMailPage() {
   const [settings, setMailSettings] = useState<MailSettings>(DEFAULT_SETTINGS)
   const tickerOn = (spot: TickerSpot) => settings.ticker?.[spot] ?? tickerDefault(spot)
   const messagesAlwaysOpen = settings.threadMessages === 'open'
-  const { canInstall, installed, install } = useInstall()
+  const { canInstall, installed, install, ios } = useInstall()
   const { permission: notifyPermission, request: requestNotifyPermission, announce } = useNotifications(
     settings.desktopNotifications,
   )
@@ -3263,6 +3267,7 @@ export default function DevMailPage() {
       subject: entry.subject,
       snippet: '',
       addressed: 'direct' as const,
+      risk: 'clean' as const,
       time:
         folder === 'scheduled' && entry.scheduledAt
           ? `in ${formatCountdown(new Date(entry.scheduledAt).getTime() - now)}`
@@ -3314,6 +3319,7 @@ export default function DevMailPage() {
                 hasAttachment: thread.attachCount > 0,
                 chip: null as string | null,
                 addressed: thread.addressed ?? 'direct',
+                risk: 'clean' as const,
                 threadCount: thread.count,
                 latestAt: new Date(thread.latestAt).getTime(),
                 labels: thread.labels,
@@ -3349,6 +3355,13 @@ export default function DevMailPage() {
           chip: null as string | null,
           // The row speaks for its newest message; the banner in the reader is per message.
           addressed: latest.addressed ?? 'direct',
+          risk: members.some(member => member.risk === 'virus')
+            ? 'virus'
+            : members.some(member => member.risk === 'spam')
+              ? 'spam'
+              : members.some(member => member.risk === 'suspicious')
+                ? 'suspicious'
+                : 'clean',
           threadCount: members.length,
           latestAt: new Date(latest.receivedAt).getTime(),
           labels: Array.from(new Set(members.flatMap(member => member.labels))),
@@ -6247,6 +6260,26 @@ export default function DevMailPage() {
               </div>
               <div className={styles.readerDate}>{new Date(inbound.receivedAt).toLocaleString()}</div>
             </div>
+            {inbound.risk && inbound.risk !== 'clean' && (
+              <div className={styles.riskBanner} role="alert">
+                <span className={styles.riskBannerIcon}>{ICONS.warn}</span>
+                <span>
+                  <strong>
+                    {inbound.risk === 'virus'
+                      ? 'A virus scan failed on this message'
+                      : inbound.risk === 'spam'
+                        ? 'This message looks like spam'
+                        : 'This message may not be from who it claims'}
+                  </strong>
+                  {(inbound.riskReasons ?? []).length > 0 && (
+                    <span className={styles.riskBannerWhy}>{(inbound.riskReasons ?? []).join(' \u00b7 ')}</span>
+                  )}
+                  <span className={styles.riskBannerWhy}>
+                    Treat links and attachments here with care, and do not enter passwords or payment details.
+                  </span>
+                </span>
+              </div>
+            )}
             {inbound.addressed && inbound.addressed !== 'direct' && (
               <p className={styles.copiedBanner} role="note">
                 <span className={styles.copiedBannerIcon}>{ICONS.info}</span>
@@ -7152,10 +7185,10 @@ export default function DevMailPage() {
           {ICONS.refresh}
         </button>
       )}
-      {canInstall && !installed && (
+      {!installed && (canInstall || ios) && (
         <button
           className={styles.themeToggle}
-          onClick={install}
+          onClick={canInstall ? install : () => { setSettingsTab('app'); setSettingsOpen(true) }}
           aria-label={`Install ${CLIENT_BRAND.name} Mail as an app`}
         >
           {ICONS.install}
@@ -7730,6 +7763,12 @@ export default function DevMailPage() {
                     <Ticker className={styles.itemSubjectText} enabled={tickerOn('listSubject')}>{item.subject}</Ticker>
                   </p>
                   {item.snippet && <Ticker className={`${styles.itemSnippet} ${styles.tickerBlock}`} enabled={tickerOn('listSnippet')}>{item.snippet}</Ticker>}
+                  {item.kind === 'inbound' && item.risk && item.risk !== 'clean' && (
+                    <span className={styles.riskNote}>
+                      <span className={styles.riskNoteIcon}>{ICONS.warn}</span>
+                      {item.risk === 'virus' ? 'Virus scan failed' : item.risk === 'spam' ? 'Looks like spam' : 'Sender unverified'}
+                    </span>
+                  )}
                   {item.kind === 'inbound' && item.addressed !== 'direct' && (
                     <span className={styles.copiedNote}>
                       <span className={styles.copiedNoteIcon}>{ICONS.info}</span>
@@ -9212,13 +9251,16 @@ export default function DevMailPage() {
                   ? 'Installed. Launch it from your dock, home screen or app list.'
                   : canInstall
                     ? 'Install it as an app so it opens in its own window and can show notifications.'
-                    : 'Your browser handles this from its own menu — look for Install or Add to Home Screen.'}
+                    : ios
+                      ? 'Three taps, and it lives on your Home Screen like any other app.'
+                      : 'Your browser handles this from its own menu — look for Install or Add to Home Screen.'}
               </p>
               {!installed && canInstall && (
                 <button type="button" className={styles.sendBtn} onClick={install}>
                   {ICONS.install} Install app
                 </button>
               )}
+              {!installed && !canInstall && ios && <InstallGuide browser={ios} appName={CLIENT_BRAND.name} />}
             </div>
             <div className={styles.settingsField}>
               <span>Signed in as</span>

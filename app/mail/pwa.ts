@@ -30,6 +30,29 @@ const subscribePermission = (notify: () => void) => {
   return () => window.removeEventListener(PERMISSION_EVENT, notify)
 }
 
+export type IosBrowser = 'safari' | 'other'
+
+/**
+ * WebKit has never implemented beforeinstallprompt and exposes nothing else that answers
+ * "can this be installed", so on iOS the platform itself is the only signal. iPadOS
+ * reports a Mac user agent, which the touch-point count is what separates from a desktop.
+ */
+export function classifyIos(agent: string, touchPoints: number): IosBrowser | null {
+  const ios = /iphone|ipad|ipod/i.test(agent) || (/macintosh/i.test(agent) && touchPoints > 1)
+  if (!ios) return null
+  return /crios|fxios|edgios|opios/i.test(agent) ? 'other' : 'safari'
+}
+
+let iosCache: IosBrowser | null | undefined
+function detectIos(): IosBrowser | null {
+  if (iosCache !== undefined) return iosCache
+  if (typeof navigator === 'undefined') return null
+  iosCache = classifyIos(navigator.userAgent, navigator.maxTouchPoints)
+  return iosCache
+}
+
+const neverChanges = () => () => {}
+
 /**
  * Chrome only fires beforeinstallprompt once per page load and refuses to let it be
  * replayed later, so the event is captured and held rather than requested on click.
@@ -37,6 +60,7 @@ const subscribePermission = (notify: () => void) => {
 export function useInstall() {
   const [deferred, setDeferred] = useState<InstallPrompt | null>(null)
   const [accepted, setAccepted] = useState(false)
+  const ios = useSyncExternalStore(neverChanges, detectIos, () => null)
   const installed = useSyncExternalStore(subscribeStandalone, standalone, () => false) || accepted
 
   useEffect(() => {
@@ -70,7 +94,7 @@ export function useInstall() {
     return outcome
   }, [deferred])
 
-  return { canInstall: Boolean(deferred), installed, install }
+  return { canInstall: Boolean(deferred), installed, install, ios }
 }
 
 const serverKey = (base64: string): ArrayBuffer => {

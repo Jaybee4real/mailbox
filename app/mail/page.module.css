@@ -915,7 +915,10 @@
 .item:hover { background: var(--nc-ink-1); }
 .itemActive {
   background: var(--nc-ink-2);
-  border-color: var(--nc-line-1);
+  /* The same ring the selected folder wears, so "this is the one you are on" reads the
+     same in the list as it does in the sidebar. */
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--nc-violet-500);
 }
 .avatar {
   width: var(--row-avatar);
@@ -1048,6 +1051,47 @@
 }
 
 .copiedNoteIcon svg { width: 12px; height: 12px; }
+
+/* A warning, not the brand: spam and spoofing are not house colours. Amber for a sender
+   that cannot be verified, red where a scanner actually failed the message. */
+.riskNote,
+.riskBanner {
+  display: flex;
+  gap: 8px;
+  color: #fff;
+  background: #b45309;
+}
+
+.riskNote {
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font: 600 11px/1.35 var(--nc-font-sans);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.riskBanner {
+  align-items: flex-start;
+  margin: 10px 0 0;
+  padding: 11px 14px;
+  border-radius: 8px;
+  font: 400 13px/1.5 var(--nc-font-sans);
+  width: 100%;
+  box-sizing: border-box;
+  text-wrap: pretty;
+}
+
+.riskBanner strong { display: block; font-weight: 650; }
+.riskBannerWhy { display: block; margin-top: 3px; opacity: 0.92; font-size: 12.5px; }
+
+.riskNoteIcon,
+.riskBannerIcon { display: inline-flex; flex-shrink: 0; }
+.riskNoteIcon svg { width: 12px; height: 12px; }
+.riskBannerIcon svg { width: 17px; height: 17px; margin-top: 1px; }
+
 .copiedBannerIcon svg { width: 16px; height: 16px; }
 
 
@@ -4097,6 +4141,59 @@
   cursor: pointer;
   font: 500 14px/1.4 var(--nc-font-sans);
   color: var(--nc-fg-1);
+}
+
+.installGuide {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.installWarn {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--nc-line-2);
+  border-left: 3px solid var(--nc-violet-400);
+  border-radius: 10px;
+  background: var(--nc-ink-2);
+  font: 400 12px/1.55 var(--nc-font-sans);
+  color: var(--nc-fg-2);
+}
+.installSteps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.installStep {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 12px;
+  background: var(--nc-ink-2);
+}
+.installStep strong {
+  display: block;
+  margin-bottom: 4px;
+  font: 600 13px/1.3 var(--nc-font-sans);
+  color: var(--nc-fg-1);
+}
+.installArt {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 10px;
+  background: var(--nc-ink-1);
+}
+@media (max-width: 560px) {
+  .installStep {
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 11px;
+  }
 }
 .tickerGroup {
   display: flex;

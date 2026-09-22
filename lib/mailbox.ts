@@ -25,6 +25,9 @@ export type InboundEmail = {
   cc: string[]
   /** Written to, copied in, or neither — from the holding mailbox's point of view. */
   addressed?: Addressed
+  /** What the spam, virus and sender-authentication checks said. */
+  risk?: Risk
+  riskReasons?: string[]
   bcc: string[]
   replyTo: string[]
   subject: string
@@ -365,6 +368,9 @@ export function ensureMailSchema(): Promise<void> {
       // worked out per query: matching an address inside the cc JSON means a scan, and a
       // mailbox here holds six figures of mail.
       await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN addressed TEXT").catch(() => {})
+      // What the scanners and the sender's own domain said about this message.
+      await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN risk TEXT").catch(() => {})
+      await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN risk_reasons TEXT").catch(() => {})
       // The row in the list follows its newest message, so the conversation carries it too.
       await sqlRaw("ALTER TABLE mail_threads ADD COLUMN addressed TEXT").catch(() => {})
       await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_addressed_idx ON mail_inbox (lower(owner), addressed, received_at DESC)')
@@ -430,6 +436,53 @@ export function ensureMailSchema(): Promise<void> {
 
 // ── Inbox ──────────────────────────────────────────────────────
 
+/** What the scanners and the sender's own domain said. */
+export type Risk = 'clean' | 'suspicious' | 'spam' | 'virus'
+
+export type RiskSignals = {
+  spam?: string | null
+  virus?: string | null
+  spf?: string | null
+  dkim?: string | null
+  dmarc?: string | null
+}
+
+const failed = (verdict: string | null | undefined): boolean =>
+  typeof verdict === 'string' && /^(fail|softfail|permerror)$/i.test(verdict.trim())
+
+/**
+ * A verdict per message, from the checks that already ran upstream. Amazon scans every
+ * inbound message for spam and for viruses, and the sending domain's own SPF, DKIM and
+ * DMARC records say whether the sender is who the envelope claims. All of it was being
+ * recorded and then dropped before the mailbox ever saw it.
+ *
+ * Judged, never hidden: a message is marked and the reader decides. Filing suspected spam
+ * out of sight silently is how real mail goes missing.
+ */
+export function classifyRisk(signals: RiskSignals): { risk: Risk; reasons: string[] } {
+  const reasons: string[] = []
+  if (/^fail$/i.test((signals.virus ?? '').trim())) {
+    return { risk: 'virus', reasons: ['A virus scan failed on this message'] }
+  }
+  if (/^fail$/i.test((signals.spam ?? '').trim())) reasons.push('The provider’s spam filter flagged this message')
+
+  // DMARC is the verdict that settles it, because it passes when either SPF or DKIM lines
+  // up with the sending domain. Mail sent through SES routinely shows spf=fail while DKIM
+  // carries it — flagging that would put a warning on ordinary mail, our own included, and
+  // a warning that cries wolf is worse than none.
+  const authenticated = /^pass$/i.test((signals.dmarc ?? '').trim())
+  if (failed(signals.dmarc)) {
+    reasons.push('The sending domain says this message is not from them (DMARC failed)')
+  } else if (!authenticated) {
+    if (failed(signals.spf)) reasons.push('The sending server is not authorised by that domain (SPF failed)')
+    if (failed(signals.dkim)) reasons.push('The signature does not match the sending domain (DKIM failed)')
+  }
+
+  if (!reasons.length) return { risk: 'clean', reasons }
+  const spam = /^fail$/i.test((signals.spam ?? '').trim())
+  return { risk: spam ? 'spam' : 'suspicious', reasons }
+}
+
 /** How the mailbox came to hold a message, from that mailbox's own point of view. */
 export type Addressed = 'direct' | 'copied' | 'other'
 
@@ -468,6 +521,8 @@ function mapInbound(row: Record<string, unknown>): InboundEmail {
     addressed: (['direct', 'copied', 'other'].includes(String(row.addressed))
       ? String(row.addressed)
       : classifyAddressed(row.owner == null ? null : String(row.owner), parseArray(row.to_addrs), parseArray(row.cc))) as Addressed,
+    risk: (['clean', 'suspicious', 'spam', 'virus'].includes(String(row.risk)) ? String(row.risk) : 'clean') as Risk,
+    riskReasons: parseJson<string[]>(row.risk_reasons, []),
     bcc: parseArray(row.bcc),
     replyTo: parseArray(row.reply_to),
     subject: (row.subject as string) ?? '',
@@ -764,10 +819,10 @@ export async function readInbox(filter?: { owner?: string }): Promise<InboundEma
   const owner = filter?.owner?.trim().toLowerCase()
   const rows = owner
     ? await sql`
-        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id, addressed
+        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id, addressed, risk, risk_reasons
         FROM mail_inbox WHERE lower(owner) = ${owner} ORDER BY received_at DESC LIMIT ${MAX_INBOX}`
     : await sql`
-        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id, addressed
+        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id, addressed, risk, risk_reasons
         FROM mail_inbox ORDER BY received_at DESC LIMIT ${MAX_INBOX}`
   return rows.map(mapInbound)
 }
@@ -1041,8 +1096,8 @@ export async function appendInbound(
   await ensureMailSchema()
   const sql = db()
   await sql`
-    INSERT INTO mail_inbox (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, owner, snippet, thread_meta, attach_meta, addressed)
-    VALUES (${email.id}, ${email.from}, ${JSON.stringify(email.to)}, ${JSON.stringify(email.cc)}, ${JSON.stringify(email.bcc)}, ${JSON.stringify(email.replyTo)}, ${email.subject}, ${email.html}, ${email.text}, ${JSON.stringify(email.headers)}, ${email.receivedAt}, ${email.read}, ${JSON.stringify(email.attachments)}, ${email.owner ?? null}, ${listSnippet(email.text)}, ${threadMeta(email.headers)}, ${attachMeta(email.attachments)}, ${classifyAddressed(email.owner, email.to, email.cc)})
+    INSERT INTO mail_inbox (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, owner, snippet, thread_meta, attach_meta, addressed, risk, risk_reasons)
+    VALUES (${email.id}, ${email.from}, ${JSON.stringify(email.to)}, ${JSON.stringify(email.cc)}, ${JSON.stringify(email.bcc)}, ${JSON.stringify(email.replyTo)}, ${email.subject}, ${email.html}, ${email.text}, ${JSON.stringify(email.headers)}, ${email.receivedAt}, ${email.read}, ${JSON.stringify(email.attachments)}, ${email.owner ?? null}, ${listSnippet(email.text)}, ${threadMeta(email.headers)}, ${attachMeta(email.attachments)}, ${classifyAddressed(email.owner, email.to, email.cc)}, ${email.risk ?? 'clean'}, ${JSON.stringify(email.riskReasons ?? [])})
     ON CONFLICT (id) DO NOTHING`
   await threadMessage({ id: email.id, owner: email.owner ?? null, subject: email.subject, receivedAt: email.receivedAt })
   await invalidateCounts(email.owner)

@@ -2,7 +2,7 @@ import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { sendPush } from '@/lib/push'
 import { stripOwnPixel } from '@/lib/email-html'
 import { FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-auth'
-import { ADDRESS_ALIASES, appendInbound, getAccountByAddress, inboundExists, recordContact, recordSentMeta, repairInbound } from '@/lib/mailbox'
+import { ADDRESS_ALIASES, appendInbound, classifyRisk, getAccountByAddress, inboundExists, recordContact, recordSentMeta, repairInbound } from '@/lib/mailbox'
 import { sendMail } from '@/lib/mail-provider'
 
 /**
@@ -245,8 +245,28 @@ export async function ingestReceived(
   const full = apiKey ? await fetchReceivedEmail(emailId, apiKey) : null
 
   const payloadAttachments = Array.isArray(data.attachments) ? (data.attachments as Array<Record<string, unknown>>) : []
+  // The sender's own domain answers these, and the provider scans for spam and viruses
+  // before we ever see the message. Where the webhook does not carry a verdict, the
+  // Authentication-Results header the receiving server wrote does.
+  const authHeader = String(
+    (full?.headers as Record<string, unknown> | undefined)?.['authentication-results'] ?? '',
+  ).toLowerCase()
+  const fromHeader = (mech: string): string | null => authHeader.match(new RegExp(`${mech}=(\\w+)`))?.[1] ?? null
+  const verdicts = classifyRisk({
+    spam: data.spam == null ? null : String(data.spam),
+    virus: data.virus == null ? null : String(data.virus),
+    spf: data.spf == null ? fromHeader('spf') : String(data.spf),
+    dkim: data.dkim == null ? fromHeader('dkim') : String(data.dkim),
+    dmarc: data.dmarc == null ? fromHeader('dmarc') : String(data.dmarc),
+  })
+  if (verdicts.risk !== 'clean') {
+    console.warn(`[mail] ${verdicts.risk} inbound ${emailId}:`, verdicts.reasons.join('; '))
+  }
+
   const inbound = {
     id: emailId,
+    risk: verdicts.risk,
+    riskReasons: verdicts.reasons,
     from: full?.from || String(data.from ?? ''),
     to: full?.to ?? (Array.isArray(data.to) ? (data.to as string[]) : [String(data.to ?? '')]),
     cc: full?.cc ?? (Array.isArray(data.cc) ? (data.cc as string[]) : []),
