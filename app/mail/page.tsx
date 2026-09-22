@@ -189,6 +189,7 @@ type SentDetail = SentEmail & {
 }
 
 type ConversationRow = {
+  addressed?: 'direct' | 'copied' | 'other'
   threadId: string
   snoozedUntil?: string | null
   subject: string
@@ -213,6 +214,8 @@ type InboundEmail = {
   from: string
   to: string[]
   cc: string[]
+  /** Written to, copied in, or reached some other way — judged for the holding mailbox. */
+  addressed?: 'direct' | 'copied' | 'other'
   bcc: string[]
   replyTo: string[]
   subject: string
@@ -1254,6 +1257,7 @@ const ICONS = {
   inbox: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6l3.5-7z"/></svg>,
   sent: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4 20-7z"/><path d="M22 2 11 13"/></svg>,
   scheduled: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>,
+  info: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>,
   drafts: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>,
   refresh: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>,
   search: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>,
@@ -3037,6 +3041,7 @@ export default function DevMailPage() {
         read: entry.read,
         starred: entry.starred,
         hasAttachment: entry.attachments.length > 0,
+        addressed: entry.addressed,
         labels: entry.labels,
         folder: entry.trashed ? 'trash' : entry.archived ? 'archive' : 'inbox',
       })
@@ -3129,6 +3134,9 @@ export default function DevMailPage() {
     const OPERATORS: Suggestion[] = [
       { label: 'is:unread', hint: 'only unread', apply: `${before}is:unread ` },
       { label: 'is:starred', hint: 'only starred', apply: `${before}is:starred ` },
+      { label: 'is:copied', hint: 'only mail you were copied in', apply: `${before}is:copied ` },
+      { label: '-is:copied', hint: 'hide mail you were copied in', apply: `${before}-is:copied ` },
+      { label: 'is:direct', hint: 'only mail addressed to you', apply: `${before}is:direct ` },
       { label: 'has:attachment', hint: 'with files', apply: `${before}has:attachment ` },
       { label: 'from:', hint: 'sender', apply: `${before}from:` },
       { label: 'to:', hint: 'recipient', apply: `${before}to:` },
@@ -3254,6 +3262,7 @@ export default function DevMailPage() {
       primary: `To: ${entry.to.join(', ')}`,
       subject: entry.subject,
       snippet: '',
+      addressed: 'direct' as const,
       time:
         folder === 'scheduled' && entry.scheduledAt
           ? `in ${formatCountdown(new Date(entry.scheduledAt).getTime() - now)}`
@@ -3304,6 +3313,7 @@ export default function DevMailPage() {
                 starred: thread.starredCount > 0,
                 hasAttachment: thread.attachCount > 0,
                 chip: null as string | null,
+                addressed: thread.addressed ?? 'direct',
                 threadCount: thread.count,
                 latestAt: new Date(thread.latestAt).getTime(),
                 labels: thread.labels,
@@ -3337,6 +3347,8 @@ export default function DevMailPage() {
           starred: members.some(member => member.starred),
           hasAttachment: members.some(member => member.attachments.length > 0),
           chip: null as string | null,
+          // The row speaks for its newest message; the banner in the reader is per message.
+          addressed: latest.addressed ?? 'direct',
           threadCount: members.length,
           latestAt: new Date(latest.receivedAt).getTime(),
           labels: Array.from(new Set(members.flatMap(member => member.labels))),
@@ -6235,6 +6247,14 @@ export default function DevMailPage() {
               </div>
               <div className={styles.readerDate}>{new Date(inbound.receivedAt).toLocaleString()}</div>
             </div>
+            {inbound.addressed && inbound.addressed !== 'direct' && (
+              <p className={styles.copiedBanner} role="note">
+                <span className={styles.copiedBannerIcon}>{ICONS.info}</span>
+                {inbound.addressed === 'copied'
+                  ? 'You were copied in this mail — it was addressed to someone else.'
+                  : 'You were not addressed directly — this copy reached you another way.'}
+              </p>
+            )}
             {showFullHeaders && (
               <dl className={styles.fullHeaders}>
                 <div><dt>From</dt><dd>{inbound.from}</dd></div>
@@ -7710,6 +7730,14 @@ export default function DevMailPage() {
                     <Ticker className={styles.itemSubjectText} enabled={tickerOn('listSubject')}>{item.subject}</Ticker>
                   </p>
                   {item.snippet && <Ticker className={`${styles.itemSnippet} ${styles.tickerBlock}`} enabled={tickerOn('listSnippet')}>{item.snippet}</Ticker>}
+                  {item.kind === 'inbound' && item.addressed !== 'direct' && (
+                    <span className={styles.copiedNote}>
+                      <span className={styles.copiedNoteIcon}>{ICONS.info}</span>
+                      {item.addressed === 'copied'
+                        ? 'You were copied in this mail'
+                        : 'You were not addressed directly'}
+                    </span>
+                  )}
                   {item.labels.length > 0 && (
                     <span className={styles.itemLabels}>
                       {item.labels.map(labelId => {

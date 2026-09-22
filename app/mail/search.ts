@@ -21,6 +21,8 @@ export type SearchDoc = {
   read: boolean
   starred: boolean
   hasAttachment: boolean
+  /** Whether the mailbox was written to, copied in, or reached some other way. */
+  addressed?: 'direct' | 'copied' | 'other'
   labels: string[]
   folder: string
 }
@@ -129,6 +131,10 @@ function matchTerm(term: Term, doc: SearchDoc): boolean {
       if (value === 'read') return doc.read
       if (value === 'starred') return doc.starred
       if (value === 'unstarred') return !doc.starred
+      // Copied in, written to, or arrived some other way — a blind copy, a list, an alias.
+      if (value === 'copied' || value === 'cc') return doc.addressed === 'copied'
+      if (value === 'direct') return doc.addressed === 'direct'
+      if (value === 'indirect' || value === 'other') return doc.addressed === 'other'
       return true
     case 'has':
       if (value === 'attachment' || value === 'attachments') return doc.hasAttachment
@@ -172,6 +178,8 @@ export type ServerSearch = {
   unread?: boolean
   starred?: boolean
   hasAttachment?: boolean
+  /** direct | copied | other | not-copied */
+  addressed?: string
 }
 
 /**
@@ -184,6 +192,10 @@ export function splitForServer(query: ParsedQuery): { server: ServerSearch; resi
   const residual: Term[][] = []
   for (const group of query.groups) {
     const term = group.length === 1 ? group[0] : null
+    if (term?.negated && term.field === 'is' && (term.value === 'copied' || term.value === 'cc')) {
+      server.addressed = 'not-copied'
+      continue
+    }
     if (!term || term.negated) {
       residual.push(group)
       continue
@@ -195,6 +207,10 @@ export function splitForServer(query: ParsedQuery): { server: ServerSearch; resi
     else if (term.field === 'is' && term.value === 'unread') server.unread = true
     else if (term.field === 'is' && term.value === 'starred') server.starred = true
     else if (term.field === 'has' && term.value === 'attachment') server.hasAttachment = true
+    // Pushed down so the whole mailbox is filtered, not the page the client happens to hold.
+    else if (term.field === 'is' && (term.value === 'copied' || term.value === 'cc')) server.addressed = 'copied'
+    else if (term.field === 'is' && term.value === 'direct') server.addressed = 'direct'
+    else if (term.field === 'is' && (term.value === 'indirect' || term.value === 'other')) server.addressed = 'other'
     else residual.push(group)
   }
   server.text = words.join(' ')
@@ -211,6 +227,7 @@ export function serverSearchParams(raw: string): Record<string, string> {
   if (server.unread) params.unread = '1'
   if (server.starred) params.starred = '1'
   if (server.hasAttachment) params.attachment = '1'
+  if (server.addressed) params.addressed = server.addressed
   return params
 }
 

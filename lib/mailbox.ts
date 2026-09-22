@@ -23,6 +23,8 @@ export type InboundEmail = {
   from: string
   to: string[]
   cc: string[]
+  /** Written to, copied in, or neither — from the holding mailbox's point of view. */
+  addressed?: Addressed
   bcc: string[]
   replyTo: string[]
   subject: string
@@ -359,6 +361,14 @@ export function ensureMailSchema(): Promise<void> {
       // allowed to fail: the second time round the column is already there.
       await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN password_is_default INTEGER NOT NULL DEFAULT 0')
         .catch(() => {})
+      // Whether the mailbox was actually written to, or only copied. Stored rather than
+      // worked out per query: matching an address inside the cc JSON means a scan, and a
+      // mailbox here holds six figures of mail.
+      await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN addressed TEXT").catch(() => {})
+      // The row in the list follows its newest message, so the conversation carries it too.
+      await sqlRaw("ALTER TABLE mail_threads ADD COLUMN addressed TEXT").catch(() => {})
+      await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_addressed_idx ON mail_inbox (lower(owner), addressed, received_at DESC)')
+        .catch(() => {})
       // Where a reset link goes when the account's own mailbox is the thing locked.
       await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN recovery_email TEXT').catch(() => {})
       await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN recovery_verified INTEGER NOT NULL DEFAULT 0').catch(() => {})
@@ -419,12 +429,45 @@ export function ensureMailSchema(): Promise<void> {
 }
 
 // ── Inbox ──────────────────────────────────────────────────────
+
+/** How the mailbox came to hold a message, from that mailbox's own point of view. */
+export type Addressed = 'direct' | 'copied' | 'other'
+
+const bare = (raw: string): string => {
+  const angled = raw.match(/<([^>]+)>/)
+  return (angled ? angled[1] : raw).trim().toLowerCase()
+}
+
+/**
+ * Written to, copied in, or neither. The third case is real and common — a blind copy, a
+ * distribution list, an alias, or mail caught by the shared address — and calling it a
+ * copy would be a guess dressed as a fact, so it gets its own answer.
+ *
+ * Judged against the mailbox that holds the message, never the person reading it: an
+ * administrator reading everyone's mail must not be told they were copied on someone
+ * else's.
+ */
+export function classifyAddressed(
+  owner: string | null | undefined,
+  to: string[],
+  cc: string[],
+): Addressed {
+  const seat = (owner ?? '').trim().toLowerCase()
+  if (!seat) return 'other'
+  if (to.some(entry => bare(entry) === seat)) return 'direct'
+  if (cc.some(entry => bare(entry) === seat)) return 'copied'
+  return 'other'
+}
+
 function mapInbound(row: Record<string, unknown>): InboundEmail {
   return {
     id: String(row.id),
     from: (row.from_addr as string) ?? '',
     to: parseArray(row.to_addrs),
     cc: parseArray(row.cc),
+    addressed: (['direct', 'copied', 'other'].includes(String(row.addressed))
+      ? String(row.addressed)
+      : classifyAddressed(row.owner == null ? null : String(row.owner), parseArray(row.to_addrs), parseArray(row.cc))) as Addressed,
     bcc: parseArray(row.bcc),
     replyTo: parseArray(row.reply_to),
     subject: (row.subject as string) ?? '',
@@ -473,6 +516,8 @@ export async function searchInbox(options: {
   label?: string
   from?: string
   to?: string
+  /** direct | copied | other, or 'not-copied' to leave copies out. */
+  addressed?: string
   limit?: number
   offset?: number
   cursor?: string | null
@@ -507,6 +552,10 @@ export async function searchInbox(options: {
   if (options.label) { where.push('m.labels LIKE ?'); args.push(`%${options.label}%`) }
   if (options.from) { where.push('lower(m.from_addr) LIKE ?'); args.push(`%${options.from.toLowerCase()}%`) }
   if (options.to) { where.push('lower(m.to_addrs) LIKE ?'); args.push(`%${options.to.toLowerCase()}%`) }
+  // Filtered in the query, not in the browser: a client-side pass would only ever narrow
+  // the page already loaded, which on a mailbox of six figures reads as a broken filter.
+  if (options.addressed === 'not-copied') where.push("COALESCE(m.addressed, 'other') <> 'copied'")
+  else if (options.addressed) { where.push("COALESCE(m.addressed, 'other') = ?"); args.push(options.addressed) }
 
   // A snoozed message is only out of the inbox while its time is still ahead; the clause
   // does the waking, so nothing has to run on a timer.
@@ -715,10 +764,10 @@ export async function readInbox(filter?: { owner?: string }): Promise<InboundEma
   const owner = filter?.owner?.trim().toLowerCase()
   const rows = owner
     ? await sql`
-        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id
+        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id, addressed
         FROM mail_inbox WHERE lower(owner) = ${owner} ORDER BY received_at DESC LIMIT ${MAX_INBOX}`
     : await sql`
-        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id
+        SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id, addressed
         FROM mail_inbox ORDER BY received_at DESC LIMIT ${MAX_INBOX}`
   return rows.map(mapInbound)
 }
@@ -788,7 +837,7 @@ export async function refreshThread(ownerRaw: string, threadId: string): Promise
     return
   }
   const latest = await sql`
-    SELECT id, subject, COALESCE(snippet, substr(COALESCE(body_text, ''), 1, 320)) AS snippet
+    SELECT id, subject, addressed, COALESCE(snippet, substr(COALESCE(body_text, ''), 1, 320)) AS snippet
     FROM mail_inbox WHERE lower(owner) = ${owner} AND thread_id = ${threadId}
     ORDER BY received_at DESC, id DESC LIMIT 1`
   const members = await sql`
@@ -804,19 +853,21 @@ export async function refreshThread(ownerRaw: string, threadId: string): Promise
   const head = latest[0]
   await sql`
     INSERT INTO mail_threads (owner, thread_id, subject_key, subject, first_at, latest_at, latest_id, count,
-      unread_count, starred_count, inbox_count, archived_count, trashed_count, attach_count, senders, snippet, labels)
+      unread_count, starred_count, inbox_count, archived_count, trashed_count, attach_count, senders, snippet, labels, addressed)
     VALUES (${owner}, ${threadId}, ${subjectKey(String(head?.subject ?? ''))}, ${head?.subject ?? null},
       ${String(agg[0].first_at)}, ${String(agg[0].latest_at)}, ${head?.id ?? null}, ${total},
       ${Number(agg[0].unread ?? 0)}, ${Number(agg[0].starred ?? 0)}, ${Number(agg[0].inbox ?? 0)},
       ${Number(agg[0].archived ?? 0)}, ${Number(agg[0].trashed ?? 0)}, ${Number(agg[0].attach ?? 0)},
-      ${JSON.stringify(senders)}, ${String(head?.snippet ?? '')}, ${JSON.stringify([...labels])})
+      ${JSON.stringify(senders)}, ${String(head?.snippet ?? '')}, ${JSON.stringify([...labels])},
+      ${head?.addressed == null ? null : String(head.addressed)})
     ON CONFLICT (owner, thread_id) DO UPDATE SET
       subject_key = excluded.subject_key, subject = excluded.subject, first_at = excluded.first_at,
       latest_at = excluded.latest_at, latest_id = excluded.latest_id, count = excluded.count,
       unread_count = excluded.unread_count, starred_count = excluded.starred_count,
       inbox_count = excluded.inbox_count, archived_count = excluded.archived_count,
       trashed_count = excluded.trashed_count, attach_count = excluded.attach_count,
-      senders = excluded.senders, snippet = excluded.snippet, labels = excluded.labels`
+      senders = excluded.senders, snippet = excluded.snippet, labels = excluded.labels,
+      addressed = excluded.addressed`
 }
 
 /** Thread the message and refresh its summary; never lets a threading fault fail a write. */
@@ -888,7 +939,7 @@ export async function listThreads(ownerRaw: string | null, folder: ThreadFolder,
           SUM(count) AS count, SUM(unread_count) AS unread_count, SUM(starred_count) AS starred_count,
           SUM(inbox_count) AS inbox_count, SUM(archived_count) AS archived_count,
           SUM(trashed_count) AS trashed_count, SUM(attach_count) AS attach_count,
-          senders, snippet, labels, snoozed_until
+          senders, snippet, labels, snoozed_until, addressed
         FROM mail_threads
         GROUP BY thread_id
         HAVING ${predicate}${cursorClause ? ` AND ${cursorClause}` : ''}
@@ -896,7 +947,7 @@ export async function listThreads(ownerRaw: string | null, folder: ThreadFolder,
         [...folderArgs, ...cursorArgs, limit])
     : await tagged(db(), `
         SELECT thread_id, subject, first_at, latest_at, latest_id, count, unread_count, starred_count,
-          inbox_count, archived_count, trashed_count, attach_count, senders, snippet, labels, snoozed_until
+          inbox_count, archived_count, trashed_count, attach_count, senders, snippet, labels, snoozed_until, addressed
         FROM mail_threads WHERE owner = ? AND ${predicate}
           ${cursorClause ? `AND ${cursorClause}` : ''}
         ORDER BY latest_at DESC, thread_id DESC LIMIT ?`,
@@ -920,6 +971,7 @@ export async function listThreads(ownerRaw: string | null, folder: ThreadFolder,
     snippet: String(row.snippet ?? ''),
     labels: parseJson<string[]>(row.labels, []),
     snoozedUntil: row.snoozed_until == null ? null : String(row.snoozed_until),
+    addressed: (['direct', 'copied', 'other'].includes(String(row.addressed)) ? String(row.addressed) : 'direct') as Addressed,
   }))
   return { rows: mapped, nextCursor }
 }
@@ -989,8 +1041,8 @@ export async function appendInbound(
   await ensureMailSchema()
   const sql = db()
   await sql`
-    INSERT INTO mail_inbox (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, owner, snippet, thread_meta, attach_meta)
-    VALUES (${email.id}, ${email.from}, ${JSON.stringify(email.to)}, ${JSON.stringify(email.cc)}, ${JSON.stringify(email.bcc)}, ${JSON.stringify(email.replyTo)}, ${email.subject}, ${email.html}, ${email.text}, ${JSON.stringify(email.headers)}, ${email.receivedAt}, ${email.read}, ${JSON.stringify(email.attachments)}, ${email.owner ?? null}, ${listSnippet(email.text)}, ${threadMeta(email.headers)}, ${attachMeta(email.attachments)})
+    INSERT INTO mail_inbox (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, owner, snippet, thread_meta, attach_meta, addressed)
+    VALUES (${email.id}, ${email.from}, ${JSON.stringify(email.to)}, ${JSON.stringify(email.cc)}, ${JSON.stringify(email.bcc)}, ${JSON.stringify(email.replyTo)}, ${email.subject}, ${email.html}, ${email.text}, ${JSON.stringify(email.headers)}, ${email.receivedAt}, ${email.read}, ${JSON.stringify(email.attachments)}, ${email.owner ?? null}, ${listSnippet(email.text)}, ${threadMeta(email.headers)}, ${attachMeta(email.attachments)}, ${classifyAddressed(email.owner, email.to, email.cc)})
     ON CONFLICT (id) DO NOTHING`
   await threadMessage({ id: email.id, owner: email.owner ?? null, subject: email.subject, receivedAt: email.receivedAt })
   await invalidateCounts(email.owner)
@@ -1268,7 +1320,10 @@ export async function listInboundWithAttachments(owner: string | null): Promise<
 export async function setInboxOwner(id: string, owner: string | null): Promise<void> {
   const sql = db()
   const before = await sql`SELECT owner, thread_id FROM mail_inbox WHERE id = ${id}`
-  await sql`UPDATE mail_inbox SET owner = ${owner ? owner.toLowerCase() : null}, thread_id = NULL WHERE id = ${id}`
+  const moved = await sql`SELECT to_addrs, cc FROM mail_inbox WHERE id = ${id}`
+  const nowAddressed = classifyAddressed(owner, parseArray(moved[0]?.to_addrs), parseArray(moved[0]?.cc))
+  // A message that was a copy in one mailbox can be direct mail in another.
+  await sql`UPDATE mail_inbox SET owner = ${owner ? owner.toLowerCase() : null}, thread_id = NULL, addressed = ${nowAddressed} WHERE id = ${id}`
   // Both sides change: the mailbox it left and the one it arrived in.
   await invalidateCounts(before[0]?.owner == null ? null : String(before[0].owner))
   await invalidateCounts(owner)
