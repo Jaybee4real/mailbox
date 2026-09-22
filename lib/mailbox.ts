@@ -538,11 +538,16 @@ const THROWAWAY_TLDS_DEFAULT = new Set([
 ])
 
 /** The shape of an advance-fee approach. Counted, never single-word: one alone is innocent. */
+// Only wording that is odd in ordinary business correspondence belongs here. A single
+// generic term is not evidence of anything: an insurance broker writes "beneficiary" and
+// "bank draft" all day, a logistics firm writes "consignment", and every sales team sends
+// a "business proposal". Add them per deployment through MAIL_SCAM_PHRASES if a mailbox
+// genuinely never sees them.
 const SCAM_PHRASES_DEFAULT = [
-  'next of kin', 'sole beneficiary', 'beneficiary', 'late client', 'deceased client',
-  'unclaimed', 'inheritance', 'died without', 'without a will', 'fund transfer',
-  'business proposal', 'strictly confidential', 'bank draft', 'consignment',
-  'compensation fund', 'lottery', 'winning notification', 'atm card', 'western union',
+  'next of kin', 'sole beneficiary', 'late client', 'deceased client',
+  'inheritance', 'died without', 'without a will', 'unclaimed inheritance',
+  'winning notification', 'lottery winner', 'western union', 'atm card',
+  'transfer to your account immediately', 'strictly confidential and urgent',
 ]
 
 /** The registrable domain behind an address, for reputation to be keyed on. */
