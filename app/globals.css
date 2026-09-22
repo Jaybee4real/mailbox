@@ -11,4 +11,11 @@ body {
   margin: 0;
   padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* Safari on iOS grows text block by block on its own reckoning, each by a different
+     amount, so a snippet came out larger than the subject above it and the list read as
+     though the sizes had been picked at random. Nothing else does this, which is why it
+     only ever showed on a phone. This pins the rendered size to the stated one; pinch to
+     zoom and the reader's own text-size setting are untouched. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
