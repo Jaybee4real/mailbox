@@ -139,13 +139,16 @@ export function healGooglePrivateImages(html: string, mark?: string | null): str
  * A root-relative address resolves against our own app, and nowhere else. Sent out as-is it
  * points a recipient's client at its own host, so the signature logo the composer showed
  * happily arrives broken in every other mailbox.
+ *
+ * Only our own asset paths are rewritten. A forwarded message carries the original
+ * sender's markup verbatim, and their "/unsubscribe" belongs to their site, not ours —
+ * giving it our hostname would put our domain behind someone else's link.
  */
+const OWN_ASSET_PATH = /\b(src|href)\s*=\s*(["'])(\/(?:api|brand)\/[^"']*)\2/gi
+
 export function absoluteUrls(html: string, origin: string): string {
   const root = origin.replace(/\/+$/, '')
-  return html.replace(
-    /\b(src|href)\s*=\s*(["'])(\/(?!\/)[^"']*)\2/gi,
-    (_tag, attribute, quote, path) => `${attribute}=${quote}${root}${path}${quote}`,
-  )
+  return html.replace(OWN_ASSET_PATH, (_tag, attribute, quote, path) => `${attribute}=${quote}${root}${path}${quote}`)
 }
 
 export function stripCidPlaceholders(text: string): string {

@@ -94,7 +94,19 @@ assert.equal(
   '<img src="https://mail.example.com/api/mail/signature-logo?key=signatures%2Fa.png">',
 )
 assert.equal(
-  absoluteUrls('<a href="/x">x</a><img src="https://cdn.example.com/a.png"><img src="//cdn/b.png">', 'https://mail.example.com/'),
-  '<a href="https://mail.example.com/x">x</a><img src="https://cdn.example.com/a.png"><img src="//cdn/b.png">',
+  absoluteUrls('<img src="/brand/mark-email.png">', 'https://mail.example.com/'),
+  '<img src="https://mail.example.com/brand/mark-email.png">',
+)
+// A forwarded sender's own relative links stay theirs: our hostname must not end up behind them.
+assert.equal(
+  absoluteUrls('<a href="/unsubscribe">stop</a><img src="/img/header.png">', 'https://mail.example.com'),
+  '<a href="/unsubscribe">stop</a><img src="/img/header.png">',
+)
+assert.equal(
+  absoluteUrls('<img src="https://cdn.example.com/a.png"><img src="//cdn/b.png">', 'https://mail.example.com'),
+  '<img src="https://cdn.example.com/a.png"><img src="//cdn/b.png">',
 )
 assert.equal(absoluteUrls('<a href="mailto:a@b.com">a</a>', 'https://mail.example.com'), '<a href="mailto:a@b.com">a</a>')
+// Idempotent: already-absolute addresses survive a second pass unchanged.
+const once = absoluteUrls('<img src="/api/mail/pixel/x">', 'https://mail.example.com')
+assert.equal(absoluteUrls(once, 'https://mail.example.com'), once)

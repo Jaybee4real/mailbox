@@ -1,3 +1,5 @@
+import { BRAND } from '@/lib/brand'
+import { absoluteUrls } from '@/lib/email-html'
 import { randomUUID } from 'node:crypto'
 import { db, ensureMailSchema, recordContact, recordPixel, recordSentMeta, recordSentMessage } from '@/lib/mailbox'
 import { sendMail, type SendPayload } from '@/lib/mail-provider'
@@ -149,7 +151,9 @@ export async function dispatchDue(limit = 25): Promise<{ due: number; sent: numb
     try {
       // scheduledAt is deliberately dropped: the wait already happened here.
       const { scheduledAt: _ignored, ...payload } = send.payload
-      const result = await sendMail(payload)
+      const result = await sendMail(
+        payload.html ? { ...payload, html: absoluteUrls(payload.html, BRAND.publicUrl) } : payload,
+      )
       await recordSend(send, result?.id ?? null)
       await sql`
         UPDATE mail_scheduled SET status = 'sent', sent_id = ${result?.id ?? null}, last_error = NULL WHERE id = ${id}`
