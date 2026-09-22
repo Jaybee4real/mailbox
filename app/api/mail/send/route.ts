@@ -6,6 +6,7 @@ import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { presign } from '@/lib/r2'
 import { recordContact, recordPixel, recordSentMeta, recordSentMessage } from '@/lib/mailbox'
 import { scheduleSend } from '@/lib/scheduled'
+import { absoluteUrls } from '@/lib/email-html'
 import { publicOrigin } from '@/lib/public-url'
 
 export const runtime = 'nodejs'
@@ -145,7 +146,7 @@ export async function POST(req: Request) {
   const origin = publicOrigin(req)
   const pixelId = randomUUID()
   const trackedHtml = body.html?.trim()
-    ? `${body.html.trim()}<img src="${origin}/api/mail/pixel/${pixelId}" alt="" width="1" height="1" style="display:none;width:1px;height:1px;border:0" />`
+    ? `${absoluteUrls(body.html.trim(), origin)}<img src="${origin}/api/mail/pixel/${pixelId}" alt="" width="1" height="1" style="display:none;width:1px;height:1px;border:0" />`
     : null
 
   // Thread the reply: In-Reply-To/References point at the inbound Message-ID so the

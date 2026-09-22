@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { inlineEmailStyles, htmlToPlainText, safeHref, dropUnreachableImages, outlookSafeImages, healGooglePrivateImages } from './email-html.ts'
+import { absoluteUrls, inlineEmailStyles, htmlToPlainText, safeHref, dropUnreachableImages, outlookSafeImages, healGooglePrivateImages } from './email-html.ts'
 
 // A paragraph with no styling of its own gets the base inline style.
 assert.match(inlineEmailStyles('<p>Hello</p>'), /<p style="font-family:Arial[^"]*">Hello<\/p>/)
@@ -88,3 +88,13 @@ assert.equal(
   healGooglePrivateImages('<img src="cid:abc"><img src="https://lh3.googleusercontent.com/real.png">'),
   '<img src="cid:abc"><img src="https://lh3.googleusercontent.com/real.png">',
 )
+
+assert.equal(
+  absoluteUrls('<img src="/api/mail/signature-logo?key=signatures%2Fa.png">', 'https://mail.example.com'),
+  '<img src="https://mail.example.com/api/mail/signature-logo?key=signatures%2Fa.png">',
+)
+assert.equal(
+  absoluteUrls('<a href="/x">x</a><img src="https://cdn.example.com/a.png"><img src="//cdn/b.png">', 'https://mail.example.com/'),
+  '<a href="https://mail.example.com/x">x</a><img src="https://cdn.example.com/a.png"><img src="//cdn/b.png">',
+)
+assert.equal(absoluteUrls('<a href="mailto:a@b.com">a</a>', 'https://mail.example.com'), '<a href="mailto:a@b.com">a</a>')
