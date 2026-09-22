@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { mailAuthGuard, isLocalOrigin, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
 import { searchInbox, appendEvent, appendInbound, recordContact, setInboundFlags, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
-import { attributeOwner, forwardToAccounts, ingestReceived, parseSender } from '@/lib/receive'
+import { addressedToUs, attributeOwner, forwardToAccounts, ingestReceived, parseSender } from '@/lib/receive'
 import { isBrevoInbound, normalizeBrevoInbound } from '@/lib/mail-provider'
 
 export const runtime = 'nodejs'
@@ -45,6 +45,7 @@ export async function GET(req: Request) {
       label: params.get('label') ?? undefined,
       from: params.get('from') ?? undefined,
       to: params.get('to') ?? undefined,
+      addressed: params.get('addressed') ?? undefined,
     })
     return NextResponse.json({ ok: true, emails: rows, total, offset, nextCursor })
   }
@@ -239,6 +240,19 @@ export async function POST(req: Request) {
 
   if (type === 'email.received') {
     const emailId = String(data.email_id ?? data.id ?? `in_${Date.now()}`)
+    // The signature proves the provider sent it, not that it is ours. One provider account
+    // can hold several tenants' domains and posts all of their mail to the single webhook
+    // it knows about, so anything addressed elsewhere is acknowledged and dropped — a 2xx
+    // rather than an error, because retrying will never make it ours.
+    const addressed = [
+      ...(Array.isArray(data.to) ? (data.to as string[]) : [String(data.to ?? '')]),
+      ...(Array.isArray(data.cc) ? (data.cc as string[]) : []),
+      ...(Array.isArray(data.bcc) ? (data.bcc as string[]) : []),
+    ].filter(Boolean)
+    if (addressed.length && !addressedToUs(addressed)) {
+      console.warn('[mail] refused inbound for another tenant', { emailId, to: addressed })
+      return NextResponse.json({ ok: true, ignored: 'not addressed to this mailbox' })
+    }
     // Keyed on the delivery id, which a retry reuses, so a redelivery of something we
     // already finished is a no-op rather than a second forwarded copy.
     const deliveryId = req.headers.get('svix-id') || `received:${emailId}`

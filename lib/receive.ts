@@ -35,6 +35,22 @@ export async function attributeOwner(recipients: string[]): Promise<string> {
   return SHARED_ADDRESS
 }
 
+/**
+ * Whether any recipient is on a domain this deployment hosts. One provider account can
+ * hold several tenants' domains and posts every message it receives to the one webhook it
+ * is configured with, so a deployment is offered other tenants' mail as a matter of course
+ * — and a signature check proves only that the provider sent it, not that it is ours.
+ */
+export function addressedToUs(recipients: string[]): boolean {
+  const hosted = new Set([...ADDRESS_DOMAINS, MAIL_DOMAIN].map(domain => domain.trim().toLowerCase()).filter(Boolean))
+  return recipients.some(raw => {
+    const match = raw?.match(/<([^>]+)>/)
+    const address = (match ? match[1] : raw ?? '').trim().toLowerCase()
+    const domain = address.split('@')[1] ?? ''
+    return domain !== '' && hosted.has(domain)
+  })
+}
+
 export function parseSender(raw: string): { email: string; name: string | null } {
   const match = raw.match(/^\s*(.*?)\s*<([^>]+)>\s*$/)
   if (match) return { name: match[1].replace(/^"|"$/g, '') || null, email: match[2].trim() }
@@ -260,6 +276,15 @@ export async function ingestReceived(
       ...(full?.bcc ?? []),
     ]),
   }
+  // Refuse mail that was never addressed to this mailbox, before a copy is stored, pushed
+  // or forwarded. Without this, every message the provider account receives for any tenant
+  // lands in whichever deployment holds the webhook, filed to its shared inbox because no
+  // local account matches — one tenant reading another's mail.
+  const envelope = [...inbound.to, ...inbound.cc, ...inbound.bcc]
+  if (!addressedToUs(envelope)) {
+    throw new Error(`refusing ${emailId}: addressed to ${envelope.join(', ') || 'nobody'}, which is not a domain this mailbox hosts`)
+  }
+
   // Pull the bytes once: they become our stored copy and the forward's attachments.
   const files = apiKey ? await fetchAttachmentBytes(emailId, apiKey) : []
   if (files.length) inbound.attachments = await rehostAttachments(emailId, files)
