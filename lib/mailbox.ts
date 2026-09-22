@@ -573,6 +573,17 @@ const listFrom = (raw: string | undefined, fallback: Iterable<string>): Set<stri
 // Read per call, so a deployment can change any of them without a release.
 const freeProviders = () => listFrom(process.env.MAIL_FREE_PROVIDERS, FREE_MAIL_DEFAULT)
 const throwawayTlds = () => listFrom(process.env.MAIL_THROWAWAY_TLDS, THROWAWAY_TLDS_DEFAULT)
+
+// Bulk senders put their own bounce domain in From and the real correspondent in Reply-To.
+// That is how the campaign gets replies, not an attempt to redirect them somewhere unexpected.
+const BULK_SENDERS_DEFAULT = new Set([
+  'mailchimpapp.com', 'mcsv.net', 'rsgsv.net', 'mailchimp.com',
+  'sendgrid.net', 'sendgrid.com', 'sparkpostmail.com', 'amazonses.com',
+  'mailgun.org', 'mandrillapp.com', 'postmarkapp.com', 'sendinblue.com',
+  'brevo.com', 'constantcontact.com', 'cmail19.com', 'createsend.com',
+  'hubspotemail.net', 'mailerlite.com', 'klaviyomail.com', 'salesforce.com',
+])
+const bulkSenders = () => listFrom(process.env.MAIL_BULK_SENDERS, BULK_SENDERS_DEFAULT)
 const scamPhrases = () => [...listFrom(process.env.MAIL_SCAM_PHRASES, SCAM_PHRASES_DEFAULT)]
 
 /** Weight at which a message stops being labelled and is held out of the inbox instead. */
@@ -635,7 +646,11 @@ export function judgeMessage(signals: RiskSignals, standing: SenderStanding): Ri
     .filter(entry => entry && entry !== fromDomain)
   const free = freeProviders()
   const freeReply = replyDomains.find(entry => free.has(entry))
-  if (freeReply && fromDomain && !free.has(fromDomain)) {
+  const bulk = bulkSenders().has(fromDomain)
+  if (bulk) {
+    // Nothing to say: a campaign's replies are meant to land somewhere other than the
+    // sending platform, and treating that as misdirection buries ordinary bulk mail.
+  } else if (freeReply && fromDomain && !free.has(fromDomain)) {
     add(4, `Replies to this message go to ${freeReply}, not to ${fromDomain}`, true)
   } else if (replyDomains.length) {
     add(1, `Replies go to ${replyDomains[0]} rather than ${fromDomain || 'the sender'}`)
