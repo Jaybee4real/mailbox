@@ -3718,6 +3718,9 @@ export default function DevMailPage() {
         .catch(() => {})
         .finally(() => {
           if (flags.read === true) ids.forEach(id => pendingRead.current.delete(id))
+          // The starred tally counts conversations, not messages, so it cannot be derived
+          // from the ids alone — the server says what it is now.
+          if (flags.starred !== undefined) loadCounts(true)
         })
     },
     [apiHeaders],
@@ -3754,6 +3757,40 @@ export default function DevMailPage() {
     },
     [apiHeaders, setInboundFlag, threadIds, threadKeys, loadCounts],
   )
+  /**
+   * The row carries the newest message's id, but the star belongs to the conversation —
+   * starring the newest message leaves an older starred one lit and the row never clears.
+   */
+  const toggleRowStar = useCallback(
+    (id: string, threadId: string | null, starred: boolean) => {
+      if (!threadId) {
+        setInboundFlag(threadIds(id), { starred })
+        return
+      }
+      setInboxEmails(list =>
+        list.map(entry => (threadKeys.get(entry.id) === threadKeys.get(id) ? { ...entry, starred } : entry)),
+      )
+      setThreads(list =>
+        list.map(thread =>
+          thread.threadId === threadId
+            ? { ...thread, starredCount: starred ? Math.max(1, thread.count) : 0 }
+            : thread,
+        ),
+      )
+      setServerCounts(current =>
+        current ? { ...current, starred: Math.max(0, current.starred + (starred ? 1 : -1)) } : current,
+      )
+      fetch('/api/mail/inbox', {
+        method: 'PATCH',
+        headers: apiHeaders(),
+        body: JSON.stringify({ threadId, starred }),
+      })
+        .then(() => loadCounts(true))
+        .catch(() => {})
+    },
+    [apiHeaders, setInboundFlag, threadIds, threadKeys, loadCounts],
+  )
+
   useEffect(() => { swipeCommitRef.current = commitRowFlags }, [commitRowFlags])
   useEffect(() => { setInboundFlagRef.current = setInboundFlag }, [setInboundFlag])
 
@@ -7899,12 +7936,12 @@ export default function DevMailPage() {
                     className={`${styles.itemStar} ${item.starred ? styles.itemStarOn : ''}`}
                     onClick={event => {
                       event.stopPropagation()
-                      setInboundFlag([item.id], { starred: !item.starred })
+                      toggleRowStar(item.id, item.kind === 'inbound' ? item.threadId : null, !item.starred)
                     }}
                     onKeyDown={event => {
                       if (event.key === 'Enter') {
                         event.stopPropagation()
-                        setInboundFlag([item.id], { starred: !item.starred })
+                        toggleRowStar(item.id, item.kind === 'inbound' ? item.threadId : null, !item.starred)
                       }
                     }}
                   >
