@@ -58,11 +58,6 @@ seat whose mail someone else now reads.
 on a mounted volume, which is what a single box wants. A `libsql://` URL points
 at a hosted one — Turso, or your own `sqld` — and takes `DATABASE_AUTH_TOKEN`.
 
-If you would rather not run a database at all, leave `DATABASE_URL` unset and
-fill in the Cloudflare D1 variables instead; the app falls back to D1 over its
-REST API. Either way the queries are the same SQLite, so you can move between
-them without a coordinated redeploy.
-
 Attachments go to any S3-compatible bucket through the `S3_*` variables: AWS
 S3, Cloudflare R2, Backblaze B2, MinIO, Wasabi. The older `R2_*` names still
 work if you already set them.

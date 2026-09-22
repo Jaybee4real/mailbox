@@ -1,6 +1,6 @@
 import { ADDRESS_ALIASES, MAIL_SEATS, type MailRole } from './brand'
 /**
- * Durable mail state on Cloudflare D1 (SQLite). Inbox, delivery events, account
+ * Durable mail state on libSQL (SQLite). Inbox, delivery events, account
  * credentials, reset tokens, and a per-account stash for drafts + saved templates.
  *
  * SQLite differences that matter here: booleans are 0/1, JSON columns are TEXT and come
@@ -8,7 +8,6 @@ import { ADDRESS_ALIASES, MAIL_SEATS, type MailRole } from './brand'
  * supplied by the app rather than `now()`.
  */
 
-import { d1, d1Batch, d1Query } from './d1'
 import { stripCidPlaceholders } from './email-html'
 import { hashPassword } from './password'
 import { duration, type ParsedQuery } from '@/app/mail/search'
@@ -67,24 +66,21 @@ export type StashItem = {
 const MAX_INBOX = 500
 const MAX_EVENTS = 150
 
-/** SQLite/libSQL once it is configured, D1 until then, so the switch needs no redeploy dance. */
-const tursoConfigured = () => Boolean(process.env.DATABASE_URL ?? process.env.TURSO_DATABASE_URL)
-
 export function db() {
-  return tursoConfigured() ? turso() : d1()
+  return turso()
 }
 
 /** Raw SQL with positional args, for queries whose shape is built at runtime. */
 function tagged(_sql: unknown, text: string, args: unknown[]): Promise<Record<string, unknown>[]> {
-  return tursoConfigured() ? tursoQuery(text, args) : d1Query(text, args)
+  return tursoQuery(text, args)
 }
 
 function sqlRaw(text: string, args: unknown[] = []): Promise<Record<string, unknown>[]> {
-  return tursoConfigured() ? tursoQuery(text, args) : d1Query(text, args)
+  return tursoQuery(text, args)
 }
 
 function dbBatch(statements: string[]): Promise<void> {
-  return tursoConfigured() ? tursoBatch(statements) : d1Batch(statements)
+  return tursoBatch(statements)
 }
 
 function nowIso(): string {
@@ -116,8 +112,8 @@ function isoOrNull(value: unknown): string | null {
 }
 
 /**
- * Create the schema on first use. D1 has no migration runner either, but unlike the
- * Postgres original we own the full CREATE, so there are no incremental ALTERs to replay.
+ * Create the schema on first use. There is no migration runner, but unlike the Postgres
+ * original we own the full CREATE, so there are no incremental ALTERs to replay.
  * Memoized per server instance.
  */
 let schemaReady: Promise<void> | null = null

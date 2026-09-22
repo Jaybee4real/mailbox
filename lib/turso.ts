@@ -1,5 +1,5 @@
 /**
- * Turso (libSQL) over HTTP, exposing the same tagged-template shape the D1 client used
+ * Turso (libSQL) over HTTP, exposing a tagged-template shape
  * so every call site in `mailbox.ts` reads unchanged. libSQL is SQLite, so the schema
  * and its `ON CONFLICT` clauses port without translation.
  *
@@ -45,7 +45,7 @@ export function turso(): SqlTag {
 }
 
 /**
- * Run several statements as one transaction. The D1 client could only loop, so a
+ * Run several statements as one transaction. A plain loop cannot roll back, so a
  * half-applied schema was possible; libSQL gives us the real thing.
  */
 export async function tursoBatch(statements: string[]): Promise<void> {
