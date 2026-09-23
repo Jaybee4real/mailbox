@@ -1,7 +1,7 @@
 const ABBREVIATIONS = new Set([
   'e.g', 'i.e', 'etc', 'eg', 'ie', 'vs', 'viz', 'cf', 'al', 'approx', 'ref', 'no', 'nos', 'tel', 'fig', 'p', 'pp', 'pg',
   'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'hon', 'rev', 'engr', 'arc', 'barr', 'chief', 'alh', 'gen', 'capt',
-  'ltd', 'plc', 'inc', 'co', 'corp', 'dept', 'est', 'attn', 'encl', 'pls',
+  'ltd', 'plc', 'inc', 'co', 'corp', 'dept', 'est', 'attn', 'encl', 'pls', 'www',
   'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
 ])
 
@@ -50,11 +50,34 @@ export function correctWord(word: string): string | null {
   return fixed
 }
 
-/** "N1500000" or "NGN1500000.50" as "₦1,500,000" / "₦1,500,000.50"; null for anything else. */
-export function formatNaira(token: string): string | null {
-  const match = token.match(/^(?:NGN|N|₦)(\d{4,})(\.\d{1,2})?$/)
-  if (!match) return null
-  return `₦${Number(match[1]).toLocaleString('en-GB')}${match[2] ?? ''}`
+const CURRENCY_CODES = 'NGN|USD|GBP|EUR|GHS|KES|ZAR|XOF|XAF|CAD|AUD|JPY|CNY|INR|AED|CHF|EGP|RWF|UGX|TZS'
+const CURRENCY_SYMBOLS = '\u20a6$\u00a3\u20ac\u00a5\u20b9\u20b5'
+const MONEY = new RegExp(`^(${CURRENCY_CODES}|[${CURRENCY_SYMBOLS}]|N)(\\d{4,})(\\.\\d{1,2})?$`)
+const CURRENCY_ALONE = new RegExp(`^(?:${CURRENCY_CODES}|[${CURRENCY_SYMBOLS}]|N)$`)
+
+const group = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+
+export type AmountOptions = { nairaLetter: boolean; plainNumbers: boolean }
+
+/**
+ * An amount with its thousands grouped: "$2500" → "$2,500", "USD 1500000" → "USD 1,500,000",
+ * and, when asked for, "N1500000" → "₦1,500,000" and a bare "150000" → "150,000".
+ *
+ * A bare number is only grouped at five to nine digits and never with a leading zero, so a
+ * year, a phone number and a ten-digit account number are left as typed. `previous` is the
+ * word before, so "USD 2500" is money even though the amount stands alone.
+ */
+export function formatAmount(token: string, options: AmountOptions, previous = ''): string | null {
+  const money = token.match(MONEY)
+  if (money) {
+    if (money[1] === 'N' && !options.nairaLetter) return null
+    return `${money[1] === 'N' ? '\u20a6' : money[1]}${group(money[2])}${money[3] ?? ''}`
+  }
+  const bare = token.match(/^(\d{4,})(\.\d{1,2})?$/)
+  if (!bare) return null
+  if (CURRENCY_ALONE.test(previous) && !(previous === 'N' && !options.nairaLetter)) return `${group(bare[1])}${bare[2] ?? ''}`
+  if (options.plainNumbers && /^[1-9]\d{4,8}$/.test(bare[1])) return `${group(bare[1])}${bare[2] ?? ''}`
+  return null
 }
 
 /** Whether a word should be put to the dictionary at all. */

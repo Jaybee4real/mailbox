@@ -2,6 +2,7 @@ export type SpellLanguage = 'en-GB' | 'en-US'
 
 export type WritingSettings = {
   autoCapitalize: boolean
+  spaceAfterStop: boolean
   capitalizeI: boolean
   spellcheck: boolean
   spellLanguage: SpellLanguage
@@ -15,7 +16,9 @@ export type WritingSettings = {
   doubleTabMs: number
   templateShortcuts: boolean
   cleanPaste: boolean
-  nairaFormat: boolean
+  amountFormat: boolean
+  nairaLetter: boolean
+  numberFormat: boolean
   wordCount: boolean
   checkAttachment: boolean
   checkEmptyBody: boolean
@@ -27,6 +30,7 @@ export type WritingSettings = {
 
 export const WRITING_DEFAULTS: WritingSettings = {
   autoCapitalize: true,
+  spaceAfterStop: true,
   capitalizeI: true,
   spellcheck: true,
   spellLanguage: 'en-GB',
@@ -40,7 +44,9 @@ export const WRITING_DEFAULTS: WritingSettings = {
   doubleTabMs: 400,
   templateShortcuts: true,
   cleanPaste: true,
-  nairaFormat: false,
+  amountFormat: false,
+  nairaLetter: true,
+  numberFormat: false,
   wordCount: true,
   checkAttachment: true,
   checkEmptyBody: true,
@@ -62,6 +68,7 @@ export function writingSettingsFrom(raw: unknown): WritingSettings {
     typeof stored[key] === 'boolean' ? (stored[key] as boolean) : (WRITING_DEFAULTS[key] as boolean)
   return {
     autoCapitalize: flag('autoCapitalize'),
+    spaceAfterStop: flag('spaceAfterStop'),
     capitalizeI: flag('capitalizeI'),
     spellcheck: flag('spellcheck'),
     spellLanguage: stored.spellLanguage === 'en-US' ? 'en-US' : 'en-GB',
@@ -77,7 +84,9 @@ export function writingSettingsFrom(raw: unknown): WritingSettings {
     doubleTabMs: clamp(stored.doubleTabMs, 200, 1000, WRITING_DEFAULTS.doubleTabMs),
     templateShortcuts: flag('templateShortcuts'),
     cleanPaste: flag('cleanPaste'),
-    nairaFormat: flag('nairaFormat'),
+    amountFormat: typeof stored.amountFormat === 'boolean' ? stored.amountFormat : stored.nairaFormat === true,
+    nairaLetter: flag('nairaLetter'),
+    numberFormat: flag('numberFormat'),
     wordCount: flag('wordCount'),
     checkAttachment: flag('checkAttachment'),
     checkEmptyBody: flag('checkEmptyBody'),

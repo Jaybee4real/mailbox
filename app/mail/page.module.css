@@ -7433,7 +7433,7 @@
 .wpHint { color: var(--nc-fg-4); font: 400 11.5px/1.35 var(--nc-font-sans); }
 .wpIndent { margin-left: 12px; padding-left: 10px; border-left: 2px solid var(--nc-line-1); }
 .wpSwitch { flex: none; width: 16px; height: 16px; accent-color: var(--nc-violet-500); cursor: pointer; }
-.wpSelect, .wpNumber, .wpInput {
+.wpNumber, .wpInput {
   height: 28px;
   padding: 0 8px;
   border: 1px solid var(--nc-line-1);
@@ -7504,3 +7504,36 @@
   white-space: nowrap;
 }
 .sendIssues { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+
+.rteGear { font-size: 17px; line-height: 1; }
+.wpSelect {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 6px;
+  background: var(--nc-ink-1);
+  color: var(--nc-fg-1);
+  font: 500 12.5px/1 var(--nc-font-sans);
+  cursor: pointer;
+}
+/* The app's own scrollbar, as on the message list: thin, violet, inset. */
+.wpTabs, .wpBody, .rteContent, .rteSuggest {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--nc-violet-500) 55%, transparent) transparent;
+}
+.wpTabs::-webkit-scrollbar, .wpBody::-webkit-scrollbar, .rteContent::-webkit-scrollbar, .rteSuggest::-webkit-scrollbar { width: 10px; height: 8px; }
+.wpTabs::-webkit-scrollbar-track, .wpBody::-webkit-scrollbar-track, .rteContent::-webkit-scrollbar-track, .rteSuggest::-webkit-scrollbar-track { background: transparent; }
+.wpTabs::-webkit-scrollbar-thumb, .wpBody::-webkit-scrollbar-thumb, .rteContent::-webkit-scrollbar-thumb, .rteSuggest::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--nc-violet-500) 45%, transparent);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+.wpTabs::-webkit-scrollbar-thumb:hover, .wpBody::-webkit-scrollbar-thumb:hover, .rteContent::-webkit-scrollbar-thumb:hover, .rteSuggest::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--nc-violet-500) 78%, transparent);
+  background-clip: padding-box;
+}
+.wpTabs { padding-bottom: 6px; }

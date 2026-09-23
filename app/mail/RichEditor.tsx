@@ -1347,7 +1347,7 @@ export default function RichEditor({
               title="Writing tools"
               onClick={() => setPanel(open => !open)}
             >
-              <span aria-hidden>⚙</span>
+              <span aria-hidden className={styles.rteGear}>⚙</span>
             </button>
           </div>
         )}

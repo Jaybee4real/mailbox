@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import styles from '../page.module.css'
+import MailSelect from '../MailSelect'
 import type { WritingSettings } from './settings'
 import { normaliseShortcut, type MailTemplate } from './templates'
 
@@ -86,6 +87,11 @@ export default function WritingPanel({
         {tab === 'writing' && (
           <>
             <Toggle label="Capitalise new sentences" hint="After . ? ! and at the start of a paragraph" checked={settings.autoCapitalize} onChange={value => set('autoCapitalize', value)} />
+            {settings.autoCapitalize && (
+              <div className={styles.wpIndent}>
+                <Toggle label="Add a missed space" hint="end.Next → end. Next, as you type" checked={settings.spaceAfterStop} onChange={value => set('spaceAfterStop', value)} />
+              </div>
+            )}
             <Toggle label='Capital "I"' checked={settings.capitalizeI} onChange={value => set('capitalizeI', value)} />
             <Toggle label="Fix common typos" hint="teh → the, dont → don't" checked={settings.autocorrect} onChange={value => set('autocorrect', value)} />
             <Toggle label="Check spelling" hint="On for new messages; the ✓Aa button turns it off for one" checked={settings.spellcheck} onChange={value => set('spellcheck', value)} />
@@ -93,10 +99,16 @@ export default function WritingPanel({
               <div className={styles.wpIndent}>
                 <label className={styles.wpRow}>
                   <span className={styles.wpLabel}>Dictionary</span>
-                  <select className={styles.wpSelect} value={settings.spellLanguage} onChange={event => set('spellLanguage', event.target.value === 'en-US' ? 'en-US' : 'en-GB')}>
-                    <option value="en-GB">British English</option>
-                    <option value="en-US">American English</option>
-                  </select>
+                  <MailSelect
+                    ariaLabel="Dictionary"
+                    buttonClassName={styles.wpSelect}
+                    value={settings.spellLanguage}
+                    options={[
+                      { value: 'en-GB', label: 'British English' },
+                      { value: 'en-US', label: 'American English' },
+                    ]}
+                    onChange={value => set('spellLanguage', value === 'en-US' ? 'en-US' : 'en-GB')}
+                  />
                 </label>
                 <Toggle label="Skip words in CAPITALS" hint="Acronyms and company names" checked={settings.ignoreCapitals} onChange={value => set('ignoreCapitals', value)} />
                 <Toggle label="Skip words with numbers" hint="Policy and vehicle numbers" checked={settings.ignoreWithNumbers} onChange={value => set('ignoreWithNumbers', value)} />
@@ -121,7 +133,13 @@ export default function WritingPanel({
             )}
             <Toggle label="Template shortcuts" hint="Type ;name then Space" checked={settings.templateShortcuts} onChange={value => set('templateShortcuts', value)} />
             <Toggle label="Clean pasted formatting" hint="Strips Word and Excel styling, keeps tables" checked={settings.cleanPaste} onChange={value => set('cleanPaste', value)} />
-            <Toggle label="Format naira amounts" hint="N1500000 → ₦1,500,000" checked={settings.nairaFormat} onChange={value => set('nairaFormat', value)} />
+            <Toggle label="Format amounts" hint="$2500 → $2,500 · USD 1500000 → USD 1,500,000 · ₦, £, €, GHS, KES…" checked={settings.amountFormat} onChange={value => set('amountFormat', value)} />
+            {settings.amountFormat && (
+              <div className={styles.wpIndent}>
+                <Toggle label="N means naira" hint="N1500000 → ₦1,500,000" checked={settings.nairaLetter} onChange={value => set('nairaLetter', value)} />
+                <Toggle label="Plain numbers too" hint="1500000 → 1,500,000 · years, phone and account numbers are left alone" checked={settings.numberFormat} onChange={value => set('numberFormat', value)} />
+              </div>
+            )}
             <Toggle label="Word count" checked={settings.wordCount} onChange={value => set('wordCount', value)} />
           </>
         )}
