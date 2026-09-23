@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { EditorContent, Extension, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type Editor, type NodeViewProps } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
@@ -16,6 +17,7 @@ import Highlight from '@tiptap/extension-highlight'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { safeHref } from '@/lib/email-html'
 import styles from './page.module.css'
+import { TAB_TEXT, tabPress } from './tabKey'
 
 const TEXT_COLOURS = ['#030712', '#b91c1c', '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#6b7280']
 const HIGHLIGHTS = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FBCFE8', '#FED7AA']
@@ -840,6 +842,49 @@ function Toolbar({ editor, uploadImage, fonts = [], baseFont }: { editor: Editor
   )
 }
 
+type TabMark = { doc: ProseMirrorNode; undo: () => void } | null
+
+/**
+ * Tab indents the body rather than leaving it; a list item is nested a level instead. A
+ * quick second Tab takes that indent back and lets focus move to the next control. Inside a
+ * table, Tab keeps moving between cells.
+ */
+const TabKey = Extension.create<Record<string, never>, { memory: { at: number; mark: TabMark } }>({
+  name: 'tabKey',
+  addStorage() {
+    return { memory: { at: 0, mark: null } }
+  },
+  addKeyboardShortcuts() {
+    return {
+      Tab: () => {
+        const editor = this.editor
+        if (editor.isActive('table')) return false
+        const { leaving, previous } = tabPress(this.storage.memory, () => null)
+        if (leaving) {
+          if (previous && previous.doc === editor.state.doc) previous.undo()
+          return false
+        }
+        let undo: () => void
+        if (editor.can().sinkListItem('listItem')) {
+          editor.commands.sinkListItem('listItem')
+          undo = () => editor.commands.liftListItem('listItem')
+        } else {
+          editor.commands.insertContent(TAB_TEXT)
+          const end = editor.state.selection.from
+          undo = () => editor.commands.deleteRange({ from: end - TAB_TEXT.length, to: end })
+        }
+        this.storage.memory.mark = { doc: editor.state.doc, undo }
+        return true
+      },
+      'Shift-Tab': () => {
+        const editor = this.editor
+        if (editor.isActive('table')) return false
+        return editor.can().liftListItem('listItem') ? editor.commands.liftListItem('listItem') : false
+      },
+    }
+  },
+})
+
 const isSpacing = (value: number) => Number.isFinite(value) && value >= 0.8 && value <= 3
 
 const LineSpacing = Extension.create({
@@ -925,6 +970,7 @@ export default function RichEditor({
       FontFamily,
       FontSize,
       LineSpacing,
+      TabKey,
       Color,
       Highlight.configure({ multicolor: true }),
       Link.configure({ openOnClick: false, autolink: true }),

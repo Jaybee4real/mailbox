@@ -12,6 +12,7 @@ import RichEditor from './RichEditor'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel, healGooglePrivateImages } from '@/lib/email-html'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect, { GLYPH } from './MailSelect'
+import { handleComposeTab } from './tabKey'
 
 /** Which product an address belongs to, so the picker can wear its mark. */
 function productOf(address: string): 'vela' | 'hosting' | 'person' {
@@ -6860,7 +6861,9 @@ export default function DevMailPage() {
                       if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
                         event.preventDefault()
                         sendQuickReply(inbound)
+                        return
                       }
+                      handleComposeTab(event)
                     }}
                     placeholder={replyBar === 'forward' ? 'Add a note to go with the forwarded message…' : `Reply to ${parseAddress(quickReplyTarget(inbound).from) || 'sender'}…`}
                     rows={1}
@@ -6870,6 +6873,7 @@ export default function DevMailPage() {
                   <textarea
                     className={`${styles.quickReplyInput} ${styles.quickReplyHtml}`}
                     value={replyHtml}
+                    onKeyDown={event => handleComposeTab(event, '  ')}
                     onChange={event => { setReplyHtml(event.target.value); setReplyHtmlDirty(true) }}
                     onPaste={event => { pasteAttachments(event) }}
                     placeholder="Advanced: edit the message HTML directly. Changes here replace what you wrote."
