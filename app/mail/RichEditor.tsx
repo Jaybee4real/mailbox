@@ -18,6 +18,15 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import { safeHref } from '@/lib/email-html'
 import styles from './page.module.css'
 import { TAB_TEXT, tabPress } from './tabKey'
+import { WRITING_DEFAULTS, type WritingSettings } from './writing/settings'
+import { WritingAssist, nextField } from './writing/assist'
+import { fillTemplate, type MailTemplate, type TemplateContext } from './writing/templates'
+import { Spelling, spellingKey, suggestSpelling } from './writing/spelling'
+import { Grammar, grammarIgnoreKey, grammarKey } from './writing/grammar'
+import { FindReplace, findKey, findMatches, findState } from './writing/find'
+import { cleanPastedHtml } from './writing/paste'
+import WritingPanel from './writing/WritingPanel'
+import { LiveStore, live } from './writing/live'
 
 const TEXT_COLOURS = ['#030712', '#b91c1c', '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#6b7280']
 const HIGHLIGHTS = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FBCFE8', '#FED7AA']
@@ -591,7 +600,17 @@ function TableTools({ editor }: { editor: Editor }) {
 
 type Pop = 'link' | 'image' | 'table' | null
 
-function Toolbar({ editor, uploadImage, fonts = [], baseFont }: { editor: Editor; uploadImage?: (file: File) => Promise<string>; fonts?: string[]; baseFont?: BaseFont }) {
+function Toolbar({
+  editor,
+  uploadImage,
+  fonts = [],
+  baseFont,
+}: {
+  editor: Editor
+  uploadImage?: (file: File) => Promise<string>
+  fonts?: string[]
+  baseFont?: BaseFont
+}) {
   const [pop, setPop] = useState<Pop>(null)
   const popRef = useRef<HTMLDivElement>(null)
   const phone = usePhone()
@@ -625,6 +644,10 @@ function Toolbar({ editor, uploadImage, fonts = [], baseFont }: { editor: Editor
     }
     setPop(current => (current === 'link' ? null : 'link'))
   }, [editor])
+
+  useEffect(() => {
+    live(editor).openLink = openLink
+  }, [editor, openLink])
 
   return (
     <>
@@ -859,7 +882,14 @@ const TabKey = Extension.create<Record<string, never>, { memory: { at: number; m
       Tab: () => {
         const editor = this.editor
         if (editor.isActive('table')) return false
-        const { leaving, previous } = tabPress(this.storage.memory, () => null)
+        const field = nextField(editor.state.doc, editor.state.selection.to)
+        if (field) {
+          editor.commands.setTextSelection(field)
+          return true
+        }
+        const settings = live(editor).settings
+        if (!settings.tabIndent) return false
+        const { leaving, previous } = tabPress(this.storage.memory, () => null, settings.doubleTabMs)
         if (leaving) {
           if (previous && previous.doc === editor.state.doc) previous.undo()
           return false
@@ -880,6 +910,32 @@ const TabKey = Extension.create<Record<string, never>, { memory: { at: number; m
         const editor = this.editor
         if (editor.isActive('table')) return false
         return editor.can().liftListItem('listItem') ? editor.commands.liftListItem('listItem') : false
+      },
+    }
+  },
+})
+
+const ComposerShortcuts = Extension.create({
+  name: 'composerShortcuts',
+  addKeyboardShortcuts() {
+    return {
+      'Mod-Enter': () => {
+        const submit = live(this.editor).submit
+        if (!submit) return false
+        submit()
+        return true
+      },
+      'Mod-k': () => {
+        const openLink = live(this.editor).openLink
+        if (!openLink) return false
+        openLink()
+        return true
+      },
+      'Mod-f': () => {
+        const openFind = live(this.editor).openFind
+        if (!openFind) return false
+        openFind()
+        return true
       },
     }
   },
@@ -911,6 +967,26 @@ const LineSpacing = Extension.create({
   },
 })
 
+type Suggestion = {
+  kind: 'spelling' | 'repeat' | 'grammar'
+  word: string
+  from: number
+  to: number
+  x: number
+  y: number
+  options: string[]
+  message?: string
+}
+
+let grammarProbe: Promise<boolean> | null = null
+const grammarReady = (headers: () => HeadersInit) =>
+  (grammarProbe ??= fetch('/api/mail/grammar', { headers: headers() })
+    .then(response => response.json())
+    .then(data => Boolean(data?.available))
+    .catch(() => false))
+
+const countWords = (text: string) => (text.match(/[A-Za-z\u00C0-\u024F0-9]+(?:['\u2019-][A-Za-z\u00C0-\u024F0-9]+)*/g) ?? []).length
+
 export default function RichEditor({
   html,
   onChange,
@@ -919,6 +995,17 @@ export default function RichEditor({
   fonts,
   fontFaceCss,
   baseFont,
+  writing,
+  onWritingChange,
+  templates = [],
+  onSaveTemplate,
+  onDeleteTemplate,
+  templateContext,
+  companyWords = [],
+  onCompanyWords,
+  isAdmin = false,
+  onSubmit,
+  requestHeaders,
 }: {
   html: string
   onChange: (html: string) => void
@@ -927,12 +1014,51 @@ export default function RichEditor({
   fonts?: string[]
   fontFaceCss?: string
   baseFont?: BaseFont
+  /** Writing tools are on only where this is given: the composer, not the signature editors. */
+  writing?: WritingSettings
+  onWritingChange?: (next: WritingSettings) => void
+  templates?: MailTemplate[]
+  onSaveTemplate?: (template: MailTemplate) => void
+  onDeleteTemplate?: (id: string) => void
+  templateContext?: TemplateContext
+  companyWords?: string[]
+  onCompanyWords?: (words: string[]) => void
+  isAdmin?: boolean
+  onSubmit?: () => void
+  requestHeaders?: () => HeadersInit
 }) {
+  const tools = Boolean(writing)
+  const settings = writing ?? WRITING_DEFAULTS
   const uploadRef = useRef(uploadImage)
   const editorRef = useRef<Editor | null>(null)
+  const settingsRef = useRef(settings)
+  const [spellOn, setSpellOn] = useState(settings.spellcheck)
+  const [grammarAvailable, setGrammarAvailable] = useState(false)
+  const [panel, setPanel] = useState(false)
+  const [finding, setFinding] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [replaceWith, setReplaceWith] = useState('')
+  const [suggestion, setSuggestion] = useState<Suggestion | null>(null)
+  const [wordCount, setWordCount] = useState(0)
+  const [, setTick] = useState(0)
+  const findInputRef = useRef<HTMLInputElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     uploadRef.current = uploadImage
-  }, [uploadImage])
+    settingsRef.current = settings
+  })
+
+  useEffect(() => {
+    if (!tools) return
+    let current = true
+    void grammarReady(requestHeaders ?? (() => ({}))).then(available => {
+      if (current) setGrammarAvailable(available)
+    })
+    return () => {
+      current = false
+    }
+  }, [tools, requestHeaders])
 
   // A dropped or pasted image file is uploaded and inserted by URL. Left to the browser,
   // Chrome on Windows inserts it as file:///C:/… — which renders for nobody.
@@ -957,6 +1083,47 @@ export default function RichEditor({
     return true
   }
 
+  const openSuggestion = (target: HTMLElement, pos: number) => {
+    const editor = editorRef.current
+    const wrap = wrapRef.current
+    if (!editor || !wrap) return false
+    const kind = target.dataset.kind as Suggestion['kind'] | undefined
+    if (!kind) return false
+    const key = kind === 'grammar' ? grammarKey : spellingKey
+    const set = key.getState(editor.state)?.set
+    const near = set?.find(pos - 1, pos + 1) ?? []
+    const range = near.find(decoration => decoration.from <= pos && decoration.to >= pos) ?? near[0]
+    if (!range) return false
+    const box = target.getBoundingClientRect()
+    const frame = wrap.getBoundingClientRect()
+    const base: Suggestion = {
+      kind,
+      word: editor.state.doc.textBetween(range.from, range.to),
+      from: range.from,
+      to: range.to,
+      x: box.left - frame.left,
+      y: box.bottom - frame.top + 4,
+      options: [],
+      message: target.dataset.message,
+    }
+    if (kind === 'grammar') {
+      try {
+        base.options = JSON.parse(target.dataset.replacements ?? '[]')
+      } catch {
+        base.options = []
+      }
+      setSuggestion(base)
+    } else if (kind === 'repeat') {
+      setSuggestion(base)
+    } else {
+      setSuggestion(base)
+      void suggestSpelling(base.word, settingsRef.current.spellLanguage).then(options =>
+        setSuggestion(current => (current && current.from === base.from && current.word === base.word ? { ...current, options } : current)),
+      )
+    }
+    return true
+  }
+
   const editor = useEditor({
     // Rendered on the client only: the editor touches the DOM on creation and would
     // otherwise mismatch the server-rendered markup.
@@ -970,7 +1137,13 @@ export default function RichEditor({
       FontFamily,
       FontSize,
       LineSpacing,
+      LiveStore,
       TabKey,
+      WritingAssist,
+      Spelling,
+      Grammar,
+      FindReplace,
+      ComposerShortcuts,
       Color,
       Highlight.configure({ multicolor: true }),
       Link.configure({ openOnClick: false, autolink: true }),
@@ -983,12 +1156,36 @@ export default function RichEditor({
     ],
     content: html || '',
     editorProps: {
-      attributes: { class: styles.rteSurface, 'aria-label': placeholder ?? 'Message body' },
+      attributes: {
+        class: styles.rteSurface,
+        'aria-label': placeholder ?? 'Message body',
+        spellcheck: 'false',
+        autocapitalize: tools ? 'sentences' : 'off',
+        autocorrect: tools ? 'on' : 'off',
+      },
       handleDrop: (view, event) =>
         placeImages(Array.from(event.dataTransfer?.files ?? []), view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos),
+      handleKeyDown: (_view, event) => {
+        if (event.key === 'Escape') setSuggestion(null)
+        return false
+      },
       handlePaste: (_view, event) => placeImages(Array.from(event.clipboardData?.files ?? [])),
+      transformPastedHTML: pasted => (settingsRef.current.cleanPaste ? cleanPastedHtml(pasted) : pasted),
+      handleClick: (_view, pos, event) => {
+        const target = (event.target as HTMLElement | null)?.closest('[data-kind]') as HTMLElement | null
+        if (!target) {
+          setSuggestion(null)
+          return false
+        }
+        return openSuggestion(target, pos)
+      },
     },
-    onUpdate: ({ editor: instance }) => onChange(instance.getHTML()),
+    onUpdate: ({ editor: instance }) => {
+      onChange(instance.getHTML())
+      setWordCount(countWords(instance.state.doc.textContent))
+    },
+    onCreate: ({ editor: instance }) => setWordCount(countWords(instance.state.doc.textContent)),
+    onTransaction: () => setTick(tick => tick + 1),
   })
 
   // Only push content in when it changed elsewhere — writing on every keystroke would
@@ -1004,7 +1201,100 @@ export default function RichEditor({
     editorRef.current = editor
   }, [editor])
 
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    Object.assign(live(editor), {
+      tools,
+      settings,
+      templates,
+      context: templateContext ?? {},
+      words: [...settings.personalWords, ...companyWords],
+      spellOn: tools && spellOn,
+      grammarOn: tools && settings.grammar && grammarAvailable,
+      headers: requestHeaders ?? (() => ({})),
+      submit: onSubmit,
+      openFind: tools
+        ? () => {
+            setFinding(true)
+            window.setTimeout(() => findInputRef.current?.select(), 0)
+          }
+        : undefined,
+    })
+  })
+
+  const personalKey = settings.personalWords.join('|')
+  const companyKey = companyWords.join('|')
+  useEffect(() => {
+    if (!editor || !tools || editor.isDestroyed) return
+    editor.view.dispatch(editor.state.tr.setMeta(spellingKey, 'refresh').setMeta('addToHistory', false))
+  }, [editor, tools, spellOn, settings.spellLanguage, settings.ignoreCapitals, settings.ignoreWithNumbers, settings.repeatedWords, personalKey, companyKey])
+
+  useEffect(() => {
+    if (!editor || !tools || editor.isDestroyed) return
+    editor.view.dispatch(editor.state.tr.setMeta(grammarKey, 'refresh').setMeta('addToHistory', false))
+  }, [editor, tools, settings.grammar, grammarAvailable, settings.spellLanguage])
+
+  useEffect(() => {
+    if (!editor || !tools || editor.isDestroyed) return
+    editor.view.dispatch(editor.state.tr.setMeta(findKey, { query: finding ? findQuery : '', index: 0 }).setMeta('addToHistory', false))
+  }, [editor, tools, finding, findQuery])
+
   if (!editor) return <div className={styles.rteLoading} />
+
+  const matches = tools && finding ? findMatches(editor.state.doc, findQuery) : []
+  const findIndex = matches.length ? ((findState(editor.state).index % matches.length) + matches.length) % matches.length : 0
+  const moveFind = (step: number) => {
+    if (!matches.length) return
+    const next = (findIndex + step + matches.length) % matches.length
+    editor.view.dispatch(editor.state.tr.setMeta(findKey, { query: findQuery, index: next }))
+    editor.commands.setTextSelection(matches[next])
+    editor.commands.scrollIntoView()
+  }
+  const replaceCurrent = () => {
+    const match = matches[findIndex]
+    if (!match) return
+    editor.chain().insertContentAt(match, replaceWith).run()
+  }
+  const replaceAll = () => {
+    if (!matches.length) return
+    const tr = editor.state.tr
+    for (const match of [...matches].reverse()) tr.insertText(replaceWith, match.from, match.to)
+    editor.view.dispatch(tr)
+  }
+
+  const applySuggestion = (text: string) => {
+    if (!suggestion) return
+    editor.chain().focus().insertContentAt({ from: suggestion.from, to: suggestion.to }, text).run()
+    setSuggestion(null)
+  }
+  const ignoreSuggestion = () => {
+    if (!suggestion) return
+    if (suggestion.kind === 'grammar') {
+      const grammar = (editor.storage as unknown as Record<string, { ignored?: Set<string> }>).grammar
+      grammar?.ignored?.add(grammarIgnoreKey(suggestion.word, suggestion.message ?? ''))
+      const current = grammarKey.getState(editor.state)?.set
+      if (current) editor.view.dispatch(editor.state.tr.setMeta(grammarKey, current.remove(current.find(suggestion.from, suggestion.to))).setMeta('addToHistory', false))
+      setSuggestion(null)
+      return
+    }
+    const spelling = (editor.storage as unknown as Record<string, { ignored?: Set<string> }>).spelling
+    spelling?.ignored?.add(suggestion.word.toLowerCase())
+    editor.view.dispatch(editor.state.tr.setMeta(spellingKey, 'refresh').setMeta('addToHistory', false))
+    setSuggestion(null)
+  }
+  const removeRepeat = () => {
+    if (!suggestion) return
+    const before = editor.state.doc.textBetween(Math.max(0, suggestion.from - 1), suggestion.from)
+    editor.chain().focus().deleteRange({ from: /\s/.test(before) ? suggestion.from - 1 : suggestion.from, to: suggestion.to }).run()
+    setSuggestion(null)
+  }
+  const insertTemplate = (template: MailTemplate) => {
+    const at = editor.state.selection.from
+    editor.chain().focus().insertContent(fillTemplate(template.html, templateContext ?? {})).run()
+    const field = nextField(editor.state.doc, at)
+    if (field) editor.commands.setTextSelection(field)
+    setPanel(false)
+  }
 
   return (
     <div
@@ -1013,7 +1303,116 @@ export default function RichEditor({
     >
       {fontFaceCss && <style>{fontFaceCss}</style>}
       <Toolbar editor={editor} uploadImage={uploadImage} fonts={fonts} baseFont={baseFont} />
-      <EditorContent editor={editor} className={styles.rteContent} />
+      {tools && finding && (
+        <div className={styles.rteFindBar} role="search">
+          <input
+            ref={findInputRef}
+            className={styles.rteFindInput}
+            placeholder="Find"
+            value={findQuery}
+            onChange={event => setFindQuery(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                moveFind(event.shiftKey ? -1 : 1)
+              }
+              if (event.key === 'Escape') setFinding(false)
+            }}
+          />
+          <span className={styles.rteFindCount}>{findQuery ? (matches.length ? `${findIndex + 1} of ${matches.length}` : 'No matches') : ''}</span>
+          <button type="button" className={styles.rteFindBtn} onClick={() => moveFind(-1)} aria-label="Previous match">↑</button>
+          <button type="button" className={styles.rteFindBtn} onClick={() => moveFind(1)} aria-label="Next match">↓</button>
+          <input className={styles.rteFindInput} placeholder="Replace with" value={replaceWith} onChange={event => setReplaceWith(event.target.value)} />
+          <button type="button" className={styles.rteFindBtn} onClick={replaceCurrent} disabled={!matches.length}>Replace</button>
+          <button type="button" className={styles.rteFindBtn} onClick={replaceAll} disabled={!matches.length}>All</button>
+          <button type="button" className={styles.rteFindBtn} onClick={() => setFinding(false)} aria-label="Close find">×</button>
+        </div>
+      )}
+      <div ref={wrapRef} className={styles.rteBody}>
+        {tools && (
+          <div className={styles.rteCorner}>
+            <button
+              type="button"
+              className={`${styles.rteCornerBtn} ${spellOn ? styles.rteCornerOn : ''}`}
+              aria-pressed={spellOn}
+              title={spellOn ? 'Spelling check is on for this message — click to turn it off' : 'Spelling check is off for this message — click to turn it on'}
+              onClick={() => setSpellOn(on => !on)}
+            >
+              <span aria-hidden>✓</span>Aa
+            </button>
+            <button
+              type="button"
+              className={`${styles.rteCornerBtn} ${panel ? styles.rteCornerOn : ''}`}
+              aria-expanded={panel}
+              title="Writing tools"
+              onClick={() => setPanel(open => !open)}
+            >
+              <span aria-hidden>⚙</span>
+            </button>
+          </div>
+        )}
+        <EditorContent editor={editor} className={styles.rteContent} />
+        {tools && settings.wordCount && <div className={styles.rteWordCount}>{wordCount} {wordCount === 1 ? 'word' : 'words'}</div>}
+        {tools && panel && writing && onWritingChange && (
+          <WritingPanel
+            settings={writing}
+            onChange={onWritingChange}
+            templates={templates}
+            onSaveTemplate={onSaveTemplate}
+            onDeleteTemplate={onDeleteTemplate}
+            onInsertTemplate={insertTemplate}
+            currentHtml={editor.getHTML()}
+            companyWords={companyWords}
+            onCompanyWords={onCompanyWords}
+            isAdmin={isAdmin}
+            grammarAvailable={grammarAvailable}
+            onClose={() => setPanel(false)}
+          />
+        )}
+        {suggestion && (
+          <div className={styles.rteSuggest} style={{ left: suggestion.x, top: suggestion.y }} role="menu">
+            {suggestion.kind === 'grammar' && suggestion.message && <p className={styles.rteSuggestNote}>{suggestion.message}</p>}
+            {suggestion.kind === 'repeat' ? (
+              <button type="button" className={styles.rteSuggestPick} onClick={removeRepeat}>Remove the repeated “{suggestion.word}”</button>
+            ) : (
+              <>
+                {suggestion.options.length > 0 ? (
+                  suggestion.options.map(option => (
+                    <button key={option} type="button" className={styles.rteSuggestPick} onClick={() => applySuggestion(option)}>{option}</button>
+                  ))
+                ) : (
+                  <p className={styles.rteSuggestNote}>{suggestion.kind === 'spelling' ? 'Looking for suggestions…' : 'No suggestion'}</p>
+                )}
+                <div className={styles.rteSuggestActions}>
+                  <button type="button" onClick={ignoreSuggestion}>Ignore</button>
+                  {suggestion.kind === 'spelling' && onWritingChange && writing && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onWritingChange({ ...writing, personalWords: [...new Set([...writing.personalWords, suggestion.word])] })
+                        setSuggestion(null)
+                      }}
+                    >
+                      Add to dictionary
+                    </button>
+                  )}
+                  {suggestion.kind === 'spelling' && isAdmin && onCompanyWords && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onCompanyWords([...new Set([...companyWords, suggestion.word])])
+                        setSuggestion(null)
+                      }}
+                    >
+                      Add for the company
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

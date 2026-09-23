@@ -51,6 +51,7 @@
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
     "next": "^16.3.5",
+    "nspell": "2.1.5",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "resend": "^6.12.3",
@@ -58,6 +59,7 @@
   },
   "devDependencies": {
     "@types/node": "^22",
+    "@types/nspell": "2.1.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/web-push": "^3.6.4",

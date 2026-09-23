@@ -10,9 +10,13 @@ export const TAB_TEXT = '    '
  * Whether this Tab is the second of a quick pair. The first press is remembered with a way
  * to take its indent back, which the second press uses before letting focus move on.
  */
-export function tabPress<Mark>(memory: { at: number; mark: Mark | null }, mark: () => Mark): { leaving: boolean; previous: Mark | null } {
+export function tabPress<Mark>(
+  memory: { at: number; mark: Mark | null },
+  mark: () => Mark,
+  windowMs: number = DOUBLE_TAB_MS,
+): { leaving: boolean; previous: Mark | null } {
   const now = Date.now()
-  if (now - memory.at < DOUBLE_TAB_MS) {
+  if (now - memory.at < windowMs) {
     const previous = memory.mark
     memory.at = 0
     memory.mark = null

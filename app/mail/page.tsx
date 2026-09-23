@@ -13,6 +13,9 @@ import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeI
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect, { GLYPH } from './MailSelect'
 import { handleComposeTab } from './tabKey'
+import { writingSettingsFrom, type WritingSettings } from './writing/settings'
+import { sendIssues, type SendIssue } from './writing/checks'
+import { firstNameFromAddress, type MailTemplate } from './writing/templates'
 
 /** Which product an address belongs to, so the picker can wear its mark. */
 function productOf(address: string): 'vela' | 'hosting' | 'person' {
@@ -354,6 +357,7 @@ type MailSettings = {
   /** Whether a message in a conversation folds away, or stays open so the thread reads straight through. */
   threadMessages?: 'collapsible' | 'open'
   ticker?: TickerSettings
+  writing?: WritingSettings
   notifyEmail: string
   fonts: CustomFont[]
   defaultFont: BaseFont
@@ -1131,7 +1135,7 @@ function formatBytes(bytes: number): string {
 
 type StashHeaders = Record<string, string>
 
-async function fetchStash(kind: 'draft', headers: StashHeaders): Promise<Array<{ id: string; data: unknown; updatedAt: string }>> {
+async function fetchStash(kind: 'draft' | 'template', headers: StashHeaders): Promise<Array<{ id: string; data: unknown; updatedAt: string }>> {
   try {
     const response = await fetch(`/api/mail/stash?kind=${kind}`, { headers })
     const data = await response.json()
@@ -1141,11 +1145,11 @@ async function fetchStash(kind: 'draft', headers: StashHeaders): Promise<Array<{
   }
 }
 
-function putStash(kind: 'draft', id: string, data: unknown, headers: StashHeaders): void {
+function putStash(kind: 'draft' | 'template', id: string, data: unknown, headers: StashHeaders): void {
   fetch('/api/mail/stash', { method: 'PUT', headers, body: JSON.stringify({ kind, id, data }) }).catch(() => {})
 }
 
-function deleteStashItem(kind: 'draft', id: string, headers: StashHeaders): void {
+function deleteStashItem(kind: 'draft' | 'template', id: string, headers: StashHeaders): void {
   fetch(`/api/mail/stash?kind=${kind}&id=${encodeURIComponent(id)}`, { method: 'DELETE', headers }).catch(() => {})
 }
 
@@ -1827,6 +1831,8 @@ export default function DevMailPage() {
   const [companyLogo, setCompanyLogo] = useState('')
   const [signatureTab, setSignatureTab] = useState<'personal' | 'company'>('personal')
   const [prefsLoaded, setPrefsLoaded] = useState(false)
+  const [templates, setTemplates] = useState<MailTemplate[]>([])
+  const [companyWords, setCompanyWords] = useState<string[]>([])
   useEffect(() => {
     if (!isLoggedIn || !prefsLoaded) return
     const timer = window.setTimeout(() => {
@@ -2907,7 +2913,7 @@ export default function DevMailPage() {
           // "comfortable" — is the default. Treating every unrecognised value as roomy put
           // six of the seven mailboxes into a reduced reader none of them had asked for.
           const density: MailSettings['density'] = stored.density === 'relaxed' ? 'relaxed' : 'compact'
-          setMailSettings(current => ({ ...current, ...data.settings, density, replyStyle: stored.replyStyle === 'mini' ? 'mini' : 'panel', ticker: tickerSettingsFrom(stored.ticker), threadMessages: stored.threadMessages === 'open' ? 'open' : 'collapsible' }))
+          setMailSettings(current => ({ ...current, ...data.settings, density, replyStyle: stored.replyStyle === 'mini' ? 'mini' : 'panel', ticker: tickerSettingsFrom(stored.ticker), threadMessages: stored.threadMessages === 'open' ? 'open' : 'collapsible', writing: writingSettingsFrom(stored.writing) }))
           const prefs = (data.settings as MailSettings).prefs
           if (prefs?.theme) { setThemePref(prefs.theme); localStorage.setItem(LS_THEME_KEY, prefs.theme) }
           if (prefs?.accent && hexToHsl(prefs.accent)) { setAccent(prefs.accent); localStorage.setItem(LS_ACCENT_KEY, prefs.accent) }
@@ -2915,6 +2921,15 @@ export default function DevMailPage() {
           if (prefs?.layout) { setReaderLayout(prefs.layout); localStorage.setItem(LS_LAYOUT_KEY, prefs.layout) }
         }
         setPrefsLoaded(true)
+      })
+      .catch(() => {})
+    fetchStash('template', headers).then(items =>
+      setTemplates(items.map(item => ({ ...(item.data as MailTemplate), id: item.id })).filter(template => typeof template.html === 'string')),
+    )
+    fetch('/api/mail/company-dictionary', { headers })
+      .then(response => response.json())
+      .then(data => {
+        if (data.ok && Array.isArray(data.words)) setCompanyWords(data.words)
       })
       .catch(() => {})
     fetch('/api/mail/company-signature', { headers })
@@ -3940,6 +3955,46 @@ export default function DevMailPage() {
     [apiHeaders],
   )
 
+  const writingSettings = useMemo(() => writingSettingsFrom(settings.writing), [settings.writing])
+  const saveWriting = useCallback((next: WritingSettings) => saveSettings({ ...settings, writing: next }), [saveSettings, settings])
+  const saveTemplate = useCallback(
+    (template: MailTemplate) => {
+      setTemplates(list => [...list.filter(entry => entry.id !== template.id), template])
+      putStash('template', template.id, template, apiHeaders())
+    },
+    [apiHeaders],
+  )
+  const deleteTemplate = useCallback(
+    (id: string) => {
+      setTemplates(list => list.filter(entry => entry.id !== id))
+      deleteStashItem('template', id, apiHeaders())
+    },
+    [apiHeaders],
+  )
+  const saveCompanyWords = useCallback(
+    (words: string[]) => {
+      setCompanyWords(words)
+      fetch('/api/mail/company-dictionary', { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ words }) }).catch(() => {})
+    },
+    [apiHeaders],
+  )
+  const confirmIssues = useCallback(
+    async (issues: SendIssue[]) =>
+      issues.length === 0 ||
+      confirm({
+        title: 'Before you send',
+        body: (
+          <ul className={styles.sendIssues}>
+            {issues.map(issue => (
+              <li key={issue.kind}>{issue.message}</li>
+            ))}
+          </ul>
+        ),
+        confirmLabel: 'Send anyway',
+      }),
+    [confirm],
+  )
+
   const resetSignature = useCallback(async () => {
     const agreed = await confirm({
       title: 'Use the company signature?',
@@ -4486,6 +4541,17 @@ export default function DevMailPage() {
     // immediately — the delay/undo window only applies to attachment-free emails.
     const scheduledAt = attachable.length ? null : resolveScheduledAt()
 
+    const issues = sendIssues(
+      {
+        body: htmlToPlainText(compose.htmlDirty && compose.htmlSource.trim() ? compose.htmlSource : compose.bodyHtml || compose.markdown),
+        recipients: [...compose.to, ...compose.cc, ...compose.bcc].map(address => ({ email: address })),
+        attachmentCount: attachments.length,
+        ownDomains: LOGIN_DOMAINS,
+      },
+      writingSettings,
+    )
+    if (!(await confirmIssues(issues))) return
+
     if (settings.confirmSend && !scheduledAt) {
       const recipientList = [...compose.to, ...compose.cc, ...compose.bcc].join(', ')
       const agreed = await confirm({
@@ -4791,6 +4857,16 @@ export default function DevMailPage() {
       openReplySettings(entry)
       return
     }
+    const issues = sendIssues(
+      {
+        body: quickReply.trim() ? quickReply : htmlToPlainText(replyHtml),
+        recipients: [...draft.to, ...draft.cc, ...draft.bcc].map(address => ({ email: address })),
+        attachmentCount: attachments.length,
+        ownDomains: LOGIN_DOMAINS,
+      },
+      { ...writingSettings, checkEmptyBody: writingSettings.checkEmptyBody && replyBar !== 'forward' },
+    )
+    if (!(await confirmIssues(issues))) return
     setQuickSending(true)
     setReplyError('')
     try {
@@ -8284,6 +8360,21 @@ export default function DevMailPage() {
                   fonts={(settings.fonts ?? []).map(font => font.name)}
                   fontFaceCss={fontCss}
                   baseFont={defaultFont}
+                  writing={writingSettings}
+                  onWritingChange={saveWriting}
+                  templates={templates}
+                  onSaveTemplate={saveTemplate}
+                  onDeleteTemplate={deleteTemplate}
+                  templateContext={{
+                    firstName: firstNameFromAddress(compose.to[0]),
+                    email: compose.to[0],
+                    senderName: compose.fromName || settings.senderName || account?.name || undefined,
+                  }}
+                  companyWords={companyWords}
+                  onCompanyWords={isAdmin ? saveCompanyWords : undefined}
+                  isAdmin={isAdmin}
+                  onSubmit={() => void sendEmail()}
+                  requestHeaders={apiHeaders}
                 />
               )}
               {compose.quoteHtml && !compose.campaign.kind && (
