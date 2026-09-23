@@ -166,9 +166,8 @@ function buildRawMime(payload: SendPayload): string {
 }
 
 async function sendViaSes(payload: SendPayload): Promise<SendResult> {
-  // buildRawMime deliberately writes no Bcc header; SES is told the blind recipients here.
   const region = process.env.AWS_SES_REGION ?? 'eu-north-1'
-  return { id: await sesSendRaw(buildRawMime(payload), region, payload.bcc ?? []) }
+  return { id: await sesSendRaw(buildRawMime(payload), region, { to: payload.to, cc: payload.cc, bcc: payload.bcc }) }
 }
 
 /**

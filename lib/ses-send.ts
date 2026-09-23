@@ -7,15 +7,39 @@ export function sesConfigured(): boolean {
   return Boolean(process.env.SES_ACCESS_KEY_ID && process.env.SES_SECRET_ACCESS_KEY)
 }
 
+export type SesRecipients = { to: string[]; cc?: string[]; bcc?: string[] }
+
+const addressOnly = (entry: string): string => (entry.match(/<([^>]+)>/)?.[1] ?? entry).trim()
+
 /**
- * `blindCopies` are envelope recipients only. A Bcc header inside the MIME would be handed
- * to everyone the message reaches, so the address is named to SES instead of written down
- * where the recipient can read it.
+ * The envelope, spelled out in full. Once a raw message names any Destination, SES delivers
+ * to that list and nothing else — the To and Cc headers inside the MIME are not added to it —
+ * so naming only the blind copies sent the message to the blind copies alone. Bcc never goes
+ * in the MIME, where every recipient could read it; it lives here and only here.
  */
+export function sesDestination(recipients: SesRecipients) {
+  const seen = new Set<string>()
+  const take = (list: string[] | undefined) =>
+    (list ?? []).map(addressOnly).filter(address => {
+      const key = address.toLowerCase()
+      if (!address || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  const to = take(recipients.to)
+  const cc = take(recipients.cc)
+  const bcc = take(recipients.bcc)
+  return {
+    ...(to.length ? { ToAddresses: to } : {}),
+    ...(cc.length ? { CcAddresses: cc } : {}),
+    ...(bcc.length ? { BccAddresses: bcc } : {}),
+  }
+}
+
 export async function sesSendRaw(
   raw: string,
   region = process.env.AWS_SES_REGION ?? 'eu-north-1',
-  blindCopies: string[] = [],
+  recipients: SesRecipients,
 ): Promise<string | null> {
   const id = process.env.SES_ACCESS_KEY_ID
   const secret = process.env.SES_SECRET_ACCESS_KEY
@@ -25,7 +49,7 @@ export async function sesSendRaw(
   const path = '/v2/email/outbound-emails'
   const body = JSON.stringify({
     Content: { Raw: { Data: Buffer.from(raw, 'utf8').toString('base64') } },
-    ...(blindCopies.length ? { Destination: { BccAddresses: blindCopies } } : {}),
+    Destination: sesDestination(recipients),
   })
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '')
   const stamp = amzDate.slice(0, 8)
