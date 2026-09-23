@@ -174,7 +174,7 @@ async function sendViaSes(payload: SendPayload): Promise<SendResult> {
  * A mailbox this deployment owns that keeps a copy of everything the app sends on its own
  * behalf. Product mail is invisible otherwise: it leaves for the recipient and no account
  * here ever sees it. Skipped when the archive is already a recipient, so a message never
- * arrives twice.
+ * arrives twice, and skipped for anything a person wrote — their Sent folder already has it.
  */
 function withArchive(payload: SendPayload): SendPayload {
   const archive = (process.env.MAIL_ARCHIVE_BCC ?? '').trim().toLowerCase()

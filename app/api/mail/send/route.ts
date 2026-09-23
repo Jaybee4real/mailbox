@@ -203,6 +203,9 @@ export async function POST(req: Request) {
       text: body.text,
       attachments,
       ...(inReplyToId ? { headers: { 'In-Reply-To': inReplyToId, References: inReplyToId } } : {}),
+      // A person's own message is already in their Sent folder; the archive is for mail the
+      // app sends on its own behalf, which no one would otherwise see.
+      skipArchive: true,
     })
   } catch (sendError) {
     return NextResponse.json({ ok: false, error: (sendError as Error).message }, { status: 502 })

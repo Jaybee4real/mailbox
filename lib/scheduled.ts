@@ -145,9 +145,10 @@ async function dispatchRow(row: Record<string, unknown>): Promise<'sent' | 'fail
   try {
     // scheduledAt is deliberately dropped: the wait already happened here.
     const { scheduledAt: _ignored, ...payload } = send.payload
-    const result = await sendMail(
-      payload.html ? { ...payload, html: absoluteUrls(payload.html, BRAND.publicUrl) } : payload,
-    )
+    const result = await sendMail({
+      ...(payload.html ? { ...payload, html: absoluteUrls(payload.html, BRAND.publicUrl) } : payload),
+      skipArchive: true,
+    })
     await recordSend(send, result?.id ?? null)
     await sql`
       UPDATE mail_scheduled SET status = 'sent', sent_id = ${result?.id ?? null}, last_error = NULL WHERE id = ${id}`
