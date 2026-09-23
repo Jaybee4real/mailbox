@@ -21,10 +21,12 @@ import { passwordFingerprint, readSession } from '@/lib/session'
 export const MAIL_ACCOUNTS = MAIL_SEATS.filter(seat => seat.role === 'admin').map(seat => seat.email)
 
 /**
- * Where a copy of inbound mail is forwarded. Off unless MAIL_FORWARD_TO is set: forwarding
- * to an address this app itself receives would loop, and copying a client's mail into a
- * personal inbox is not a decision a deployment should make quietly.
+ * Inbound mail is copied to the owning account's login address when that address lives
+ * somewhere else. MAIL_FORWARDING=off stops it for the whole deployment; nothing else does.
  */
+export const FORWARDING_ENABLED = (process.env.MAIL_FORWARDING ?? 'on').trim().toLowerCase() !== 'off'
+
+/** Who gets the copy when the mail belongs to no account. */
 export const FORWARD_RECIPIENTS = (process.env.MAIL_FORWARD_TO ?? '')
   .split(',')
   .map(entry => entry.trim().toLowerCase())

@@ -1,7 +1,7 @@
 import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { sendPush } from '@/lib/push'
 import { stripOwnPixel } from '@/lib/email-html'
-import { FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-auth'
+import { FORWARDING_ENABLED, FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-auth'
 import { ADDRESS_ALIASES, appendInbound, judgeMessage, noteSender, senderStanding, senderDomainOf, getAccountByAddress, inboundExists, recordContact, recordSentMeta, repairInbound } from '@/lib/mailbox'
 import { sendMail } from '@/lib/mail-provider'
 
@@ -228,6 +228,7 @@ export async function forwardToAccounts(
   ownerAddress: string | null,
   files?: SendAttachment[],
 ): Promise<void> {
+  if (!FORWARDING_ENABLED) return
   const owningAccount = ownerAddress ? await getAccountByAddress(ownerAddress) : null
   const recipient = owningAccount?.email ?? FORWARD_RECIPIENTS[0] // fallback: the admin
   if (!recipient) return
