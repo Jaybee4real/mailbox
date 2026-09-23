@@ -66,6 +66,45 @@ function escapeHtml(src: string): string {
   return src.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+/**
+ * The addresses in a To or Cc header, bare, in the shape the provider already gives Cc.
+ *
+ * The provider's own `to` is the envelope recipient of the one copy it delivered, so every
+ * mailbox on a message saw itself in the To line — a colleague copied in read as though the
+ * client had written to them.
+ */
+export function headerAddresses(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value.join(', ') : typeof value === 'string' ? value : ''
+  const entries: string[] = []
+  let current = ''
+  let quoted = false
+  let angled = false
+  let comment = 0
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index]
+    if ((quoted || comment) && char === '\\') {
+      current += char + (raw[index + 1] ?? '')
+      index += 1
+      continue
+    }
+    if (char === '"' && !comment) quoted = !quoted
+    else if (!quoted && char === '(') comment += 1
+    else if (!quoted && char === ')' && comment) comment -= 1
+    else if (!quoted && !comment && char === '<') angled = true
+    else if (!quoted && !comment && char === '>') angled = false
+    if ((char === ',' || char === ';') && !quoted && !angled && !comment) {
+      entries.push(current)
+      current = ''
+    } else current += char
+  }
+  entries.push(current)
+  return entries
+    .map(entry => entry.replace(/"(?:[^"\\]|\\.)*"/g, ' ').replace(/\((?:[^()\\]|\\.)*\)/g, ' '))
+    .map(entry => entry.replace(/^[^<]*?:/, ''))
+    .map(entry => (entry.match(/<([^>]*)>/)?.[1] ?? entry).trim())
+    .filter(address => /^[^\s@<>"()]+@[^\s@<>"()]+$/.test(address))
+}
+
 export type ReceivedEmail = {
   html: string | null
   text: string | null
@@ -265,6 +304,7 @@ export async function ingestReceived(
     ...(Array.isArray(data.bcc) ? (data.bcc as string[]) : []),
   ].filter(Boolean)
   const owner = await attributeOwner(recipients)
+  const toHeader = (full?.headers as Record<string, unknown> | undefined)?.to
   const fromAddress = full?.from || String(data.from ?? '')
   const senderDomain = senderDomainOf(fromAddress)
   const standing = await senderStanding(owner, senderDomain)
@@ -293,7 +333,9 @@ export async function ingestReceived(
     // Held out of the inbox, not merely labelled, once the weight passes the threshold.
     spam: verdicts.quarantine,
     from: full?.from || String(data.from ?? ''),
-    to: full?.to ?? (Array.isArray(data.to) ? (data.to as string[]) : [String(data.to ?? '')]),
+    to: toHeader !== undefined || Object.keys(full?.headers ?? {}).length
+      ? headerAddresses(toHeader)
+      : full?.to ?? (Array.isArray(data.to) ? (data.to as string[]) : [String(data.to ?? '')]),
     cc: full?.cc ?? (Array.isArray(data.cc) ? (data.cc as string[]) : []),
     bcc: full?.bcc ?? (Array.isArray(data.bcc) ? (data.bcc as string[]) : []),
     replyTo: full?.replyTo ?? (Array.isArray(data.reply_to) ? (data.reply_to as string[]) : []),
@@ -320,9 +362,8 @@ export async function ingestReceived(
   // or forwarded. Without this, every message the provider account receives for any tenant
   // lands in whichever deployment holds the webhook, filed to its shared inbox because no
   // local account matches — one tenant reading another's mail.
-  const envelope = [...inbound.to, ...inbound.cc, ...inbound.bcc]
-  if (!addressedToUs(envelope)) {
-    throw new Error(`refusing ${emailId}: addressed to ${envelope.join(', ') || 'nobody'}, which is not a domain this mailbox hosts`)
+  if (!addressedToUs(recipients)) {
+    throw new Error(`refusing ${emailId}: addressed to ${recipients.join(', ') || 'nobody'}, which is not a domain this mailbox hosts`)
   }
 
   // Pull the bytes once: they become our stored copy and the forward's attachments.
