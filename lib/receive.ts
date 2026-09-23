@@ -2,7 +2,7 @@ import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { sendPush } from '@/lib/push'
 import { stripOwnPixel } from '@/lib/email-html'
 import { FORWARDING_ENABLED, FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-auth'
-import { ADDRESS_ALIASES, appendInbound, judgeMessage, noteSender, senderStanding, senderDomainOf, getAccountByAddress, inboundExists, recordContact, recordSentMeta, repairInbound } from '@/lib/mailbox'
+import { ADDRESS_ALIASES, appendInbound, isDmarcAggregateReport, judgeMessage, noteSender, senderStanding, senderDomainOf, getAccountByAddress, inboundExists, recordContact, recordSentMeta, repairInbound } from '@/lib/mailbox'
 import { sendMail } from '@/lib/mail-provider'
 
 /**
@@ -228,7 +228,7 @@ export async function forwardToAccounts(
   ownerAddress: string | null,
   files?: SendAttachment[],
 ): Promise<void> {
-  if (!FORWARDING_ENABLED) return
+  if (!FORWARDING_ENABLED || isDmarcAggregateReport(inbound.subject)) return
   const owningAccount = ownerAddress ? await getAccountByAddress(ownerAddress) : null
   const recipient = owningAccount?.email ?? FORWARD_RECIPIENTS[0] // fallback: the admin
   if (!recipient) return
@@ -383,11 +383,13 @@ export async function ingestReceived(
   await noteSender(owner, senderDomain, 'received').catch(() => {})
   const sender = parseSender(inbound.from)
   await recordContact(sender.email, sender.name)
-  await sendPush(inbound.owner, {
-    title: sender.name || sender.email || 'New mail',
-    body: inbound.subject,
-    tag: emailId,
-  }).catch(() => {})
+  if (!isDmarcAggregateReport(inbound.subject)) {
+    await sendPush(inbound.owner, {
+      title: sender.name || sender.email || 'New mail',
+      body: inbound.subject,
+      tag: emailId,
+    }).catch(() => {})
+  }
   await forwardToAccounts(
     emailId,
     full ?? {

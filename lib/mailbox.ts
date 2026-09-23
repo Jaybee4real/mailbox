@@ -1313,14 +1313,19 @@ export async function refreshThreadsFrom(
   return { refreshed: pairs.length, cursor: last ? { owner: String(last.owner), threadId: String(last.thread_id) } : null }
 }
 
+/** RFC 7489 §7.2.1.1's subject line, and Amazon's variant of it. Nobody types this by hand. */
+export function isDmarcAggregateReport(subject: string | null | undefined): boolean {
+  return /^(dmarc aggregate )?report domain:[\s\S]*\bsubmitter:/i.test((subject ?? '').trim())
+}
+
 export async function appendInbound(
   email: Omit<InboundEmail, 'starred' | 'archived' | 'trashed' | 'labels' | 'threadId'>,
 ): Promise<void> {
   await ensureMailSchema()
   const sql = db()
   await sql`
-    INSERT INTO mail_inbox (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, owner, snippet, thread_meta, attach_meta, addressed, risk, risk_reasons, spam)
-    VALUES (${email.id}, ${email.from}, ${JSON.stringify(email.to)}, ${JSON.stringify(email.cc)}, ${JSON.stringify(email.bcc)}, ${JSON.stringify(email.replyTo)}, ${email.subject}, ${email.html}, ${email.text}, ${JSON.stringify(email.headers)}, ${email.receivedAt}, ${email.read}, ${JSON.stringify(email.attachments)}, ${email.owner ?? null}, ${listSnippet(email.text)}, ${threadMeta(email.headers)}, ${attachMeta(email.attachments)}, ${classifyAddressed(email.owner, email.to, email.cc)}, ${email.risk ?? 'clean'}, ${JSON.stringify(email.riskReasons ?? [])}, ${email.spam ? 1 : 0})
+    INSERT INTO mail_inbox (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, owner, snippet, thread_meta, attach_meta, addressed, risk, risk_reasons, spam, archived)
+    VALUES (${email.id}, ${email.from}, ${JSON.stringify(email.to)}, ${JSON.stringify(email.cc)}, ${JSON.stringify(email.bcc)}, ${JSON.stringify(email.replyTo)}, ${email.subject}, ${email.html}, ${email.text}, ${JSON.stringify(email.headers)}, ${email.receivedAt}, ${email.read}, ${JSON.stringify(email.attachments)}, ${email.owner ?? null}, ${listSnippet(email.text)}, ${threadMeta(email.headers)}, ${attachMeta(email.attachments)}, ${classifyAddressed(email.owner, email.to, email.cc)}, ${email.risk ?? 'clean'}, ${JSON.stringify(email.riskReasons ?? [])}, ${email.spam ? 1 : 0}, ${isDmarcAggregateReport(email.subject) ? 1 : 0})
     ON CONFLICT (id) DO NOTHING`
   await threadMessage({ id: email.id, owner: email.owner ?? null, subject: email.subject, receivedAt: email.receivedAt })
   await invalidateCounts(email.owner)
