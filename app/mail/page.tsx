@@ -4570,14 +4570,22 @@ export default function DevMailPage() {
   }
 
   useEffect(() => {
-    if (undo && undo.sendAt <= now) {
-      setUndo(null)
-      setSentFlash('Sent')
-      window.setTimeout(() => setSentFlash(''), 2500)
-      loadSent()
-      loadQueued()
-    }
-  }, [undo, now, loadSent])
+    if (!undo || undo.sendAt > now) return
+    const id = undo.id
+    setUndo(null)
+    setSentFlash('Sending…')
+    // The window closing is the moment to send, not the next minute's dispatcher run.
+    // Saying "Sent" before the message had left is what prompted a second send.
+    fetch('/api/mail/scheduled', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ id }) })
+      .then(response => response.json().catch(() => null))
+      .then(data => setSentFlash(data?.ok ? 'Sent' : 'Queued — it will go within a minute'))
+      .catch(() => setSentFlash('Queued — it will go within a minute'))
+      .finally(() => {
+        window.setTimeout(() => setSentFlash(''), 2500)
+        loadSent()
+        loadQueued()
+      })
+  }, [undo, now, loadSent, loadQueued, apiHeaders])
 
   const cancelScheduled = async (id: string) => {
     try {

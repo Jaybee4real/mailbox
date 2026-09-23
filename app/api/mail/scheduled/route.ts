@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
-import { listScheduled, cancelScheduled, rescheduleSend } from '@/lib/scheduled'
+import { listScheduled, cancelScheduled, dispatchNow, rescheduleSend } from '@/lib/scheduled'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -45,4 +45,18 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, error: 'That message is not waiting to be sent' }, { status: 404 })
   }
   return NextResponse.json({ ok: true, scheduledAt: when.toISOString() })
+}
+
+/** Send a waiting message of the caller's now — the page calls this as its undo window closes. */
+export async function POST(req: Request) {
+  const guard = await mailAuthGuard(req)
+  if (guard) return guard
+  const account = await resolveAccount(req)
+  const body = (await req.json().catch(() => null)) as { id?: string } | null
+  const id = body?.id ?? ''
+  if (!id) return NextResponse.json({ ok: false, error: 'id is required' }, { status: 400 })
+  const outcome = await dispatchNow(id, account.address ?? '')
+  if (outcome === 'sent' || outcome === 'already-sent') return NextResponse.json({ ok: true, outcome })
+  const status = outcome === 'missing' ? 404 : outcome === 'not-due' ? 409 : 502
+  return NextResponse.json({ ok: false, outcome }, { status })
 }

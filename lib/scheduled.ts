@@ -124,11 +124,49 @@ const MAX_ATTEMPTS = 5
  * Hands over every message whose time has come. Each row is claimed with a conditional
  * update before it is sent, so two runners overlapping cannot send the same mail twice.
  */
+/**
+ * Sends one queued message, if it is still waiting. The claim is a single conditional
+ * update, so whichever caller gets there first sends it and every other caller — the
+ * minute cron, the page that watched its undo window close — finds nothing to do.
+ */
+async function dispatchRow(row: Record<string, unknown>): Promise<'sent' | 'failed' | 'skipped'> {
+  const sql = db()
+  const id = String(row.id)
+  const claimed = await sql`
+    UPDATE mail_scheduled SET status = 'sending' WHERE id = ${id} AND status = 'pending' RETURNING id`
+  if (!claimed.length) return 'skipped'
+
+  const send = parse(row.payload)
+  if (!send) {
+    await sql`UPDATE mail_scheduled SET status = 'failed', last_error = 'unreadable payload' WHERE id = ${id}`
+    return 'failed'
+  }
+
+  try {
+    // scheduledAt is deliberately dropped: the wait already happened here.
+    const { scheduledAt: _ignored, ...payload } = send.payload
+    const result = await sendMail(
+      payload.html ? { ...payload, html: absoluteUrls(payload.html, BRAND.publicUrl) } : payload,
+    )
+    await recordSend(send, result?.id ?? null)
+    await sql`
+      UPDATE mail_scheduled SET status = 'sent', sent_id = ${result?.id ?? null}, last_error = NULL WHERE id = ${id}`
+    return 'sent'
+  } catch (err) {
+    const attempts = Number(row.attempts ?? 0) + 1
+    const reason = err instanceof Error ? err.message : String(err)
+    await sql`
+      UPDATE mail_scheduled
+      SET status = ${attempts >= MAX_ATTEMPTS ? 'failed' : 'pending'}, attempts = ${attempts}, last_error = ${reason}
+      WHERE id = ${id}`
+    return 'failed'
+  }
+}
+
 export async function dispatchDue(limit = 25): Promise<{ due: number; sent: number; failed: number }> {
   await ensureMailSchema()
-  const sql = db()
   const now = new Date().toISOString()
-  const due = await sql`
+  const due = await db()`
     SELECT id, payload, attempts FROM mail_scheduled
     WHERE status = 'pending' AND send_after <= ${now}
     ORDER BY send_after LIMIT ${limit}`
@@ -136,37 +174,33 @@ export async function dispatchDue(limit = 25): Promise<{ due: number; sent: numb
   let sent = 0
   let failed = 0
   for (const row of due) {
-    const id = String(row.id)
-    const claimed = await sql`
-      UPDATE mail_scheduled SET status = 'sending' WHERE id = ${id} AND status = 'pending' RETURNING id`
-    if (!claimed.length) continue
-
-    const send = parse(row.payload)
-    if (!send) {
-      await sql`UPDATE mail_scheduled SET status = 'failed', last_error = 'unreadable payload' WHERE id = ${id}`
-      failed += 1
-      continue
-    }
-
-    try {
-      // scheduledAt is deliberately dropped: the wait already happened here.
-      const { scheduledAt: _ignored, ...payload } = send.payload
-      const result = await sendMail(
-        payload.html ? { ...payload, html: absoluteUrls(payload.html, BRAND.publicUrl) } : payload,
-      )
-      await recordSend(send, result?.id ?? null)
-      await sql`
-        UPDATE mail_scheduled SET status = 'sent', sent_id = ${result?.id ?? null}, last_error = NULL WHERE id = ${id}`
-      sent += 1
-    } catch (err) {
-      const attempts = Number(row.attempts ?? 0) + 1
-      const reason = err instanceof Error ? err.message : String(err)
-      await sql`
-        UPDATE mail_scheduled
-        SET status = ${attempts >= MAX_ATTEMPTS ? 'failed' : 'pending'}, attempts = ${attempts}, last_error = ${reason}
-        WHERE id = ${id}`
-      failed += 1
-    }
+    const outcome = await dispatchRow(row)
+    if (outcome === 'sent') sent += 1
+    if (outcome === 'failed') failed += 1
   }
   return { due: due.length, sent, failed }
+}
+
+// How early a message may be sent on its owner's say-so. It covers a page clock running a
+// little ahead of ours, and no more: a message scheduled for tomorrow is not sent now
+// because a page asked, which is what "Send now" and its explicit reschedule are for.
+const EARLY_TOLERANCE_MS = 30_000
+
+/**
+ * The owner's page watched the undo window close. Sending then, rather than at the next
+ * minute cron, is what makes "Sent" true when the page says it. Already sent counts as
+ * sent: the cron may have got there first.
+ */
+export async function dispatchNow(id: string, owner: string): Promise<'sent' | 'already-sent' | 'not-due' | 'failed' | 'missing'> {
+  await ensureMailSchema()
+  const rows = await db()`
+    SELECT id, payload, attempts, status, send_after FROM mail_scheduled
+    WHERE id = ${id} AND lower(owner) = ${owner.toLowerCase()}`
+  const row = rows[0]
+  if (!row) return 'missing'
+  if (row.status === 'sent' || row.status === 'sending') return 'already-sent'
+  if (row.status !== 'pending') return 'failed'
+  if (Date.parse(String(row.send_after)) > Date.now() + EARLY_TOLERANCE_MS) return 'not-due'
+  const outcome = await dispatchRow(row)
+  return outcome === 'skipped' ? 'already-sent' : outcome
 }
