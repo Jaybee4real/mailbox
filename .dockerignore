@@ -1,0 +1,17 @@
+# The image is public. Nothing tenant-specific, secret or local may reach the build.
+.git
+node_modules
+.next
+.vercel
+.env*
+!.env.example
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+tools/__pycache__
+*.tsbuildinfo
+package-lock.json
+.claude

@@ -1,6 +1,8 @@
 import type { MetadataRoute } from 'next'
 import { CLIENT_BRAND } from '@/lib/brand.client'
 
+export const dynamic = 'force-dynamic'
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: `${CLIENT_BRAND.name} Mail`,

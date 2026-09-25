@@ -15,6 +15,8 @@ const AGENTS = [
   'DuckAssistBot', 'cohere-ai', 'YouBot', 'Bytespider', 'Diffbot', 'ImagesiftBot',
 ]
 
+export const dynamic = 'force-dynamic'
+
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: AGENTS.map(userAgent => ({ userAgent, disallow: '/' })),
