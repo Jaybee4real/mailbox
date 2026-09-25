@@ -1852,6 +1852,9 @@ export default function DevMailPage() {
     // zoom rather than a font size: every measurement in this interface is in pixels, and
     // scaling only the type would leave the type in boxes that no longer fit it.
     document.documentElement.style.zoom = scale === 100 ? '' : `${scale}%`
+    // A zoomed page still measures the window in unzoomed units, so every full-window
+    // height or width is divided back down by this, or it overshoots the screen by the scale.
+    document.documentElement.style.setProperty('--ui-zoom', String(scale / 100))
     try {
       localStorage.setItem(LS_SCALE_KEY, String(scale))
     } catch {}
