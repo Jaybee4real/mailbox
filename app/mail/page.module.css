@@ -339,6 +339,11 @@
   opacity: 0;
   cursor: pointer;
 }
+.scaleNote {
+  margin: 8px 0 0;
+  color: var(--nc-fg-3);
+  font: 400 12px/1.45 var(--nc-font-sans);
+}
 .scaleValue {
   min-width: 48px;
   font-family: var(--nc-font-mono);

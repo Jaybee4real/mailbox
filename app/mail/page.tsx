@@ -13,6 +13,7 @@ import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeI
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect, { GLYPH } from './MailSelect'
 import { handleComposeTab } from './tabKey'
+import { fittedScale } from './scale'
 import { writingSettingsFrom, type WritingSettings } from './writing/settings'
 import { sendIssues, type SendIssue } from './writing/checks'
 import { firstNameFromAddress, type MailTemplate } from './writing/templates'
@@ -1847,18 +1848,30 @@ export default function DevMailPage() {
     return () => window.clearTimeout(timer)
   }, [isLoggedIn, prefsLoaded, themePref, accent, themeCustom, readerLayout, apiHeaders])
 
+  const [windowSize, setWindowSize] = useState({ width: 0, height: 0 })
   useEffect(() => {
-    const scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(settings.uiScale || 100)))
+    const measure = () => setWindowSize({ width: window.innerWidth, height: window.innerHeight })
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+  const chosenScale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(settings.uiScale || 100)))
+  const appliedScale = fittedScale(chosenScale, windowSize.width, windowSize.height)
+
+  useEffect(() => {
     // zoom rather than a font size: every measurement in this interface is in pixels, and
     // scaling only the type would leave the type in boxes that no longer fit it.
-    document.documentElement.style.zoom = scale === 100 ? '' : `${scale}%`
+    document.documentElement.style.zoom = appliedScale === 100 ? '' : `${appliedScale}%`
     // A zoomed page still measures the window in unzoomed units, so every full-window
     // height or width is divided back down by this, or it overshoots the screen by the scale.
-    document.documentElement.style.setProperty('--ui-zoom', String(scale / 100))
+    document.documentElement.style.setProperty('--ui-zoom', String(appliedScale / 100))
+  }, [appliedScale])
+
+  useEffect(() => {
     try {
-      localStorage.setItem(LS_SCALE_KEY, String(scale))
+      localStorage.setItem(LS_SCALE_KEY, String(chosenScale))
     } catch {}
-  }, [settings.uiScale])
+  }, [chosenScale])
 
   const chooseLayout = useCallback((layout: 'list' | 'bubbles') => {
     setReaderLayout(layout)
@@ -8716,6 +8729,12 @@ export default function DevMailPage() {
                 />
                 <span className={styles.scaleValue}>{settings.uiScale}%</span>
               </div>
+              {appliedScale < chosenScale && (
+                <p className={styles.scaleNote} role="status">
+                  This window fits up to {appliedScale}%, so that is what it shows. Make the window larger, or pick a
+                  smaller size, to use {chosenScale}%.
+                </p>
+              )}
             </div>
             <div className={styles.settingsField}>
               <span>Density</span>
