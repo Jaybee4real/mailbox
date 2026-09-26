@@ -2,8 +2,8 @@ import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { sendPush } from '@/lib/push'
 import { stripOwnPixel } from '@/lib/email-html'
 import { FORWARDING_ENABLED, FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-auth'
-import { ADDRESS_ALIASES, appendInbound, isDmarcAggregateReport, judgeMessage, noteSender, senderStanding, senderDomainOf, getAccountByAddress, inboundExists, recordContact, recordSentMeta, repairInbound } from '@/lib/mailbox'
-import { sendMail } from '@/lib/mail-provider'
+import { ADDRESS_ALIASES, appendInbound, classifyAddressed, isDmarcAggregateReport, judgeMessage, noteSender, senderStanding, senderDomainOf, getAccountByAddress, inboundExists, recordContact, recordSentMessage, recordSentMeta, repairInbound } from '@/lib/mailbox'
+import { archiveAddress, sendMail } from '@/lib/mail-provider'
 
 /**
  * Where the receiving API lives. The Resend SDK reads RESEND_BASE_URL for sending, so a
@@ -379,6 +379,24 @@ export async function ingestReceived(
     return { owner: inbound.owner, subject: inbound.subject, from: inbound.from }
   }
 
+  if (isArchiveCopy(inbound.owner, inbound.to, inbound.cc)) {
+    await recordSentMessage({
+      id: emailId,
+      from: inbound.from,
+      to: inbound.to,
+      cc: inbound.cc,
+      bcc: inbound.bcc,
+      replyTo: inbound.replyTo,
+      subject: inbound.subject,
+      html: inbound.html,
+      text: inbound.text,
+      createdAt: inbound.receivedAt,
+      attachments: inbound.attachments,
+    })
+    await recordSentMeta(emailId, inbound.owner, true)
+    return { owner: inbound.owner, subject: inbound.subject, from: inbound.from }
+  }
+
   await appendInbound(inbound)
   await noteSender(owner, senderDomain, 'received').catch(() => {})
   const sender = parseSender(inbound.from)
@@ -409,6 +427,12 @@ export async function ingestReceived(
     forwardable,
   )
   return { owner: inbound.owner, subject: inbound.subject, from: inbound.from }
+}
+
+/** A copy of our own outgoing mail, BCC'd to the archive seat: it belongs in that seat's Sent, not its inbox. */
+export function isArchiveCopy(owner: string | null | undefined, to: string[], cc: string[]): boolean {
+  const archive = archiveAddress()
+  return Boolean(archive) && (owner ?? '').trim().toLowerCase() === archive && classifyAddressed(owner, to, cc) === 'other'
 }
 
 export type ReceivedSummary = { id: string; from: string; to: string[]; subject: string; createdAt: string }

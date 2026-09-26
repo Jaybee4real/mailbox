@@ -176,8 +176,10 @@ async function sendViaSes(payload: SendPayload): Promise<SendResult> {
  * here ever sees it. Skipped when the archive is already a recipient, so a message never
  * arrives twice, and skipped for anything a person wrote — their Sent folder already has it.
  */
+export const archiveAddress = () => (process.env.MAIL_ARCHIVE_BCC ?? '').trim().toLowerCase()
+
 function withArchive(payload: SendPayload): SendPayload {
-  const archive = (process.env.MAIL_ARCHIVE_BCC ?? '').trim().toLowerCase()
+  const archive = archiveAddress()
   if (!archive || payload.skipArchive) return payload
   const already = [...payload.to, ...(payload.cc ?? []), ...(payload.bcc ?? [])]
     .some(entry => entry.toLowerCase().includes(archive))

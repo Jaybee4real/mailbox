@@ -1786,7 +1786,8 @@ export async function inboundExists(ids: string[]): Promise<Set<string>> {
   for (let i = 0; i < ids.length; i += 200) {
     const chunk = ids.slice(i, i + 200)
     if (!chunk.length) break
-    const rows = await tagged(db(), `SELECT id FROM mail_inbox WHERE id IN (${chunk.map(() => '?').join(',')})`, chunk)
+    const marks = chunk.map(() => '?').join(',')
+    const rows = await tagged(db(), `SELECT id FROM mail_inbox WHERE id IN (${marks}) UNION SELECT id FROM mail_sent WHERE id IN (${marks})`, [...chunk, ...chunk])
     for (const row of rows) found.add(String(row.id))
   }
   return found
