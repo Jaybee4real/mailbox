@@ -1,4 +1,5 @@
 import { BRAND } from '../brand'
+import { adaptiveEmail } from '../color-scheme'
 /**
  * Tiny email-template runtime.
  *
@@ -88,13 +89,13 @@ export function renderNotificationEmail(
   mode: EmailMode,
   fields: EmailField[],
 ): string {
-  return render(TPL_NOTIFICATION, {
+  return adaptiveEmail(render(TPL_NOTIFICATION, {
     title:
       mode === 'academy' ? 'New Academy Registration' : 'New Project Inquiry',
     host: BRAND_HOST,
     date: new Date().toUTCString(),
     rows: renderRows(fields, 'notification'),
-  })
+  }), 'dark')
 }
 
 export function notificationSubject(mode: EmailMode, email: string): string {
@@ -108,7 +109,7 @@ export function renderAutoReplyEmail(
   fields: EmailField[],
 ): string {
   const isAcademy = mode === 'academy'
-  return render(TPL_AUTO_REPLY, {
+  return adaptiveEmail(render(TPL_AUTO_REPLY, {
     headline: isAcademy ? 'Your spot is reserved.' : 'We got your brief.',
     kicker: isAcademy ? 'Academy' : 'Studio',
     lead: isAcademy
@@ -117,7 +118,7 @@ export function renderAutoReplyEmail(
     rows: renderRows(fields, 'reply'),
     brandUrl: BRAND_URL,
     brandHost: BRAND_HOST,
-  })
+  }), 'dark')
 }
 
 export function autoReplySubject(mode: EmailMode): string {
@@ -150,7 +151,7 @@ export type AcademyFollowupVars = {
 }
 
 export function renderAcademyFollowupEmail(vars: AcademyFollowupVars): string {
-  return render(TPL_ACADEMY_FOLLOWUP, {
+  return adaptiveEmail(render(TPL_ACADEMY_FOLLOWUP, {
     logoUrl: vars.logoUrl ?? BRAND.logoUrl,
     headline: escapeHtml(vars.headline ?? 'Your cohort details are here.'),
     firstName: escapeHtml(vars.firstName),
@@ -188,7 +189,7 @@ export function renderAcademyFollowupEmail(vars: AcademyFollowupVars): string {
     signatureRole: escapeHtml(vars.signatureRole ?? `${BRAND.name} Academy`),
     brandUrl: BRAND_URL,
     brandHost: BRAND_HOST,
-  })
+  }), 'dark')
 }
 
 export function academyFollowupSubject(courses: string): string {
@@ -239,7 +240,7 @@ function renderAcademySection(vars: ContactFollowupVars): string {
 }
 
 export function renderContactFollowupEmail(vars: ContactFollowupVars): string {
-  return render(TPL_CONTACT_FOLLOWUP, {
+  return adaptiveEmail(render(TPL_CONTACT_FOLLOWUP, {
     logoUrl: vars.logoUrl ?? BRAND.logoUrl,
     headline: escapeHtml(vars.headline ?? 'A few quick questions about your project.'),
     firstName: escapeHtml(vars.firstName),
@@ -274,7 +275,7 @@ export function renderContactFollowupEmail(vars: ContactFollowupVars): string {
     signatureRole: escapeHtml(vars.signatureRole ?? 'Engineering Studio'),
     brandUrl: BRAND_URL,
     brandHost: BRAND_HOST,
-  })
+  }), 'dark')
 }
 
 export function contactFollowupSubject(projectType: string): string {
@@ -294,7 +295,7 @@ export type ActionEmailVars = {
 
 /** One-button transactional mail — resets, invites — in the tenant's own accent. */
 export function renderActionEmail(vars: ActionEmailVars): string {
-  return render(TPL_ACTION, {
+  return adaptiveEmail(render(TPL_ACTION, {
     eyebrow: escapeHtml(vars.eyebrow),
     accent: escapeHtml(vars.accent),
     title: escapeHtml(vars.title),
@@ -303,5 +304,5 @@ export function renderActionEmail(vars: ActionEmailVars): string {
     actionUrl: escapeHtml(vars.actionUrl),
     expiry: escapeHtml(vars.expiry),
     footer: escapeHtml(vars.footer),
-  })
+  }), 'dark')
 }

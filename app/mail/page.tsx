@@ -10,6 +10,7 @@ import { subscribePush, unsubscribePush, useInstall, useNotifications } from './
 import { InstallGuide } from './InstallGuide'
 import RichEditor from './RichEditor'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel, healGooglePrivateImages } from '@/lib/email-html'
+import { designsForDark, pinColorScheme } from '@/lib/color-scheme'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect, { GLYPH } from './MailSelect'
 import { handleComposeTab } from './tabKey'
@@ -820,8 +821,9 @@ function countRemoteRefs(html: string | null): number {
 // Show the email in its true colours on a light "paper" card, framed by the dark
 // reader. The markup is left untouched — the card supplies a legible white surface
 // for bare fragments, and emails that paint their own background render as designed.
-const readerTheme = (spacing: number, dark: boolean) => `<style>
-  :root { color-scheme: light; }
+// Mail that ships its own dark design is shown in it instead, with no card.
+const readerTheme = (spacing: number, dark: boolean, ownDark: boolean) => `<style>
+  :root { color-scheme: ${ownDark ? 'dark' : 'light'}; }
   /* Transparent so the framed document takes the app's themed surface from the
      iframe element behind it. Theme variables do not cross the document boundary,
      so anything set here would be a colour frozen against one theme. */
@@ -829,10 +831,10 @@ const readerTheme = (spacing: number, dark: boolean) => `<style>
   body { margin: 0; background: transparent; padding: 0 0 12px; }
   .nc-paper {
     max-width: 860px;
-    color: #1A1030;
-    background: ${dark ? '#ffffff' : 'transparent'};
-    border-radius: ${dark ? '6px' : '0'};
-    padding: ${dark ? '14px 16px' : '6px 0 12px'};
+    color: ${ownDark ? '#ECEAF2' : '#1A1030'};
+    background: ${dark && !ownDark ? '#ffffff' : 'transparent'};
+    border-radius: ${dark && !ownDark ? '6px' : '0'};
+    padding: ${dark && !ownDark ? '14px 16px' : '6px 0 12px'};
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     font-size: 15px;
     line-height: ${spacing};
@@ -842,7 +844,7 @@ const readerTheme = (spacing: number, dark: boolean) => `<style>
   }
   .nc-paper p { margin: 0 0 ${paragraphGap(spacing)}; }
   .nc-paper img { max-width: 100%; height: auto; }
-  .nc-paper a { color: #5418C2; }
+  .nc-paper a { color: ${ownDark ? '#B69CFF' : '#5418C2'}; }
 </style>`
 
 /**
@@ -967,7 +969,8 @@ function sentByUs(address: string): boolean {
 }
 
 // When allowRemote is false the CSP blocks remote fetches so tracking pixels never load.
-function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SPACING, dark = false): string {
+function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SPACING, theme: ThemeBase = 'light'): string {
+  const dark = theme === 'dark'
   const csp = allowRemote
     ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * data:; style-src 'unsafe-inline' *; font-src * data:; media-src * data:">`
     : `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${OWN_IMAGE_HOSTS} data:; style-src 'unsafe-inline'; font-src data:">`
@@ -975,7 +978,8 @@ function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SP
   // it every link in every message was dead: the click was swallowed with no error and no
   // navigation, which reads as a broken button rather than a blocked one. Scripts are still
   // not allowed, so nothing here can open a tab on its own — only a real click can.
-  return `<!doctype html><html><head><meta charset="utf-8">${csp}${readerTheme(spacing, dark)}<base target="_blank"></head><body><div class="nc-paper">${stripOwnPixel(html)}</div></body>`
+  const ownDark = theme !== 'light' && designsForDark(html)
+  return `<!doctype html><html><head><meta charset="utf-8">${csp}${readerTheme(spacing, dark, ownDark)}<base target="_blank"></head><body><div class="nc-paper">${stripOwnPixel(pinColorScheme(html, theme !== 'light'))}</div></body>`
 }
 
 function headerValue(email: InboundEmail, key: string): string {
@@ -5122,7 +5126,7 @@ export default function DevMailPage() {
       img { max-width: 100%; }
     </style>`
     doc.open()
-    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title>${printCss}</head><body>${meta}${hasMarkup(html) ? stripOwnPixel(html) : `<pre style="font-family:Arial,sans-serif;white-space:pre-wrap;">${escapeHtml(text?.trim() || html || '')}</pre>`}</body></html>`)
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title>${printCss}</head><body>${meta}${hasMarkup(html) ? stripOwnPixel(pinColorScheme(html, false)) : `<pre style="font-family:Arial,sans-serif;white-space:pre-wrap;">${escapeHtml(text?.trim() || html || '')}</pre>`}</body></html>`)
     doc.close()
     frame.contentWindow?.focus()
     window.setTimeout(() => {
@@ -6052,7 +6056,7 @@ export default function DevMailPage() {
           <iframe
             className={styles.threadFrame}
             sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-            srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme === 'dark')}
+            srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme)}
             title="Email content"
             onLoad={event => {
               try {
@@ -6067,7 +6071,7 @@ export default function DevMailPage() {
     }
     return (
       <>
-        <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme === 'dark')} title="Email content" />
+        <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme)} title="Email content" />
         {split.tail && renderQuoteLine(message.id, quoteShown)}
       </>
     )
@@ -6086,7 +6090,7 @@ export default function DevMailPage() {
         <iframe
           className={styles.threadFrame}
           sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-          srcDoc={frameHtml(healGooglePrivateImages(detail.html, CLIENT_BRAND.markUrl), true, readerSpacing, resolvedTheme === 'dark')}
+          srcDoc={frameHtml(healGooglePrivateImages(detail.html, CLIENT_BRAND.markUrl), true, readerSpacing, resolvedTheme)}
           title="Sent email"
           onLoad={event => {
             try {
@@ -6979,7 +6983,7 @@ export default function DevMailPage() {
                     <iframe
                       className={styles.replyPreview}
                       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                      srcDoc={frameHtml(replyEffHtml, true, readerSpacing, resolvedTheme === 'dark')}
+                      srcDoc={frameHtml(replyEffHtml, true, readerSpacing, resolvedTheme)}
                       title="Reply preview"
                       onLoad={event => {
                         try {
@@ -7249,7 +7253,7 @@ export default function DevMailPage() {
             {!selectedDetail ? (
               <BodySkeleton />
             ) : selectedDetail.html ? (
-              <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(selectedDetail.html, true, readerSpacing, resolvedTheme === 'dark')} title="Email content" />
+              <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(selectedDetail.html, true, readerSpacing, resolvedTheme)} title="Email content" />
             ) : selectedDetail.text ? (
               <pre className={styles.readerText}>{selectedDetail.text}</pre>
             ) : (
@@ -8396,7 +8400,7 @@ export default function DevMailPage() {
               {compose.quoteHtml && !compose.campaign.kind && (
                 <details className={styles.composeQuote}>
                   <summary className={styles.composeQuoteLabel}>Quoted message</summary>
-                  <iframe className={styles.composeQuoteFrame} sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(compose.quoteHtml, true, readerSpacing, resolvedTheme === 'dark')} title="Quoted message" />
+                  <iframe className={styles.composeQuoteFrame} sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(compose.quoteHtml, true, readerSpacing, resolvedTheme)} title="Quoted message" />
                 </details>
               )}
               {/* The signature is appended on send, so show it here rather than leaving the
