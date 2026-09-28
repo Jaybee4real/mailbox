@@ -1222,7 +1222,7 @@ export async function rejudgeStored(options: { before?: string; limit?: number; 
   const before = options.before ?? '9999-12-31'
   const rows = await sql`
     SELECT id, owner, from_addr, reply_to, subject, body_text, headers, received_at,
-           read, starred, archived, trashed, risk, spam
+           read, starred, archived, trashed, risk, risk_reasons, spam
     FROM mail_inbox
     WHERE received_at < ${before} AND (${options.flaggedOnly ? 1 : 0} = 0 OR coalesce(risk, 'clean') != 'clean')
     ORDER BY received_at DESC
@@ -1265,7 +1265,8 @@ export async function rejudgeStored(options: { before?: string; limit?: number; 
     // they put it — back-fill may label it, never move it out from under them.
     const untouched = !Number(row.read) && !Number(row.starred) && !Number(row.archived) && !Number(row.trashed)
     const quarantine = verdict.quarantine && untouched
-    if (String(row.risk ?? 'clean') === verdict.risk && Boolean(Number(row.spam)) === quarantine) {
+    const sameReasons = JSON.stringify(parseJson<string[]>(row.risk_reasons, [])) === JSON.stringify(verdict.reasons)
+    if (String(row.risk ?? 'clean') === verdict.risk && Boolean(Number(row.spam)) === quarantine && sameReasons) {
       // The verdict is unchanged, but the conversation summary the list reads from may still
       // predate it — worth one refresh for the few that carry a warning.
       if (verdict.risk !== 'clean') await rethreadAfterChange(String(row.id))
