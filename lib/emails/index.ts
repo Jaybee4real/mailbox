@@ -127,6 +127,12 @@ export function autoReplySubject(mode: EmailMode): string {
     : `We got your project brief — ${BRAND.name}`
 }
 
+/** The follow-up templates are written for one business, so a deployment offers only those it lists. */
+export function templateEnabled(name: string | undefined, setting = process.env.MAIL_TEMPLATES ?? ''): boolean {
+  const offered = setting.split(',').map(entry => entry.trim().toLowerCase()).filter(Boolean)
+  return Boolean(name) && offered.includes(String(name).toLowerCase())
+}
+
 // ── Academy follow-up (sent manually via dev backdoor) ──────────────────────
 export type AcademyFollowupVars = {
   firstName: string

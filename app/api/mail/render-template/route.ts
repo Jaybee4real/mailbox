@@ -4,6 +4,7 @@ import {
   contactFollowupSubject,
   renderAcademyFollowupEmail,
   renderContactFollowupEmail,
+  templateEnabled,
 } from '@/lib/emails'
 import { mailAuthGuard } from '@/lib/dev-auth'
 
@@ -27,6 +28,10 @@ export async function POST(req: Request) {
     body = await req.json()
   } catch {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  if (!templateEnabled(body.template)) {
+    return NextResponse.json({ ok: false, error: 'Unknown template' }, { status: 400 })
   }
 
   const firstName = (body.firstName ?? '').trim() || 'there'
