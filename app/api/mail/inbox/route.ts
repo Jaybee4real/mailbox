@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, isLocalOrigin, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
-import { searchInbox, appendEvent, appendInbound, recordContact, setInboundFlags, setInboundSpam, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
+import { searchInbox, appendEvent, appendInbound, recordContact, setInboundFlags, setInboundSpam, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, trustSenderOf, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
 import { addressedToUs, attributeOwner, forwardToAccounts, ingestReceived, parseSender } from '@/lib/receive'
 import { isBrevoInbound, normalizeBrevoInbound } from '@/lib/mail-provider'
 
@@ -57,7 +57,7 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
-  let body: { id?: string; ids?: string[]; threadId?: string; labels?: string[]; owner?: string; snoozedUntil?: string | null; spam?: boolean } & InboundFlags
+  let body: { id?: string; ids?: string[]; threadId?: string; labels?: string[]; owner?: string; snoozedUntil?: string | null; spam?: boolean; trust?: boolean } & InboundFlags
   try {
     body = await req.json()
   } catch {
@@ -109,6 +109,10 @@ export async function PATCH(req: Request) {
     const account = await resolveAccount(req)
     const changed = await setInboundFlagsForThread(account.address ?? ' no-address', body.threadId, flags)
     return NextResponse.json({ ok: true, ids: changed })
+  }
+  if (body.trust === true) {
+    const cleared = (await Promise.all(ids.map(id => trustSenderOf(id)))).flat()
+    return NextResponse.json({ ok: true, ids: cleared })
   }
   // Quarantine is its own move: it teaches the sender's standing, which a flag does not.
   if (body.spam !== undefined) {

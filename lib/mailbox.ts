@@ -14,6 +14,9 @@ import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
 import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
 import { inboxFiltersSql, normalizeInboxFilters, type InboxFilter } from './inbox-filters'
+import { judgeMessage, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
+
+export { judgeMessage, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding }
 
 export type InboundAttachment = { filename: string; contentType?: string; size?: number; shareId?: string }
 
@@ -387,6 +390,7 @@ export function ensureMailSchema(): Promise<void> {
       await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN spam INTEGER NOT NULL DEFAULT 0").catch(() => {})
       await sqlRaw("CREATE INDEX IF NOT EXISTS mail_inbox_spam_idx ON mail_inbox (lower(owner), spam, received_at DESC)").catch(() => {})
       await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN risk_reasons TEXT").catch(() => {})
+      await sqlRaw('ALTER TABLE mail_sender_reputation ADD COLUMN trusted INTEGER NOT NULL DEFAULT 0').catch(() => {})
       // The row in the list follows its newest message, so the conversation carries it too.
       await sqlRaw("ALTER TABLE mail_threads ADD COLUMN addressed TEXT").catch(() => {})
       // Worst verdict in the conversation, so a warning cannot hide behind a later reply.
@@ -455,30 +459,47 @@ export function ensureMailSchema(): Promise<void> {
 
 // ── Inbox ──────────────────────────────────────────────────────
 
-export type SenderStanding = {
-  received: number
-  trashed: number
-  markedSpam: number
-  replied: number
-  firstSeen: string | null
+
+const domainMatch = (domain: string) => {
+  const host = domain.toLowerCase()
+  return {
+    sql: "(lower(from_addr) LIKE ? OR lower(from_addr) LIKE ? OR lower(from_addr) LIKE ? OR lower(from_addr) LIKE ?)",
+    args: [`%@${host}`, `%@${host}>`, `%.${host}`, `%.${host}>`],
+  }
+}
+
+// The counters began long after the history they sit beside, so years of imported mail would
+// read as a stranger's first message. The stored mail itself says when a domain first wrote.
+async function earliestFrom(domain: string): Promise<string | null> {
+  const match = domainMatch(domain)
+  const rows = await tagged(db(), `SELECT MIN(received_at) AS first FROM mail_inbox WHERE ${match.sql}`, match.args)
+  return rows[0]?.first == null ? null : String(rows[0].first)
 }
 
 /** What this mailbox has done with this sender's domain before. */
-export async function senderStanding(owner: string | null, domain: string): Promise<SenderStanding> {
-  const empty = { received: 0, trashed: 0, markedSpam: 0, replied: 0, firstSeen: null }
+export async function senderStanding(
+  owner: string | null,
+  domain: string,
+  earliestCache?: Map<string, string | null>,
+): Promise<SenderStanding> {
+  const empty = { received: 0, trashed: 0, markedSpam: 0, replied: 0, trusted: false, firstSeen: null }
   if (!owner || !domain) return empty
   await ensureMailSchema()
   const rows = await db()`
-    SELECT received, trashed, marked_spam, replied, first_seen FROM mail_sender_reputation
+    SELECT received, trashed, marked_spam, replied, trusted, first_seen FROM mail_sender_reputation
     WHERE owner = ${owner.toLowerCase()} AND domain = ${domain.toLowerCase()}`
   const row = rows[0]
-  if (!row) return empty
+  const key = domain.toLowerCase()
+  const earliest = earliestCache?.has(key) ? earliestCache.get(key)! : await earliestFrom(key)
+  earliestCache?.set(key, earliest)
+  const counted = row?.first_seen == null ? null : String(row.first_seen)
   return {
-    received: Number(row.received ?? 0),
-    trashed: Number(row.trashed ?? 0),
-    markedSpam: Number(row.marked_spam ?? 0),
-    replied: Number(row.replied ?? 0),
-    firstSeen: row.first_seen == null ? null : String(row.first_seen),
+    received: Number(row?.received ?? 0),
+    trashed: Number(row?.trashed ?? 0),
+    markedSpam: Number(row?.marked_spam ?? 0),
+    replied: Number(row?.replied ?? 0),
+    trusted: Boolean(Number(row?.trusted ?? 0)),
+    firstSeen: [counted, earliest].filter((value): value is string => Boolean(value)).sort()[0] ?? null,
   }
 }
 
@@ -505,189 +526,6 @@ export async function noteSender(
       last_seen = ${now}`
 }
 
-/** What the scanners and the sender's own domain said. */
-export type Risk = 'clean' | 'suspicious' | 'spam' | 'virus'
-
-export type RiskSignals = {
-  spam?: string | null
-  virus?: string | null
-  spf?: string | null
-  dkim?: string | null
-  dmarc?: string | null
-  /** The message itself, for the tells authentication cannot see. */
-  from?: string | null
-  replyTo?: string[] | null
-  subject?: string | null
-  text?: string | null
-}
-
-/** Defaults only. Each is overridable per deployment, so a list can change without a
- *  release — metroperil can drop a word its own trade uses every day. */
-const FREE_MAIL_DEFAULT = new Set([
-  'gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'hotmail.com', 'outlook.com',
-  'live.com', 'aol.com', 'protonmail.com', 'proton.me', 'mail.com', 'gmx.com', 'yandex.com',
-  'icloud.com', 'zoho.com', 'inbox.lv', 'consultant.com', 'qq.com', '163.com',
-])
-
-const THROWAWAY_TLDS_DEFAULT = new Set([
-  'xyz', 'top', 'buzz', 'click', 'link', 'work', 'gq', 'cf', 'ml', 'tk', 'ga',
-  'loan', 'men', 'date', 'racing', 'win', 'stream', 'download', 'review', 'country', 'kim',
-])
-
-/** The shape of an advance-fee approach. Counted, never single-word: one alone is innocent. */
-// Only wording that is odd in ordinary business correspondence belongs here. A single
-// generic term is not evidence of anything: an insurance broker writes "beneficiary" and
-// "bank draft" all day, a logistics firm writes "consignment", and every sales team sends
-// a "business proposal". Add them per deployment through MAIL_SCAM_PHRASES if a mailbox
-// genuinely never sees them.
-const SCAM_PHRASES_DEFAULT = [
-  'next of kin', 'sole beneficiary', 'late client', 'deceased client',
-  'inheritance', 'died without', 'without a will', 'unclaimed inheritance',
-  'winning notification', 'lottery winner', 'western union', 'atm card',
-  'transfer to your account immediately', 'strictly confidential and urgent',
-]
-
-/** The registrable domain behind an address, for reputation to be keyed on. */
-export const senderDomainOf = (address: string): string => registrable(domainOf(address))
-
-const domainOf = (address: string): string => {
-  const angled = address.match(/<([^>]+)>/)
-  const bare = (angled ? angled[1] : address).trim().toLowerCase()
-  return bare.split('@').pop() ?? ''
-}
-
-/** example.co.uk and example.com both reduce to the name somebody actually registered. */
-const registrable = (host: string): string => {
-  const parts = host.split('.').filter(Boolean)
-  if (parts.length <= 2) return parts.join('.')
-  const twoLevel = /^(co|com|org|net|gov|ac|edu|ltd|plc)\.[a-z]{2}$/.test(parts.slice(-2).join('.'))
-  return parts.slice(twoLevel ? -3 : -2).join('.')
-}
-
-const failed = (verdict: string | null | undefined): boolean =>
-  typeof verdict === 'string' && /^(fail|softfail|permerror)$/i.test(verdict.trim())
-
-const listFrom = (raw: string | undefined, fallback: Iterable<string>): Set<string> => {
-  const parsed = (raw ?? '').split(',').map(entry => entry.trim().toLowerCase()).filter(Boolean)
-  return parsed.length ? new Set(parsed) : new Set(fallback)
-}
-
-// Read per call, so a deployment can change any of them without a release.
-const freeProviders = () => listFrom(process.env.MAIL_FREE_PROVIDERS, FREE_MAIL_DEFAULT)
-const throwawayTlds = () => listFrom(process.env.MAIL_THROWAWAY_TLDS, THROWAWAY_TLDS_DEFAULT)
-
-// Bulk senders put their own bounce domain in From and the real correspondent in Reply-To.
-// That is how the campaign gets replies, not an attempt to redirect them somewhere unexpected.
-const BULK_SENDERS_DEFAULT = new Set([
-  'mailchimpapp.com', 'mcsv.net', 'rsgsv.net', 'mailchimp.com',
-  'sendgrid.net', 'sendgrid.com', 'sparkpostmail.com', 'amazonses.com',
-  'mailgun.org', 'mandrillapp.com', 'postmarkapp.com', 'sendinblue.com',
-  'brevo.com', 'constantcontact.com', 'cmail19.com', 'createsend.com',
-  'hubspotemail.net', 'mailerlite.com', 'klaviyomail.com', 'salesforce.com',
-])
-const bulkSenders = () => listFrom(process.env.MAIL_BULK_SENDERS, BULK_SENDERS_DEFAULT)
-const scamPhrases = () => [...listFrom(process.env.MAIL_SCAM_PHRASES, SCAM_PHRASES_DEFAULT)]
-
-/** Weight at which a message stops being labelled and is held out of the inbox instead. */
-const quarantineAt = () => Number(process.env.MAIL_SPAM_THRESHOLD ?? 6)
-
-/** Below this nothing is said at all. One small oddity is not a case. */
-const flagAt = () => Number(process.env.MAIL_SUSPICION_THRESHOLD ?? 3)
-
-export type RiskJudgement = { risk: Risk; reasons: string[]; score: number; quarantine: boolean }
-
-/**
- * What this mailbox knows, then what is true of the message. The standing a sender has
- * built here leads: somebody you have written back to is not spam because their subject
- * shouts, and somebody whose mail you have binned repeatedly does not get the benefit of
- * the doubt again. The fixed rules only decide the cases with no history to go on, and
- * every one of their lists can be changed per deployment without a release.
- */
-export function judgeMessage(signals: RiskSignals, standing: SenderStanding): RiskJudgement {
-  const reasons: string[] = []
-  let score = 0
-  // A finding is "telling" when it is hard to trip by accident. Failing an authentication
-  // check or shouting in the subject line is neither: ordinary mail does both. Holding a
-  // message back takes at least one finding of the first kind, however the weights add up.
-  let telling = 0
-  const add = (weight: number, why: string, isTelling = false) => {
-    score += weight
-    if (isTelling) telling += 1
-    reasons.push(why)
-  }
-
-  if (/^fail$/i.test((signals.virus ?? '').trim())) {
-    return { risk: 'virus', reasons: ['A virus scan failed on this message'], score: 100, quarantine: true }
-  }
-
-  // Trust is earned by being written back to, never by volume alone: a sender whose mail
-  // arrives forty times and is binned every time has not earned anything.
-  const trusted = standing.replied > 0 && standing.markedSpam === 0
-  if (standing.markedSpam > 0) {
-    add(4 + Math.min(standing.markedSpam, 4),
-      `You marked ${standing.markedSpam} earlier message${standing.markedSpam === 1 ? '' : 's'} from this sender as spam`, true)
-  } else if (standing.trashed >= 3 && standing.replied === 0) {
-    add(3, `You have deleted ${standing.trashed} messages from this sender without ever replying`, true)
-  }
-
-  if (/^fail$/i.test((signals.spam ?? '').trim())) add(4, 'The provider\u2019s spam filter flagged this message', true)
-
-  const authenticated = /^pass$/i.test((signals.dmarc ?? '').trim())
-  // Heavy, but not enough on its own to hide a message: mail forwarded through a list
-  // breaks alignment and fails DMARC while being perfectly legitimate. It warns loudly;
-  // it takes a second finding to put a message out of sight.
-  if (failed(signals.dmarc)) add(4, 'The sending domain says this message is not from them (DMARC failed)')
-  else if (!authenticated) {
-    if (failed(signals.spf)) add(2, 'The sending server is not authorised by that domain (SPF failed)')
-    if (failed(signals.dkim)) add(2, 'The signature does not match the sending domain (DKIM failed)')
-  }
-
-  const fromDomain = registrable(domainOf(signals.from ?? ''))
-  const replyDomains = (signals.replyTo ?? [])
-    .map(entry => registrable(domainOf(entry)))
-    .filter(entry => entry && entry !== fromDomain)
-  const free = freeProviders()
-  const freeReply = replyDomains.find(entry => free.has(entry))
-  const bulk = bulkSenders().has(fromDomain)
-  if (bulk) {
-    // Nothing to say: a campaign's replies are meant to land somewhere other than the
-    // sending platform, and treating that as misdirection buries ordinary bulk mail.
-  } else if (freeReply && fromDomain && !free.has(fromDomain)) {
-    add(4, `Replies to this message go to ${freeReply}, not to ${fromDomain}`, true)
-  } else if (replyDomains.length) {
-    add(1, `Replies go to ${replyDomains[0]} rather than ${fromDomain || 'the sender'}`)
-  }
-
-  const tld = fromDomain.split('.').pop() ?? ''
-  if (throwawayTlds().has(tld)) add(2, `The sender\u2019s domain ends in .${tld}, which is cheap to register and often disposable`, true)
-  if (/^\d{4,}$/.test(fromDomain.split('.')[0] ?? '')) add(2, 'The sender\u2019s domain name is just a string of digits', true)
-
-  const subject = (signals.subject ?? '').trim()
-  const letters = subject.replace(/[^A-Za-z]/g, '')
-  if (letters.length >= 12 && letters === letters.toUpperCase()) add(1, 'The subject is written entirely in capitals')
-
-  const body = (signals.text ?? '').toLowerCase()
-  const hits = scamPhrases().filter(phrase => body.includes(phrase))
-  if (hits.length >= 2) add(3, `The wording follows a known advance-fee approach (${hits.slice(0, 3).join(', ')})`, true)
-  else if (hits.length === 1) add(1, `Wording associated with advance-fee mail (${hits[0]})`)
-
-  // Never heard from before is not suspicious by itself — everyone writes once for the
-  // first time — but it is what turns a couple of small oddities into a pattern.
-  if (!trusted && standing.received <= 1 && score > 0) add(1, 'This is the first message from this sender')
-
-  // Someone this mailbox corresponds with is forgiven the small stuff; only findings heavy
-  // enough to stand on their own still count against them.
-  const limit = quarantineAt()
-  if (trusted && score < limit) return { risk: 'clean', reasons: [], score: 0, quarantine: false }
-
-  // One small oddity is not a case to answer. A subject in capitals from somebody writing
-  // for the first time is a stranger in a hurry, not a scam, and saying otherwise every
-  // time teaches the reader to ignore the warning.
-  if (score < flagAt()) return { risk: 'clean', reasons: [], score, quarantine: false }
-
-  const quarantine = score >= limit && telling > 0
-  return { risk: quarantine ? 'spam' : 'suspicious', reasons, score, quarantine }
-}
 
 
 /** How the mailbox came to hold a message, from that mailbox's own point of view. */
@@ -1372,7 +1210,7 @@ export async function appendInbound(
  * labels and owner are the reader's, not the repair's, and a row that already has a body
  * is left exactly as it is.
  */
-export async function rejudgeStored(options: { before?: string; limit?: number } = {}): Promise<{
+export async function rejudgeStored(options: { before?: string; limit?: number; flaggedOnly?: boolean } = {}): Promise<{
   scanned: number
   changed: number
   quarantined: number
@@ -1386,7 +1224,7 @@ export async function rejudgeStored(options: { before?: string; limit?: number }
     SELECT id, owner, from_addr, reply_to, subject, body_text, headers, received_at,
            read, starred, archived, trashed, risk, spam
     FROM mail_inbox
-    WHERE received_at < ${before}
+    WHERE received_at < ${before} AND (${options.flaggedOnly ? 1 : 0} = 0 OR coalesce(risk, 'clean') != 'clean')
     ORDER BY received_at DESC
     LIMIT ${limit}`
 
@@ -1395,6 +1233,7 @@ export async function rejudgeStored(options: { before?: string; limit?: number }
   result.cursor = String(rows[rows.length - 1].received_at ?? '')
 
   const standings = new Map<string, SenderStanding>()
+  const earliest = new Map<string, string | null>()
   const touchedOwners = new Set<string>()
   for (const row of rows) {
     const owner = String(row.owner ?? '')
@@ -1402,7 +1241,7 @@ export async function rejudgeStored(options: { before?: string; limit?: number }
     const key = `${owner.toLowerCase()}\u0000${senderDomain}`
     let standing = standings.get(key)
     if (!standing) {
-      standing = await senderStanding(owner, senderDomain)
+      standing = await senderStanding(owner, senderDomain, earliest)
       standings.set(key, standing)
     }
 
@@ -1419,6 +1258,7 @@ export async function rejudgeStored(options: { before?: string; limit?: number }
       replyTo: parseJson<string[]>(row.reply_to, []),
       subject: String(row.subject ?? ''),
       text: row.body_text == null ? null : String(row.body_text),
+      receivedAt: String(row.received_at ?? ''),
     }, standing)
 
     // A message the reader has already read, starred, filed or binned stays exactly where
@@ -1751,6 +1591,30 @@ export async function setInboundSpam(id: string, spam: boolean): Promise<void> {
   }
   await invalidateCounts(row?.owner == null ? null : String(row.owner))
   await rethreadAfterChange(id)
+}
+
+/** Trusts the sender of one message for its mailbox, and lifts the warnings already on their mail there. */
+export async function trustSenderOf(id: string): Promise<string[]> {
+  await ensureMailSchema()
+  const sql = db()
+  const rows = await sql`SELECT owner, from_addr FROM mail_inbox WHERE id = ${id}`
+  const owner = rows[0]?.owner == null ? '' : String(rows[0].owner).toLowerCase()
+  const domain = senderDomainOf(String(rows[0]?.from_addr ?? ''))
+  if (!owner || !domain) return []
+  const now = nowIso()
+  await sql`
+    INSERT INTO mail_sender_reputation (owner, domain, trusted, first_seen, last_seen)
+    VALUES (${owner}, ${domain}, 1, ${now}, ${now})
+    ON CONFLICT (owner, domain) DO UPDATE SET trusted = 1, marked_spam = 0`
+  const match = domainMatch(domain)
+  const flagged = await tagged(sql, `SELECT id FROM mail_inbox WHERE lower(owner) = ? AND risk = 'suspicious' AND ${match.sql}`, [owner, ...match.args])
+  const ids = flagged.map(row => String(row.id))
+  for (const flaggedId of ids) {
+    await sql`UPDATE mail_inbox SET risk = 'clean', risk_reasons = '[]' WHERE id = ${flaggedId}`
+    await rethreadAfterChange(flaggedId)
+  }
+  await invalidateCounts(owner)
+  return ids
 }
 
 export async function setInboundFlags(id: string, flags: InboundFlags): Promise<void> {

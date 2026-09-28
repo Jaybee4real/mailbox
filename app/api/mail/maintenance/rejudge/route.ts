@@ -27,6 +27,7 @@ export async function POST(req: Request) {
   const result = await rejudgeStored({
     before: url.searchParams.get('before') ?? undefined,
     limit: Number(url.searchParams.get('limit') ?? 200) || 200,
+    flaggedOnly: url.searchParams.get('flagged') === '1',
   })
   return NextResponse.json({ ok: true, ...result })
 }

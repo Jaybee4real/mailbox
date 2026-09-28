@@ -323,6 +323,7 @@ export async function ingestReceived(
     replyTo: full?.replyTo ?? (Array.isArray(data.reply_to) ? (data.reply_to as string[]) : []),
     subject: full?.subject || String(data.subject ?? ''),
     text: full?.text ?? (data.text ? String(data.text) : null),
+    receivedAt: full?.createdAt || String(data.created_at ?? new Date().toISOString()),
   }, standing)
   if (verdicts.risk !== 'clean') {
     console.warn(`[mail] ${verdicts.risk} inbound ${emailId}:`, verdicts.reasons.join('; '))

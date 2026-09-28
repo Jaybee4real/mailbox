@@ -57,6 +57,7 @@ import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSet
 import { splitQuotedTail, splitQuotedText } from './quoted'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { matchesInboxFilters, normalizeInboxFilters, type InboxFilter } from '@/lib/inbox-filters'
+import { FIRST_MESSAGE_REASON } from '@/lib/risk'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
 
@@ -3714,6 +3715,34 @@ export default function DevMailPage() {
    * against the sender, rescuing counts for them, and the next message from that domain
    * is judged with the answer already in hand.
    */
+  const [trustingId, setTrustingId] = useState<string | null>(null)
+  const trustSender = useCallback(
+    async (entry: InboundEmail) => {
+      setTrustingId(entry.id)
+      const response = await fetch('/api/mail/inbox', {
+        method: 'PATCH',
+        headers: apiHeaders(),
+        body: JSON.stringify({ ids: [entry.id], trust: true }),
+      }).catch(() => null)
+      const data = await response?.json().catch(() => null)
+      setTrustingId(null)
+      if (!data?.ok) {
+        setSentFlash('Could not trust this sender. Try again.')
+        window.setTimeout(() => setSentFlash(''), 2500)
+        return
+      }
+      const cleared = new Set<string>([entry.id, ...((data.ids as string[] | undefined) ?? [])])
+      setInboxEmails(list => list.map(item => (cleared.has(item.id) ? { ...item, risk: 'clean', riskReasons: [] } : item)))
+      const domain = parseAddress(entry.from).split('@')[1] ?? 'this sender'
+      setSentFlash(`Mail from ${domain} is trusted now`)
+      window.setTimeout(() => setSentFlash(''), 2500)
+      threadsLoadedFolder.current = null
+      threadsFetch.current = null
+      loadThreads()
+    },
+    [apiHeaders, loadThreads],
+  )
+
   const markSpam = useCallback(
     async (ids: string[], spam: boolean) => {
       if (!ids.length) return
@@ -6498,6 +6527,16 @@ export default function DevMailPage() {
                   <span className={styles.riskBannerWhy}>
                     Treat links and attachments here with care, and do not enter passwords or payment details.
                   </span>
+                  {inbound.risk === 'suspicious' && (inbound.riskReasons ?? []).includes(FIRST_MESSAGE_REASON) && (
+                    <button
+                      type="button"
+                      className={styles.riskBannerTrust}
+                      disabled={trustingId === inbound.id}
+                      onClick={() => void trustSender(inbound)}
+                    >
+                      {trustingId === inbound.id ? 'Trusting…' : 'Trust this sender'}
+                    </button>
+                  )}
                 </span>
               </div>
             )}
