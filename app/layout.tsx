@@ -44,6 +44,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         />
       </head>
       <body
+        data-mark-style={BRAND.chromeMarkStyle}
         style={{ ['--brand-mark' as string]: `url('${BRAND.chromeMarkUrl}')` } as CSSProperties}
       >
         {children}

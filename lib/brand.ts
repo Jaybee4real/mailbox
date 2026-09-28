@@ -40,6 +40,7 @@ export const BRAND = {
     muted: env('BRAND_COLOR_MUTED', 'rgb(107, 114, 128)'),
   },
   chromeMarkUrl: env('BRAND_CHROME_MARK_URL', '/brand/mark.png'),
+  chromeMarkStyle: env('BRAND_CHROME_MARK_STYLE') === 'image' ? 'image' : 'stencil',
   signatureMark: {
     border: env('BRAND_SIGNATURE_MARK_BORDER', 'none'),
     radius: env('BRAND_SIGNATURE_MARK_RADIUS', '0'),

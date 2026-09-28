@@ -5689,6 +5689,12 @@
   -webkit-mask: var(--brand-mark, url('/brand/mark.png')) no-repeat center / contain;
 }
 
+[data-mark-style='image'] :is(.brandLogo, .accessMark, .brandMark) {
+  background: var(--brand-mark) no-repeat center / contain;
+  mask: none;
+  -webkit-mask: none;
+}
+
 /* ── Confirm dialog ─────────────────────────────────────────────────────── */
 /* Replaces window.confirm, which cannot be themed and reads as the browser
    interrupting rather than the app asking. */

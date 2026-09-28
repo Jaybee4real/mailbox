@@ -38,8 +38,14 @@
   height: 28px;
   margin: 0 auto 18px;
   background: var(--brand-accent, #6d28d9);
-  mask: url('/brand/mark.png') no-repeat center / contain;
-  -webkit-mask: url('/brand/mark.png') no-repeat center / contain;
+  mask: var(--brand-mark, url('/brand/mark.png')) no-repeat center / contain;
+  -webkit-mask: var(--brand-mark, url('/brand/mark.png')) no-repeat center / contain;
+}
+
+[data-mark-style='image'] .mark {
+  background: var(--brand-mark) no-repeat center / contain;
+  mask: none;
+  -webkit-mask: none;
 }
 
 .eyebrow {
