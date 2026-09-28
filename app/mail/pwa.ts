@@ -194,8 +194,8 @@ export function useNotifications(enabled: boolean) {
       if (unread.length === 1) {
         void show(unread[0].from || 'New mail', {
           body: unread[0].subject || '(no subject)',
-          icon: '/icon-192.png',
-          badge: '/icon-192.png',
+          icon: '/brand/icon-192.png',
+          badge: '/brand/icon-192.png',
           tag: unread[0].id,
         })
         return
@@ -203,8 +203,8 @@ export function useNotifications(enabled: boolean) {
 
       void show(`${unread.length} new messages`, {
         body: unread.map(item => item.subject || '(no subject)').slice(0, 3).join('\n'),
-        icon: '/icon-192.png',
-        badge: '/icon-192.png',
+        icon: '/brand/icon-192.png',
+        badge: '/brand/icon-192.png',
         tag: 'mailbox-batch',
       })
     },

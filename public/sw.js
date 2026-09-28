@@ -28,8 +28,8 @@ self.addEventListener('push', event => {
     Promise.all([
       self.registration.showNotification(payload.title || 'New mail', {
         body: payload.body || '',
-        icon: '/icon-192.png',
-        badge: '/icon-192.png',
+        icon: '/brand/icon-192.png',
+        badge: '/brand/icon-192.png',
         tag: payload.tag || 'mailbox',
         data: { url: payload.url || '/mail' },
       }),

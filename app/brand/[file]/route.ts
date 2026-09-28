@@ -9,6 +9,14 @@ const DIR = process.env.BRAND_ASSET_DIR ?? '/data/brand'
 
 const PLACEHOLDER_FILES = new Set(['mark.png', 'mark-email.png', 'logo.png'])
 
+/** A tenant without its own app icons keeps the generic ones the app has always shipped. */
+const GENERIC_ICONS: Record<string, string> = {
+  'icon-192.png': 'icon-192.png',
+  'icon-512.png': 'icon-512.png',
+  'icon-maskable-512.png': 'icon-maskable-512.png',
+  'apple-icon.png': 'icon-512.png',
+}
+
 const TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -35,6 +43,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fil
       headers: { 'content-type': type, 'cache-control': 'public, max-age=86400' },
     })
   } catch {
+    const generic = GENERIC_ICONS[file]
+    if (generic) {
+      const bytes = await readFile(join(process.cwd(), 'public', generic))
+      return new NextResponse(new Uint8Array(bytes), {
+        headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=3600' },
+      })
+    }
     if (!PLACEHOLDER_FILES.has(file)) return new NextResponse('Not found', { status: 404 })
     return new NextResponse(new Uint8Array(PLACEHOLDER_MARK), {
       headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=3600' },
