@@ -2,7 +2,8 @@ import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { sendPush } from '@/lib/push'
 import { stripOwnPixel } from '@/lib/email-html'
 import { FORWARDING_ENABLED, FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-auth'
-import { ADDRESS_ALIASES, appendInbound, classifyAddressed, isDmarcAggregateReport, judgeMessage, noteSender, senderStanding, senderDomainOf, getAccountByAddress, inboundExists, recordContact, recordSentMessage, recordSentMeta, repairInbound } from '@/lib/mailbox'
+import { ADDRESS_ALIASES, appendInbound, classifyAddressed, isDmarcAggregateReport, judgeMessage, noteSender, senderStanding, senderDomainOf, getAccountByAddress, inboundExists, inboxFiltersFor, recordContact, recordSentMessage, recordSentMeta, repairInbound } from '@/lib/mailbox'
+import { matchesInboxFilters } from '@/lib/inbox-filters'
 import { archiveAddress, sendMail } from '@/lib/mail-provider'
 
 /**
@@ -401,7 +402,7 @@ export async function ingestReceived(
   await noteSender(owner, senderDomain, 'received').catch(() => {})
   const sender = parseSender(inbound.from)
   await recordContact(sender.email, sender.name)
-  if (!isDmarcAggregateReport(inbound.subject)) {
+  if (!isDmarcAggregateReport(inbound.subject) && !(await filteredOut(inbound))) {
     await sendPush(inbound.owner, {
       title: sender.name || sender.email || 'New mail',
       body: inbound.subject,
@@ -427,6 +428,13 @@ export async function ingestReceived(
     forwardable,
   )
   return { owner: inbound.owner, subject: inbound.subject, from: inbound.from }
+}
+
+async function filteredOut(inbound: { owner: string | null; from: string; subject: string; text: string | null }): Promise<boolean> {
+  const login = inbound.owner ? (await getAccountByAddress(inbound.owner).catch(() => null))?.email : null
+  if (!login) return false
+  const filters = await inboxFiltersFor(login).catch(() => [])
+  return matchesInboxFilters(filters, { senders: [inbound.from], subject: inbound.subject, text: inbound.text })
 }
 
 /** A copy of our own outgoing mail, BCC'd to the archive seat: it belongs in that seat's Sent, not its inbox. */

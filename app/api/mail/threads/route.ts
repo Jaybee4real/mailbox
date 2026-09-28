@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
-import { listThreads, threadsLive, type ThreadFolder } from '@/lib/mailbox'
+import { inboxFiltersFor, listThreads, threadsLive, type ThreadFolder } from '@/lib/mailbox'
 
 export const runtime = 'nodejs'
 
@@ -12,8 +12,9 @@ export async function GET(req: Request) {
   const account = await resolveAccount(req)
   const url = new URL(req.url)
   const folderParam = url.searchParams.get('folder')
-  const folder: ThreadFolder = (['inbox', 'archive', 'trash', 'starred', 'snoozed', 'spam'] as const).find(f => f === folderParam) ?? 'inbox'
+  const folder: ThreadFolder = (['inbox', 'archive', 'trash', 'starred', 'snoozed', 'spam', 'filtered'] as const).find(f => f === folderParam) ?? 'inbox'
   const limit = Math.min(Number(url.searchParams.get('limit') ?? 500) || 500, 1000)
-  const page = await listThreads(scopeFor(account, url.searchParams.get('mailbox')), folder, limit, url.searchParams.get('cursor'))
+  const filters = folder === 'inbox' || folder === 'filtered' ? await inboxFiltersFor(account.email || 'local@dev') : []
+  const page = await listThreads(scopeFor(account, url.searchParams.get('mailbox')), folder, limit, url.searchParams.get('cursor'), filters)
   return NextResponse.json({ ok: true, threads: page.rows, nextCursor: page.nextCursor })
 }

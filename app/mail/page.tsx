@@ -52,9 +52,11 @@ const MAILBOX_GLYPH: Record<'all' | 'vela' | 'hosting' | 'person', React.ReactNo
     </svg>
   ),
 }
+import InboxFilters from './InboxFilters'
 import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
 import { splitQuotedTail, splitQuotedText } from './quoted'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
+import { matchesInboxFilters, normalizeInboxFilters, type InboxFilter } from '@/lib/inbox-filters'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
 
@@ -364,6 +366,7 @@ type MailSettings = {
   fonts: CustomFont[]
   defaultFont: BaseFont
   prefs?: { theme?: ThemePref; accent?: string; themeCustom?: ThemeCustom; layout?: 'list' | 'bubbles' }
+  inboxFilters?: InboxFilter[]
 }
 
 const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
@@ -1373,6 +1376,9 @@ export default function DevMailPage() {
   const [addrCopied, setAddrCopied] = useState(false)
 
   const [folder, setFolder] = useState<Folder>('inbox')
+  const [showFiltered, setShowFiltered] = useState(false)
+  const showFilteredRef = useRef(false)
+  useEffect(() => { showFilteredRef.current = showFiltered }, [showFiltered])
   const [search, setSearch] = useState('')
   const [sentEmails, setSentEmails] = useState<SentEmail[]>([])
   // What is waiting to be sent lives here now, not at the provider: a delayed message is
@@ -1386,7 +1392,7 @@ export default function DevMailPage() {
   const [inboxCursor, setInboxCursor] = useState<string | null>(null)
   const inboxFetch = useRef<string | null>(null)
   type FolderTally = { inbox: number; unread: number; starred: number; archived: number; trashed: number; spam: number; snoozed: number }
-  const [serverCounts, setServerCounts] = useState<(FolderTally & { conversations: FolderTally | null }) | null>(null)
+  const [serverCounts, setServerCounts] = useState<(FolderTally & { conversations: FolderTally | null; filtered?: { total: number; unread: number } }) | null>(null)
   const [countsLoading, setCountsLoading] = useState(false)
   const [composeExpanded, setComposeExpanded] = useState(true)
   const pwSectionRef = useRef<HTMLDivElement | null>(null)
@@ -1520,6 +1526,10 @@ export default function DevMailPage() {
     } catch {}
   }, [])
   const [settings, setMailSettings] = useState<MailSettings>(DEFAULT_SETTINGS)
+  const inboxFilters = useMemo(() => normalizeInboxFilters(settings.inboxFilters), [settings.inboxFilters])
+  useEffect(() => {
+    if (folder !== 'inbox') setShowFiltered(false)
+  }, [folder])
   const tickerOn = (spot: TickerSpot) => settings.ticker?.[spot] ?? tickerDefault(spot)
   const messagesAlwaysOpen = settings.threadMessages === 'open'
   const { canInstall, installed, install, ios } = useInstall()
@@ -1719,7 +1729,7 @@ export default function DevMailPage() {
 
   const [threads, setThreads] = useState<ConversationRow[]>([])
   const [threadsResolved, setThreadsResolved] = useState(false)
-  const threadFolder = folder === 'archived' ? 'archive' : folder === 'trash' ? 'trash' : folder === 'starred' ? 'starred' : folder === 'snoozed' ? 'snoozed' : folder === 'spam' ? 'spam' : 'inbox'
+  const threadFolder = folder === 'inbox' && showFiltered ? 'filtered' : folder === 'archived' ? 'archive' : folder === 'trash' ? 'trash' : folder === 'starred' ? 'starred' : folder === 'snoozed' ? 'snoozed' : folder === 'spam' ? 'spam' : 'inbox'
   const threadsFetch = useRef<string | null>(null)
   const threadsLoadedFolder = useRef<string | null>(null)
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null)
@@ -3059,9 +3069,9 @@ export default function DevMailPage() {
     if (folder === 'starred') return tally.starred
     if (folder === 'snoozed') return tally.snoozed
     if (folder === 'spam') return tally.spam
-    if (folder === 'inbox') return tally.inbox
+    if (folder === 'inbox') return showFiltered ? serverCounts?.filtered?.total ?? null : tally.inbox
     return null
-  }, [serverCounts, search, folder])
+  }, [serverCounts, search, folder, showFiltered])
 
   const eventsByEmail = useMemo(() => {
     const map: Record<string, MailEvent[]> = {}
@@ -3335,6 +3345,10 @@ export default function DevMailPage() {
         .filter(inboxFolderPredicate)
         .filter(matchesInbound)
         .filter(entry => !(folder === 'inbox' && hideForwarded && isAppNotification(entry.subject)))
+        .filter(entry =>
+          folder !== 'inbox' || Boolean(search.trim()) ||
+          matchesInboxFilters(inboxFilters, { senders: [entry.from], subject: entry.subject, text: entry.text }) === showFiltered,
+        )
       const groups = new Map<string, InboundEmail[]>()
       for (const entry of visible) {
         const key = threadKeys.get(entry.id) ?? entry.id
@@ -3456,7 +3470,7 @@ export default function DevMailPage() {
       .filter(entry => searched || matches(`${entry.to.join(' ')} ${entry.subject}`))
       .filter(entry => !(folder === 'sent' && (entry.archived || entry.trashed)))
       .map(entry => sentToItem(entry))
-  }, [folder, isInboundFolder, inboxEmails, drafts, scheduledEmails, deliveredEmails, sentSearchResults, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, now, hideForwarded, threadSentMembers, detailCache, threads, search])
+  }, [folder, isInboundFolder, inboxEmails, drafts, scheduledEmails, deliveredEmails, sentSearchResults, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, now, hideForwarded, threadSentMembers, detailCache, threads, search, inboxFilters, showFiltered])
 
   const listSettling = searching || sentSearching || ((mailboxLoading || !threadsResolved) && listItems.length === 0)
   const listRefreshing = !listSettling && (mailboxStale || mailboxLoading || !threadsResolved)
@@ -3756,7 +3770,7 @@ export default function DevMailPage() {
           if (flags.read === true) ids.forEach(id => pendingRead.current.delete(id))
           // The starred tally counts conversations, not messages, so it cannot be derived
           // from the ids alone — the server says what it is now.
-          if (flags.starred !== undefined) loadCounts(true)
+          if (flags.starred !== undefined || (flags.read !== undefined && showFilteredRef.current)) loadCounts(true)
         })
     },
     [apiHeaders],
@@ -3973,6 +3987,19 @@ export default function DevMailPage() {
       }).catch(() => {})
     },
     [apiHeaders],
+  )
+
+  const changeInboxFilters = useCallback(
+    async (next: InboxFilter[]) => {
+      const nextSettings = { ...settings, inboxFilters: next }
+      setMailSettings(nextSettings)
+      if (!next.length) setShowFiltered(false)
+      await fetch('/api/mail/settings', { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(nextSettings) }).catch(() => {})
+      threadsLoadedFolder.current = null
+      threadsFetch.current = null
+      await Promise.all([loadThreads(), loadCounts(true)])
+    },
+    [settings, apiHeaders, loadThreads, loadCounts],
   )
 
   const writingSettings = useMemo(() => writingSettingsFrom(settings.writing), [settings.writing])
@@ -7616,11 +7643,20 @@ export default function DevMailPage() {
           <button className={styles.menuBtn} onClick={() => setRailOpen(true)} aria-label="Open menu">
             {ICONS.menu}
           </button>
-          <h1 className={styles.listTitle}>{folderTitles[folder]}</h1>
+          <h1 className={styles.listTitle}>{folder === 'inbox' && showFiltered ? 'Filtered' : folderTitles[folder]}</h1>
           <span className={styles.listMeta} title={listCountTitle}>
             {listCountFigure}{' '}
             <span className={styles.listMetaUnit}>{listCountUnit}</span>
           </span>
+          {folder === 'inbox' && (
+            <InboxFilters
+              filters={inboxFilters}
+              counts={serverCounts?.filtered ?? null}
+              showing={showFiltered}
+              onShowingChange={setShowFiltered}
+              onFiltersChange={changeInboxFilters}
+            />
+          )}
           <button
             className={`${styles.refreshBtn} ${refreshing ? styles.spinning : ''}`}
             onClick={refreshAll}
@@ -7870,7 +7906,7 @@ export default function DevMailPage() {
             <div className={styles.emptyList}>
               <span className={styles.emptyHex} />
               <p className={styles.emptyTitle}>
-                {folder === 'inbox' && 'Inbox zero'}
+                {folder === 'inbox' && (showFiltered ? 'Nothing filtered' : 'Inbox zero')}
                 {folder === 'starred' && 'No starred mail'}
                 {folder === 'snoozed' && 'Nothing snoozed'}
                 {folder === 'sent' && 'Nothing sent yet'}
@@ -7881,7 +7917,9 @@ export default function DevMailPage() {
               </p>
               <p className={styles.emptySub}>
                 {folder === 'inbox' &&
-                  'Nothing new right now. Messages sent to your address will appear here.'}
+                  (showFiltered
+                    ? 'Mail that matches your filter rules waits here instead of the Inbox.'
+                    : 'Nothing new right now. Messages sent to your address will appear here.')}
                 {folder === 'starred' && 'Star a message and it will be kept here so you can find it again.'}
                 {folder === 'snoozed' &&
                   'Put a conversation aside and it waits here, then returns to the inbox by itself at the time you chose.'}

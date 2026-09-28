@@ -559,6 +559,176 @@
   transition: color var(--dur-fast) var(--nc-ease-out), border-color var(--dur-fast) var(--nc-ease-out);
 }
 .refreshBtn:hover { color: var(--nc-fg-1); border-color: var(--nc-line-2); }
+.filterWrap {
+  position: relative;
+  margin-left: auto;
+}
+.filterWrap + .refreshBtn { margin-left: 0; }
+.filterChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--nc-fg-3);
+  font: 500 12px/1 var(--nc-font-sans);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--nc-ease-out), border-color var(--dur-fast) var(--nc-ease-out);
+}
+.filterChip svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.filterChip:hover { color: var(--nc-fg-1); border-color: var(--nc-line-2); }
+.filterChipOn {
+  color: var(--nc-fg-1);
+  border-color: var(--nc-violet-500);
+}
+.filterChipCount {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--nc-font-mono);
+  color: var(--nc-fg-2);
+}
+.filterChipUnread {
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--nc-violet-500);
+  color: #fff;
+  font: 600 10px/1 var(--nc-font-sans);
+}
+.filterMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(330px, calc(100vw - 32px));
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--nc-line-2);
+  border-radius: var(--radius-card);
+  background: var(--nc-ink-2);
+  box-shadow: 0 18px 44px rgba(4, 2, 8, .42);
+  animation: ncFadeDown .16s var(--nc-ease-out);
+}
+.filterMenuHead {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 6px 2px;
+  color: var(--nc-fg-1);
+  font: 600 13px/1.2 var(--nc-font-sans);
+}
+.filterMenuHint {
+  color: var(--nc-fg-3);
+  font: 400 12px/1.4 var(--nc-font-sans);
+}
+.filterMenuView {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 8px;
+  background: var(--nc-ink-3);
+  color: var(--nc-fg-1);
+  font: 600 12px/1 var(--nc-font-sans);
+  cursor: pointer;
+  text-align: left;
+}
+.filterMenuView:hover { border-color: var(--nc-violet-500); }
+.filterRules {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.filterRule {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px;
+  border-bottom: 1px solid var(--nc-line-1);
+}
+.filterRule:last-child { border-bottom: none; }
+.filterRuleKind {
+  color: var(--nc-fg-3);
+  font: 500 11px/1.2 var(--nc-font-sans);
+  white-space: nowrap;
+}
+.filterRuleValue {
+  overflow: hidden;
+  color: var(--nc-fg-1);
+  font: 500 12px/1.2 var(--nc-font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filterRuleRemove {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nc-fg-3);
+  font: 400 16px/1 var(--nc-font-sans);
+  cursor: pointer;
+}
+.filterRuleRemove:hover { color: var(--nc-danger); background: var(--nc-ink-4); }
+.filterEmpty {
+  padding: 8px 6px;
+  color: var(--nc-fg-3);
+  font: 400 12px/1.4 var(--nc-font-sans);
+}
+.filterAdd {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--nc-line-1);
+}
+.filterAdd > :first-child { grid-column: 1 / -1; }
+.filterAddKind {
+  width: 100%;
+  min-width: 0;
+}
+.filterAddValue {
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 8px;
+  background: var(--nc-ink-1);
+  color: var(--nc-fg-1);
+  font: 400 12px/1 var(--nc-font-sans);
+}
+.filterAddValue:focus { outline: none; border-color: var(--nc-violet-500); }
+.filterAddBtn {
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--nc-violet-500);
+  color: #fff;
+  font: 600 12px/1 var(--nc-font-sans);
+  cursor: pointer;
+}
+.filterAddBtn:disabled {
+  opacity: .45;
+  cursor: default;
+}
+.listHead { container-type: inline-size; }
+@container (max-width: 440px) {
+  .filterChipLabel { display: none; }
+}
 .crossFolderHint {
   align-self: flex-start;
   margin: 0 16px 8px;

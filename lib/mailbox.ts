@@ -13,6 +13,7 @@ import { hashPassword } from './password'
 import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
 import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
+import { inboxFiltersSql, normalizeInboxFilters, type InboxFilter } from './inbox-filters'
 
 export type InboundAttachment = { filename: string; contentType?: string; size?: number; shareId?: string }
 
@@ -1183,13 +1184,23 @@ async function rethreadAfterChange(id: string, previousOwner?: string | null, pr
   }
 }
 
-export type ThreadFolder = 'inbox' | 'archive' | 'trash' | 'starred' | 'snoozed' | 'spam'
+export type ThreadFolder = 'inbox' | 'archive' | 'trash' | 'starred' | 'snoozed' | 'spam' | 'filtered'
 
 /** The newest conversations in a folder: one row each, already summarised. */
 export type ThreadPage = { rows: ThreadRow[]; nextCursor: string | null }
 
-export async function listThreads(ownerRaw: string | null, folder: ThreadFolder, limit: number, cursorRaw?: string | null): Promise<ThreadPage> {
+export async function listThreads(
+  ownerRaw: string | null,
+  folder: ThreadFolder,
+  limit: number,
+  cursorRaw?: string | null,
+  filters: InboxFilter[] = [],
+): Promise<ThreadPage> {
   await ensureMailSchema()
+  const filterSql = folder === 'inbox' || folder === 'filtered' ? inboxFiltersSql(filters) : null
+  if (folder === 'filtered' && !filterSql) return { rows: [], nextCursor: null }
+  const filterClause = filterSql ? (folder === 'filtered' ? filterSql.sql : `NOT ${filterSql.sql}`) : ''
+  const filterArgs = filterSql?.args ?? []
   const owner = ownerRaw === null ? null : ownerRaw.toLowerCase()
   const nowIso = new Date().toISOString()
   const predicate =
@@ -1201,7 +1212,7 @@ export async function listThreads(ownerRaw: string | null, folder: ThreadFolder,
     : 'inbox_count > 0 AND (snoozed_until IS NULL OR snoozed_until <= ?)'
   // Both snooze predicates carry one bound timestamp; the others carry none, and the
   // cursor's arguments have to follow whatever the predicate used.
-  const folderArgs = folder === 'snoozed' || folder === 'inbox' ? [nowIso] : []
+  const folderArgs = folder === 'snoozed' || folder === 'inbox' || folder === 'filtered' ? [nowIso] : []
   const cursor = decodeCursor(cursorRaw)
   const cursorClause = cursor ? '(latest_at < ? OR (latest_at = ? AND thread_id < ?))' : ''
   const cursorArgs = cursor ? [cursor.receivedAt, cursor.receivedAt, cursor.id] : []
@@ -1209,25 +1220,28 @@ export async function listThreads(ownerRaw: string | null, folder: ThreadFolder,
   // conversation back together. SQLite fills a bare column from whichever row matched the
   // MAX in the same select, which is how subject, snippet and senders come from the latest
   // message rather than an arbitrary one.
+  const outer = [filterClause, cursorClause].filter(Boolean).join(' AND ')
   const rows = owner === null
     ? await tagged(db(), `
-        SELECT thread_id, subject, MIN(first_at) AS first_at, MAX(latest_at) AS latest_at, latest_id,
-          SUM(count) AS count, SUM(unread_count) AS unread_count, SUM(starred_count) AS starred_count,
-          SUM(inbox_count) AS inbox_count, SUM(archived_count) AS archived_count,
-          SUM(trashed_count) AS trashed_count, SUM(spam_count) AS spam_count, SUM(attach_count) AS attach_count,
-          senders, snippet, labels, snoozed_until, addressed, risk
-        FROM mail_threads
-        GROUP BY thread_id
-        HAVING ${predicate}${cursorClause ? ` AND ${cursorClause}` : ''}
+        SELECT * FROM (
+          SELECT thread_id, subject, MIN(first_at) AS first_at, MAX(latest_at) AS latest_at, latest_id,
+            SUM(count) AS count, SUM(unread_count) AS unread_count, SUM(starred_count) AS starred_count,
+            SUM(inbox_count) AS inbox_count, SUM(archived_count) AS archived_count,
+            SUM(trashed_count) AS trashed_count, SUM(spam_count) AS spam_count, SUM(attach_count) AS attach_count,
+            senders, snippet, labels, snoozed_until, addressed, risk
+          FROM mail_threads
+          GROUP BY thread_id
+          HAVING ${predicate}
+        ) t${outer ? ` WHERE ${outer}` : ''}
         ORDER BY latest_at DESC, thread_id DESC LIMIT ?`,
-        [...folderArgs, ...cursorArgs, limit])
+        [...folderArgs, ...filterArgs, ...cursorArgs, limit])
     : await tagged(db(), `
         SELECT thread_id, subject, first_at, latest_at, latest_id, count, unread_count, starred_count,
           inbox_count, archived_count, trashed_count, spam_count, attach_count, senders, snippet, labels, snoozed_until, addressed, risk
-        FROM mail_threads WHERE owner = ? AND ${predicate}
-          ${cursorClause ? `AND ${cursorClause}` : ''}
+        FROM mail_threads t WHERE owner = ? AND ${predicate}
+          ${outer ? `AND ${outer}` : ''}
         ORDER BY latest_at DESC, thread_id DESC LIMIT ?`,
-        [owner, ...folderArgs, ...cursorArgs, limit])
+        [owner, ...folderArgs, ...filterArgs, ...cursorArgs, limit])
   const last = rows[rows.length - 1]
   const nextCursor = rows.length === limit && last ? encodeCursor(String(last.latest_at), String(last.thread_id)) : null
   const mapped = rows.map(row => ({
@@ -1252,6 +1266,27 @@ export async function listThreads(ownerRaw: string | null, folder: ThreadFolder,
     risk: (['clean', 'suspicious', 'spam', 'virus'].includes(String(row.risk)) ? String(row.risk) : 'clean') as Risk,
   }))
   return { rows: mapped, nextCursor }
+}
+
+/** Inbox conversations the rules hold out, and how many of those have unread mail. */
+export async function countFilteredThreads(ownerRaw: string | null, filters: InboxFilter[]): Promise<{ total: number; unread: number }> {
+  const filterSql = inboxFiltersSql(filters)
+  if (!filterSql) return { total: 0, unread: 0 }
+  await ensureMailSchema()
+  const nowIso = new Date().toISOString()
+  const inbox = 'inbox_count > 0 AND (snoozed_until IS NULL OR snoozed_until <= ?)'
+  const rows = ownerRaw === null
+    ? await tagged(db(), `
+        SELECT COUNT(*) AS total, SUM(CASE WHEN unread_count > 0 THEN 1 ELSE 0 END) AS unread FROM (
+          SELECT thread_id, SUM(unread_count) AS unread_count, SUM(inbox_count) AS inbox_count, snoozed_until, senders, subject, snippet, MAX(latest_at)
+          FROM mail_threads GROUP BY thread_id HAVING ${inbox}
+        ) t WHERE ${filterSql.sql}`,
+        [nowIso, ...filterSql.args])
+    : await tagged(db(), `
+        SELECT COUNT(*) AS total, SUM(CASE WHEN unread_count > 0 THEN 1 ELSE 0 END) AS unread
+        FROM mail_threads t WHERE owner = ? AND ${inbox} AND ${filterSql.sql}`,
+        [ownerRaw.toLowerCase(), nowIso, ...filterSql.args])
+  return { total: Number(rows[0]?.total ?? 0), unread: Number(rows[0]?.unread ?? 0) }
 }
 
 /**
@@ -1904,6 +1939,10 @@ export async function getSettings(owner: string): Promise<Record<string, unknown
   const sql = db()
   const rows = await sql`SELECT data FROM mail_settings WHERE owner = ${owner.toLowerCase()}`
   return parseJson<Record<string, unknown>>(rows[0]?.data, {})
+}
+
+export async function inboxFiltersFor(login: string): Promise<InboxFilter[]> {
+  return normalizeInboxFilters((await getSettings(login)).inboxFilters)
 }
 
 export async function setSettings(owner: string, data: Record<string, unknown>): Promise<void> {
