@@ -204,16 +204,10 @@ async function sessionIdentity(req: Request): Promise<string | null> {
  * headers. The header path is kept so an already-open tab keeps working across the deploy
  * that introduced sessions, and for the localhost dev bypass.
  */
+// Only the sign-in route takes a password, and it is the one that counts attempts. Accepting
+// one on every request let anybody guess against any endpoint without ever being slowed down.
 export async function authenticate(req: Request): Promise<string | null> {
-  const fromSession = await sessionIdentity(req)
-  if (fromSession) return fromSession
-
-  const email = req.headers.get('x-dev-email') ?? ''
-  const password = req.headers.get('x-dev-password') ?? ''
-  if (!email || !password) return null
-
-  const result = await verifyMailAuth(email, password)
-  return result.ok ? (result.email ?? null) : null
+  return sessionIdentity(req)
 }
 
 /**

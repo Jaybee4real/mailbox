@@ -355,6 +355,25 @@ export function ensureMailSchema(): Promise<void> {
           VALUES (new.rowid, new.subject, new.body_text, new.from_addr, new.to_addrs);
         END`,
         `CREATE INDEX IF NOT EXISTS mail_inbox_received_idx ON mail_inbox (received_at DESC)`,
+        `CREATE TABLE IF NOT EXISTS mail_login_challenges (
+          id TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          purpose TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          code_hash TEXT,
+          code_sent_at TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0
+        )`,
+        `CREATE TABLE IF NOT EXISTS mail_signins (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT NOT NULL,
+          at TEXT NOT NULL,
+          ip TEXT,
+          user_agent TEXT,
+          method TEXT,
+          outcome TEXT NOT NULL
+        )`,
+        `CREATE INDEX IF NOT EXISTS mail_signins_email_idx ON mail_signins (email, at DESC)`,
         `CREATE TABLE IF NOT EXISTS mail_reset_tokens (
           token TEXT PRIMARY KEY,
           email TEXT,
@@ -401,6 +420,9 @@ export function ensureMailSchema(): Promise<void> {
       // Where a reset link goes when the account's own mailbox is the thing locked.
       await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN recovery_email TEXT').catch(() => {})
       await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN recovery_verified INTEGER NOT NULL DEFAULT 0').catch(() => {})
+      await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN totp_secret TEXT').catch(() => {})
+      await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN totp_pending TEXT').catch(() => {})
+      await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN email_code_enabled INTEGER NOT NULL DEFAULT 0').catch(() => {})
       // A link mailed to an unproven address must not be able to set a password.
       await sqlRaw("ALTER TABLE mail_reset_tokens ADD COLUMN purpose TEXT NOT NULL DEFAULT 'reset'").catch(() => {})
       await sqlRaw("ALTER TABLE mail_webhook_events ADD COLUMN status TEXT NOT NULL DEFAULT 'working'")
@@ -2257,6 +2279,128 @@ export async function setAccountPassword(email: string, passwordHash: string): P
   await sql`
     UPDATE mail_accounts SET password_hash = ${passwordHash}, password_is_default = 0
     WHERE email = ${email.toLowerCase()}`
+}
+
+// ── Two-step sign-in ───────────────────────────────────────────
+
+export type TwoFactorState = {
+  authenticator: boolean
+  email: boolean
+  recoveryEmail: string | null
+  recoveryVerified: boolean
+}
+
+export async function twoFactorState(email: string): Promise<TwoFactorState> {
+  await ensureMailSchema()
+  const rows = await db()`
+    SELECT totp_secret, email_code_enabled, recovery_email, recovery_verified FROM mail_accounts
+    WHERE email = ${email.toLowerCase()}`
+  const row = rows[0]
+  const recoveryVerified = Boolean(Number(row?.recovery_verified ?? 0)) && Boolean(row?.recovery_email)
+  return {
+    authenticator: Boolean(row?.totp_secret),
+    // Codes can only go somewhere confirmed; an unconfirmed address is not a second factor.
+    email: Boolean(Number(row?.email_code_enabled ?? 0)) && recoveryVerified,
+    recoveryEmail: row?.recovery_email == null ? null : String(row.recovery_email),
+    recoveryVerified,
+  }
+}
+
+export async function totpSecretFor(email: string, which: 'active' | 'pending'): Promise<string | null> {
+  await ensureMailSchema()
+  const rows = await db()`SELECT totp_secret, totp_pending FROM mail_accounts WHERE email = ${email.toLowerCase()}`
+  const value = rows[0]?.[which === 'active' ? 'totp_secret' : 'totp_pending']
+  return value == null || value === '' ? null : String(value)
+}
+
+export async function setTotpPending(email: string, secret: string | null): Promise<void> {
+  await ensureMailSchema()
+  await db()`UPDATE mail_accounts SET totp_pending = ${secret} WHERE email = ${email.toLowerCase()}`
+}
+
+export async function activateTotp(email: string): Promise<void> {
+  await ensureMailSchema()
+  await db()`UPDATE mail_accounts SET totp_secret = totp_pending, totp_pending = NULL WHERE email = ${email.toLowerCase()}`
+}
+
+export async function disableTotp(email: string): Promise<void> {
+  await ensureMailSchema()
+  await db()`UPDATE mail_accounts SET totp_secret = NULL, totp_pending = NULL WHERE email = ${email.toLowerCase()}`
+}
+
+export async function setEmailCodes(email: string, enabled: boolean): Promise<void> {
+  await ensureMailSchema()
+  await db()`UPDATE mail_accounts SET email_code_enabled = ${enabled ? 1 : 0} WHERE email = ${email.toLowerCase()}`
+}
+
+export type LoginChallenge = {
+  id: string
+  email: string
+  purpose: 'signin' | 'enroll-email'
+  expiresAt: string
+  codeHash: string | null
+  codeSentAt: string | null
+  attempts: number
+}
+
+export async function createLoginChallenge(id: string, email: string, purpose: LoginChallenge['purpose'], ttlMs: number): Promise<void> {
+  await ensureMailSchema()
+  const sql = db()
+  await sql`DELETE FROM mail_login_challenges WHERE expires_at < ${nowIso()}`
+  await sql`
+    INSERT INTO mail_login_challenges (id, email, purpose, expires_at)
+    VALUES (${id}, ${email.toLowerCase()}, ${purpose}, ${new Date(Date.now() + ttlMs).toISOString()})`
+}
+
+export async function getLoginChallenge(id: string): Promise<LoginChallenge | null> {
+  await ensureMailSchema()
+  const rows = await db()`SELECT * FROM mail_login_challenges WHERE id = ${id}`
+  const row = rows[0]
+  if (!row || String(row.expires_at) < nowIso()) return null
+  return {
+    id: String(row.id),
+    email: String(row.email),
+    purpose: String(row.purpose) === 'enroll-email' ? 'enroll-email' : 'signin',
+    expiresAt: String(row.expires_at),
+    codeHash: row.code_hash == null ? null : String(row.code_hash),
+    codeSentAt: row.code_sent_at == null ? null : String(row.code_sent_at),
+    attempts: Number(row.attempts ?? 0),
+  }
+}
+
+export async function setChallengeCode(id: string, codeHash: string): Promise<void> {
+  await db()`UPDATE mail_login_challenges SET code_hash = ${codeHash}, code_sent_at = ${nowIso()} WHERE id = ${id}`
+}
+
+export async function countChallengeAttempt(id: string): Promise<void> {
+  await db()`UPDATE mail_login_challenges SET attempts = attempts + 1 WHERE id = ${id}`
+}
+
+export async function deleteLoginChallenge(id: string): Promise<void> {
+  await db()`DELETE FROM mail_login_challenges WHERE id = ${id}`
+}
+
+export type SigninRecord = { at: string; ip: string | null; userAgent: string | null; method: string | null; outcome: string }
+
+export async function recordSignin(email: string, entry: Omit<SigninRecord, 'at'>): Promise<void> {
+  await ensureMailSchema()
+  await db()`
+    INSERT INTO mail_signins (email, at, ip, user_agent, method, outcome)
+    VALUES (${email.toLowerCase()}, ${nowIso()}, ${entry.ip}, ${entry.userAgent?.slice(0, 300) ?? null}, ${entry.method}, ${entry.outcome})`
+}
+
+export async function listSignins(email: string, limit = 30): Promise<SigninRecord[]> {
+  await ensureMailSchema()
+  const rows = await db()`
+    SELECT at, ip, user_agent, method, outcome FROM mail_signins
+    WHERE email = ${email.toLowerCase()} ORDER BY at DESC LIMIT ${limit}`
+  return rows.map(row => ({
+    at: String(row.at),
+    ip: row.ip == null ? null : String(row.ip),
+    userAgent: row.user_agent == null ? null : String(row.user_agent),
+    method: row.method == null ? null : String(row.method),
+    outcome: String(row.outcome),
+  }))
 }
 
 /** True while the account is still on the address-derived password it was seeded with. */

@@ -53,6 +53,7 @@ const MAILBOX_GLYPH: Record<'all' | 'vela' | 'hosting' | 'person', React.ReactNo
   ),
 }
 import InboxFilters from './InboxFilters'
+import qrcode from 'qrcode-generator'
 import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
 import { splitQuotedTail, splitQuotedText } from './quoted'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
@@ -345,6 +346,30 @@ const EMPTY_COMPOSE: ComposeData = {
   campaign: EMPTY_CAMPAIGN,
 }
 
+type SecondStep = {
+  challenge: string
+  email: string
+  methods: Array<'authenticator' | 'email'>
+  method: 'authenticator' | 'email'
+  emailHint: string | null
+  emailSent: boolean
+}
+
+type SecurityInfo = {
+  authenticator: boolean
+  email: boolean
+  recoveryEmail: string | null
+  recoveryVerified: boolean
+  signins: Array<{ at: string; ip: string | null; device: string; method: string | null; outcome: string }>
+}
+
+const SIGNIN_OUTCOMES: Record<string, string> = {
+  'signed-in': 'Signed in',
+  'wrong-password': 'Wrong password',
+  'second-step': 'Password accepted, code asked for',
+  'wrong-code': 'Wrong code',
+}
+
 type MailSettings = {
   signature: string
   signatureLogo: string
@@ -391,7 +416,7 @@ const DEFAULT_SETTINGS: MailSettings = {
   defaultFont: EMPTY_FONT,
 }
 
-type SettingsTab = 'profile' | 'signature' | 'appearance' | 'notifications' | 'mail' | 'people' | 'app'
+type SettingsTab = 'profile' | 'security' | 'signature' | 'appearance' | 'notifications' | 'mail' | 'people' | 'app'
 
 type ShareLink = {
   id: string
@@ -417,7 +442,8 @@ type LibraryFile = {
 }
 
 const SETTINGS_TABS: Array<{ key: SettingsTab; label: string; hint: string; adminOnly?: boolean }> = [
-  { key: 'profile', label: 'Account', hint: 'Your address, name and password' },
+  { key: 'profile', label: 'Account', hint: 'Your address, name and number' },
+  { key: 'security', label: 'Security', hint: 'Password, two-step sign-in and sign-ins' },
   { key: 'signature', label: 'Signature', hint: 'What goes at the end of your mail' },
   { key: 'mail', label: 'Writing & reading', hint: 'Fonts, replies and images' },
   { key: 'appearance', label: 'Appearance', hint: 'Theme, size and density' },
@@ -1330,6 +1356,7 @@ const ICONS = {
 
 const SETTINGS_TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
   profile: ICONS.person,
+  security: ICONS.shield,
   signature: ICONS.pencil,
   appearance: ICONS.palette,
   notifications: ICONS.bell,
@@ -1361,6 +1388,8 @@ export default function DevMailPage() {
   const [loginDetail, setLoginDetail] = useState('')
   const [loginDetailOpen, setLoginDetailOpen] = useState(false)
   const [loginBusy, setLoginBusy] = useState(false)
+  const [secondStep, setSecondStep] = useState<SecondStep | null>(null)
+  const [secondCode, setSecondCode] = useState('')
   const [resetMode, setResetMode] = useState(false)
   const [resetSent, setResetSent] = useState(false)
   const [resetMessage, setResetMessage] = useState('')
@@ -1690,9 +1719,8 @@ export default function DevMailPage() {
     (): Record<string, string> => ({
       'Content-Type': 'application/json',
       'x-dev-email': email,
-      ...(password ? { 'x-dev-password': password } : {}),
     }),
-    [email, password],
+    [email],
   )
   const [mailboxes, setMailboxes] = useState<{ address: string; name: string }[]>([])
   const [mailboxAll, setMailboxAll] = useState(false)
@@ -1970,13 +1998,25 @@ export default function DevMailPage() {
           },
         })
         const raw = await response.text()
-        let data: { ok?: boolean; error?: string } = {}
+        let data: { ok?: boolean; error?: string; twoFactor?: boolean; challenge?: string; methods?: SecondStep['methods']; emailHint?: string | null } = {}
         try {
           data = JSON.parse(raw)
         } catch {}
         if (data.ok) {
           setIsLoggedIn(true)
           localStorage.setItem(LS_EMAIL_KEY, JSON.stringify(candidateEmail))
+        } else if (data.twoFactor && data.challenge && data.methods?.length) {
+          if (!silent) {
+            setSecondCode('')
+            setSecondStep({
+              challenge: data.challenge,
+              email: candidateEmail,
+              methods: data.methods,
+              method: data.methods[0],
+              emailHint: data.emailHint ?? null,
+              emailSent: false,
+            })
+          }
         } else if (!silent) {
           // Say what actually happened — a 500 is not a wrong password.
           if (response.status === 401 || response.status === 403) {
@@ -2002,6 +2042,61 @@ export default function DevMailPage() {
     },
     [],
   )
+
+  const secondStepFailed = useCallback((data: { error?: string; expired?: boolean } | null, fallback: string) => {
+    setLoginError(data?.error ?? fallback)
+    if (data?.expired) {
+      setSecondStep(null)
+      setPassword('')
+    }
+  }, [])
+
+  const sendLoginEmailCode = useCallback(async () => {
+    if (!secondStep) return
+    setLoginBusy(true)
+    setLoginError('')
+    try {
+      const response = await fetch('/api/mail/login/email-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challenge: secondStep.challenge }),
+      })
+      const data = await response.json().catch(() => null)
+      if (data?.ok) setSecondStep(current => (current ? { ...current, method: 'email', emailSent: true, emailHint: data.sentTo ?? current.emailHint } : current))
+      else secondStepFailed(data, 'The code could not be sent. Try again.')
+    } catch {
+      setLoginError('Couldn’t reach the server. Check your connection and try again.')
+    } finally {
+      setLoginBusy(false)
+    }
+  }, [secondStep, secondStepFailed])
+
+  const finishSecondStep = useCallback(async () => {
+    if (!secondStep) return
+    setLoginBusy(true)
+    setLoginError('')
+    try {
+      const response = await fetch('/api/mail/login/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challenge: secondStep.challenge, method: secondStep.method, code: secondCode }),
+      })
+      const data = await response.json().catch(() => null)
+      if (data?.ok) {
+        localStorage.setItem(LS_EMAIL_KEY, JSON.stringify(secondStep.email))
+        setSecondStep(null)
+        setSecondCode('')
+        setPassword('')
+        setIsLoggedIn(true)
+      } else {
+        secondStepFailed(data, 'That code is not right. Check it and try again.')
+      }
+    } catch {
+      setLoginError('Couldn’t reach the server. Check your connection and try again.')
+    } finally {
+      setLoginBusy(false)
+    }
+  }, [secondStep, secondCode, secondStepFailed])
 
   // Staying signed in is the session cookie's job now, so the check is "does the cookie
   // still work", not "replay the password we saved".
@@ -2315,7 +2410,7 @@ export default function DevMailPage() {
   // Settings opens on the profile tab, which is long enough that the password fields sit
   // below the fold; bring them into view and mark them so it is obvious what was asked for.
   useEffect(() => {
-    if (!pwFocusRequest || !settingsOpen || settingsTab !== 'profile') return
+    if (!pwFocusRequest || !settingsOpen || settingsTab !== 'security') return
     const node = pwSectionRef.current
     if (!node) return
     node.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -5329,6 +5424,55 @@ export default function DevMailPage() {
     )
   }, [inboxEmails, announce])
 
+  const [security, setSecurity] = useState<SecurityInfo | null>(null)
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; uri: string } | null>(null)
+  const [emailEnrol, setEmailEnrol] = useState<{ challenge: string; sentTo: string } | null>(null)
+  const [factorCode, setFactorCode] = useState('')
+  const [factorOff, setFactorOff] = useState<{ which: 'authenticator' | 'email'; password: string } | null>(null)
+  const [securityBusy, setSecurityBusy] = useState(false)
+  const [securityMsg, setSecurityMsg] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null)
+
+  const loadSecurity = useCallback(async () => {
+    const response = await fetch('/api/mail/security', { headers: apiHeaders() }).catch(() => null)
+    const data = await response?.json().catch(() => null)
+    if (data?.ok) setSecurity(data as SecurityInfo)
+  }, [apiHeaders])
+
+  useEffect(() => {
+    if (settingsOpen && settingsTab === 'security') void loadSecurity()
+  }, [settingsOpen, settingsTab, loadSecurity])
+
+  const securityAction = useCallback(
+    async (body: Record<string, string>, done: string | null): Promise<Record<string, unknown> | null> => {
+      setSecurityBusy(true)
+      setSecurityMsg(null)
+      try {
+        const response = await fetch('/api/mail/security', { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) })
+        const data = await response.json().catch(() => null)
+        if (!data?.ok) {
+          setSecurityMsg({ tone: 'bad', text: data?.error ?? 'That did not work. Try again.' })
+          return null
+        }
+        if (done) setSecurityMsg({ tone: 'ok', text: done })
+        return data
+      } catch {
+        setSecurityMsg({ tone: 'bad', text: 'Couldn’t reach the server. Check your connection and try again.' })
+        return null
+      } finally {
+        setSecurityBusy(false)
+      }
+    },
+    [apiHeaders],
+  )
+
+  const totpQr = useMemo(() => {
+    if (!totpSetup) return ''
+    const code = qrcode(0, 'M')
+    code.addData(totpSetup.uri)
+    code.make()
+    return code.createSvgTag({ cellSize: 4, margin: 2, scalable: true })
+  }, [totpSetup])
+
   const changePassword = useCallback(async () => {
     setPwMsg(null)
     if (pwNext !== pwRepeat) {
@@ -5606,6 +5750,84 @@ export default function DevMailPage() {
               </>
             )}
           </div>
+        </div>
+      )
+    }
+    if (secondStep) {
+      const byEmail = secondStep.method === 'email'
+      const other = secondStep.methods.find(method => method !== secondStep.method)
+      return (
+        <div className={styles.loginWrap}>
+          <form
+            className={styles.loginCard}
+            onSubmit={event => {
+              event.preventDefault()
+              if (byEmail && !secondStep.emailSent) void sendLoginEmailCode()
+              else void finishSecondStep()
+            }}
+          >
+            <div className={styles.loginBrand}>
+              <span className={styles.brandMark} role="img" aria-label={CLIENT_BRAND.name} />
+              <h1 className={styles.loginTitle}>Two-step sign-in</h1>
+            </div>
+            <p className={styles.loginSub}>
+              {!byEmail
+                ? 'Enter the 6-digit code from your authenticator app.'
+                : secondStep.emailSent
+                  ? `Enter the 6-digit code sent to ${secondStep.emailHint ?? 'your alternate email'}.`
+                  : `We will email a code to ${secondStep.emailHint ?? 'your alternate email'}.`}
+            </p>
+            {(!byEmail || secondStep.emailSent) && (
+              <label className={styles.loginField}>
+                <span>Code</span>
+                <input
+                  className={styles.codeInput}
+                  value={secondCode}
+                  onChange={event => setSecondCode(event.target.value.replace(/[^\d ]/g, '').slice(0, 7))}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123 456"
+                  autoFocus
+                  required
+                />
+              </label>
+            )}
+            {loginError && (
+              <div className={styles.loginErrorBox} role="alert">
+                <p className={styles.loginError}>{loginError}</p>
+              </div>
+            )}
+            <button type="submit" className={styles.loginBtn} disabled={loginBusy || ((!byEmail || secondStep.emailSent) && secondCode.replace(/\s/g, '').length !== 6)}>
+              {loginBusy
+                ? <><span className={styles.loginSpinner} aria-hidden />{byEmail && !secondStep.emailSent ? 'Sending…' : 'Checking…'}</>
+                : byEmail && !secondStep.emailSent ? 'Email me a code' : 'Sign in'}
+            </button>
+            {byEmail && secondStep.emailSent && (
+              <button type="button" className={styles.loginTextLink} disabled={loginBusy} onClick={() => void sendLoginEmailCode()}>
+                Send another code
+              </button>
+            )}
+            {other && (
+              <button
+                type="button"
+                className={styles.loginTextLink}
+                onClick={() => {
+                  setLoginError('')
+                  setSecondCode('')
+                  setSecondStep(current => (current ? { ...current, method: other } : current))
+                }}
+              >
+                {other === 'email' ? 'Use an email code instead' : 'Use your authenticator app instead'}
+              </button>
+            )}
+            <button
+              type="button"
+              className={styles.loginTextLink}
+              onClick={() => { setSecondStep(null); setSecondCode(''); setLoginError('') }}
+            >
+              ← Back to sign in
+            </button>
+          </form>
         </div>
       )
     }
@@ -7405,7 +7627,7 @@ export default function DevMailPage() {
             onDismiss: () => setPwNoticeHidden(true),
             onAction: () => {
               setSettingsOpen(true)
-              setSettingsTab('profile')
+              setSettingsTab('security')
               setPwNoticeHidden(true)
               setPwFocusRequest(request => request + 1)
             },
@@ -8898,40 +9120,9 @@ export default function DevMailPage() {
               <p className={styles.settingsNote}>{account?.address || email || 'Not signed in'}</p>
             </div>
 
-            <div className={styles.settingsField}>
-              <span>Recovery email</span>
-              <p className={styles.settingsProse}>
-                Where a password reset is sent. It has to be an address outside this mailbox, and it only
-                counts once you confirm it — otherwise a locked account has to be reset by an administrator.
-              </p>
-              <div className={styles.pwWrap}>
-                <input
-                  type="email"
-                  autoComplete="email"
-                  className={recoveryBad ? styles.fieldBad : ''}
-                  aria-invalid={recoveryBad}
-                  placeholder="you@somewhere-else.com"
-                  value={recoveryEmail}
-                  onChange={event => { setRecoveryEmail(event.target.value); setRecoveryBad(false) }}
-                />
-                <button type="button" className={styles.pwToggle} disabled={recoveryBusy} onClick={saveRecovery}>
-                  {recoveryBusy ? 'Sending…' : recoverySaved.address === recoveryEmail.trim().toLowerCase() && recoverySaved.address ? 'Resend' : 'Save'}
-                </button>
-              </div>
-              {recoverySaved.address && (
-                <p className={styles.settingsNote}>
-                  {recoverySaved.verified
-                    ? `Confirmed — resets go to ${recoverySaved.address}.`
-                    : `${recoverySaved.address} is not confirmed yet, so resets cannot be sent there.`}
-                </p>
-              )}
-              {recoveryMsg && (
-                <p className={`${styles.settingsNote} ${recoveryBad ? styles.msgBad : ''}`} role={recoveryBad ? 'alert' : undefined}>
-                  {recoveryMsg}
-                </p>
-              )}
-            </div>
+            </>)}
 
+            {settingsTab === 'security' && (<>
             <div
               ref={pwSectionRef}
               className={`${styles.pwSection} ${pwHighlight ? styles.pwSectionFocus : ''}`}
@@ -8983,6 +9174,250 @@ export default function DevMailPage() {
               >
                 {pwBusy ? 'Changing…' : 'Change password'}
               </button>
+            </div>
+            <div className={`${styles.settingsField} ${styles.securitySection}`}>
+              <span>Alternate email</span>
+              <p className={styles.settingsProse}>
+                Where password resets and sign-in codes are sent. It has to be an address outside this mailbox, and it
+                only counts once you confirm it. Without it, a locked account has to be reset by an administrator.
+              </p>
+              <div className={styles.pwWrap}>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  className={recoveryBad ? styles.fieldBad : ''}
+                  aria-invalid={recoveryBad}
+                  placeholder="you@somewhere-else.com"
+                  value={recoveryEmail}
+                  onChange={event => { setRecoveryEmail(event.target.value); setRecoveryBad(false) }}
+                />
+                <button type="button" className={styles.pwToggle} disabled={recoveryBusy} onClick={saveRecovery}>
+                  {recoveryBusy ? 'Sending…' : recoverySaved.address === recoveryEmail.trim().toLowerCase() && recoverySaved.address ? 'Resend' : 'Save'}
+                </button>
+              </div>
+              {recoverySaved.address && (
+                <p className={styles.settingsNote}>
+                  {recoverySaved.verified
+                    ? `Confirmed — resets go to ${recoverySaved.address}.`
+                    : `${recoverySaved.address} is not confirmed yet, so resets cannot be sent there.`}
+                </p>
+              )}
+              {recoveryMsg && (
+                <p className={`${styles.settingsNote} ${recoveryBad ? styles.msgBad : ''}`} role={recoveryBad ? 'alert' : undefined}>
+                  {recoveryMsg}
+                </p>
+              )}
+            </div>
+
+
+            <div className={styles.securitySection}>
+              <p className={styles.pwHeading}>Two-step sign-in</p>
+              <p className={styles.settingsProse}>
+                Off unless you turn it on. Once on, signing in takes your password and a 6-digit code, so a stolen
+                password alone does not open your mailbox. Turning either method off asks for your password.
+              </p>
+
+              <div className={styles.factorRow}>
+                <div className={styles.factorText}>
+                  <span className={styles.factorName}>Authenticator app</span>
+                  <span className={styles.settingsNote}>Google Authenticator, Microsoft Authenticator, 1Password or any app that shows 6-digit codes.</span>
+                </div>
+                <span className={`${styles.factorState} ${security?.authenticator ? styles.factorOn : ''}`}>{security?.authenticator ? 'On' : 'Off'}</span>
+              </div>
+              {!security?.authenticator && !totpSetup && (
+                <button
+                  type="button"
+                  className={styles.pwSubmit}
+                  disabled={securityBusy}
+                  onClick={async () => {
+                    const data = await securityAction({ action: 'authenticator-start' }, null)
+                    if (data) {
+                      setFactorCode('')
+                      setTotpSetup({ secret: String(data.secret), uri: String(data.uri) })
+                    }
+                  }}
+                >
+                  Set up an authenticator app
+                </button>
+              )}
+              {totpSetup && (
+                <div className={styles.factorSetup}>
+                  <p className={styles.settingsProse}>Scan this with the app, or type the key in by hand. Then enter the code it shows.</p>
+                  <div className={styles.qrBox} dangerouslySetInnerHTML={{ __html: totpQr }} aria-label="QR code for your authenticator app" role="img" />
+                  <label className={styles.settingsField}>
+                    <span>Key</span>
+                    <code className={styles.secretKey}>{totpSetup.secret.match(/.{1,4}/g)?.join(' ')}</code>
+                  </label>
+                  <label className={styles.settingsField}>
+                    <span>Code from the app</span>
+                    <input
+                      className={styles.codeInput}
+                      value={factorCode}
+                      onChange={event => setFactorCode(event.target.value.replace(/[^\d ]/g, '').slice(0, 7))}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="123 456"
+                    />
+                  </label>
+                  <div className={styles.factorActions}>
+                    <button
+                      type="button"
+                      className={styles.pwSubmit}
+                      disabled={securityBusy || factorCode.replace(/\s/g, '').length !== 6}
+                      onClick={async () => {
+                        const data = await securityAction({ action: 'authenticator-confirm', code: factorCode }, 'Authenticator app is on. You will be asked for a code when you sign in.')
+                        if (data) {
+                          setTotpSetup(null)
+                          setFactorCode('')
+                          void loadSecurity()
+                        }
+                      }}
+                    >
+                      Turn on
+                    </button>
+                    <button type="button" className={styles.linkBtn} onClick={() => { setTotpSetup(null); setFactorCode('') }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              <div className={styles.factorRow}>
+                <div className={styles.factorText}>
+                  <span className={styles.factorName}>Code by email</span>
+                  <span className={styles.settingsNote}>
+                    {security?.recoveryVerified
+                      ? `Sent to ${security.recoveryEmail} when you sign in.`
+                      : 'Needs a confirmed alternate email first.'}
+                  </span>
+                </div>
+                <span className={`${styles.factorState} ${security?.email ? styles.factorOn : ''}`}>{security?.email ? 'On' : 'Off'}</span>
+              </div>
+              {!security?.email && !emailEnrol && (
+                <button
+                  type="button"
+                  className={styles.pwSubmit}
+                  disabled={securityBusy || !security?.recoveryVerified}
+                  onClick={async () => {
+                    const data = await securityAction({ action: 'email-start' }, null)
+                    if (data) {
+                      setFactorCode('')
+                      setEmailEnrol({ challenge: String(data.challenge), sentTo: String(data.sentTo) })
+                    }
+                  }}
+                >
+                  Turn on email codes
+                </button>
+              )}
+              {emailEnrol && (
+                <div className={styles.factorSetup}>
+                  <label className={styles.settingsField}>
+                    <span>Code sent to {emailEnrol.sentTo}</span>
+                    <input
+                      className={styles.codeInput}
+                      value={factorCode}
+                      onChange={event => setFactorCode(event.target.value.replace(/[^\d ]/g, '').slice(0, 7))}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="123 456"
+                    />
+                  </label>
+                  <div className={styles.factorActions}>
+                    <button
+                      type="button"
+                      className={styles.pwSubmit}
+                      disabled={securityBusy || factorCode.replace(/\s/g, '').length !== 6}
+                      onClick={async () => {
+                        const data = await securityAction({ action: 'email-confirm', challenge: emailEnrol.challenge, code: factorCode }, 'Email codes are on.')
+                        if (data) {
+                          setEmailEnrol(null)
+                          setFactorCode('')
+                          void loadSecurity()
+                        }
+                      }}
+                    >
+                      Turn on
+                    </button>
+                    <button type="button" className={styles.linkBtn} onClick={() => { setEmailEnrol(null); setFactorCode('') }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {(security?.authenticator || security?.email) && (
+                factorOff ? (
+                  <div className={styles.factorSetup}>
+                    <label className={styles.settingsField}>
+                      <span>Your password, to turn off {factorOff.which === 'authenticator' ? 'the authenticator app' : 'email codes'}</span>
+                      <input
+                        type="password"
+                        autoComplete="current-password"
+                        value={factorOff.password}
+                        onChange={event => setFactorOff(current => (current ? { ...current, password: event.target.value } : current))}
+                      />
+                    </label>
+                    <div className={styles.factorActions}>
+                      <button
+                        type="button"
+                        className={styles.pwSubmit}
+                        disabled={securityBusy || !factorOff.password}
+                        onClick={async () => {
+                          const data = await securityAction(
+                            { action: factorOff.which === 'authenticator' ? 'authenticator-off' : 'email-off', password: factorOff.password },
+                            factorOff.which === 'authenticator' ? 'Authenticator app is off.' : 'Email codes are off.',
+                          )
+                          if (data) {
+                            setFactorOff(null)
+                            void loadSecurity()
+                          }
+                        }}
+                      >
+                        Turn off
+                      </button>
+                      <button type="button" className={styles.linkBtn} onClick={() => setFactorOff(null)}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className={styles.factorActions}>
+                    {security?.authenticator && (
+                      <button type="button" className={styles.linkBtn} onClick={() => setFactorOff({ which: 'authenticator', password: '' })}>
+                        Turn off the authenticator app
+                      </button>
+                    )}
+                    {security?.email && (
+                      <button type="button" className={styles.linkBtn} onClick={() => setFactorOff({ which: 'email', password: '' })}>
+                        Turn off email codes
+                      </button>
+                    )}
+                  </div>
+                )
+              )}
+              {securityMsg && (
+                <p className={securityMsg.tone === 'ok' ? styles.pwOk : styles.pwBad} role="status">{securityMsg.text}</p>
+              )}
+            </div>
+
+            <div className={styles.securitySection}>
+              <p className={styles.pwHeading}>Recent sign-ins</p>
+              <p className={styles.settingsProse}>Every attempt to open this account, newest first. If one is not yours, change your password.</p>
+              {!security ? (
+                <p className={styles.settingsNote}>Loading…</p>
+              ) : security.signins.length === 0 ? (
+                <p className={styles.settingsNote}>No sign-ins recorded yet. They are kept from this update on.</p>
+              ) : (
+                <ul className={styles.signinList}>
+                  {security.signins.map(entry => (
+                    <li key={`${entry.at}-${entry.outcome}`} className={styles.signinRow}>
+                      <span className={`${styles.signinOutcome} ${entry.outcome.startsWith('wrong') ? styles.signinBad : ''}`}>
+                        {SIGNIN_OUTCOMES[entry.outcome] ?? entry.outcome}
+                        {entry.outcome === 'signed-in' && entry.method && entry.method !== 'password'
+                          ? entry.method === 'authenticator' ? ' · app code' : ' · email code'
+                          : ''}
+                      </span>
+                      <span className={styles.signinMeta}>
+                        {new Date(entry.at).toLocaleString()} · {entry.device}{entry.ip ? ` · ${entry.ip}` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             </>)}
 
