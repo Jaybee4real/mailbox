@@ -1912,6 +1912,7 @@ export type MailAccount = {
   /** Outside address that can receive a reset link. Only usable once proven. */
   recoveryEmail: string | null
   recoveryVerified: boolean
+  twoStep: boolean
 }
 
 function mapAccount(row: Record<string, unknown>): MailAccount {
@@ -1926,27 +1927,28 @@ function mapAccount(row: Record<string, unknown>): MailAccount {
     invitedBy: (row.invited_by as string) ?? null,
     recoveryEmail: (row.recovery_email as string) ?? null,
     recoveryVerified: Boolean(Number(row.recovery_verified ?? 0)),
+    twoStep: Boolean(row.totp_secret) || (Boolean(Number(row.email_code_enabled ?? 0)) && Boolean(Number(row.recovery_verified ?? 0))),
   }
 }
 
 export async function listAccounts(): Promise<MailAccount[]> {
   await ensureMailSchema()
   const sql = db()
-  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, recovery_email, recovery_verified, (password_hash IS NOT NULL) AS has_password FROM mail_accounts ORDER BY created_at ASC`
+  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, recovery_email, recovery_verified, totp_secret, email_code_enabled, (password_hash IS NOT NULL) AS has_password FROM mail_accounts ORDER BY created_at ASC`
   return rows.map(mapAccount)
 }
 
 export async function getAccount(email: string): Promise<MailAccount | null> {
   await ensureMailSchema()
   const sql = db()
-  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, recovery_email, recovery_verified, (password_hash IS NOT NULL) AS has_password FROM mail_accounts WHERE email = ${email.trim().toLowerCase()}`
+  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, recovery_email, recovery_verified, totp_secret, email_code_enabled, (password_hash IS NOT NULL) AS has_password FROM mail_accounts WHERE email = ${email.trim().toLowerCase()}`
   return rows[0] ? mapAccount(rows[0]) : null
 }
 
 export async function getAccountByAddress(address: string): Promise<MailAccount | null> {
   await ensureMailSchema()
   const sql = db()
-  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, recovery_email, recovery_verified, (password_hash IS NOT NULL) AS has_password FROM mail_accounts WHERE lower(address) = ${address.trim().toLowerCase()}`
+  const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, recovery_email, recovery_verified, totp_secret, email_code_enabled, (password_hash IS NOT NULL) AS has_password FROM mail_accounts WHERE lower(address) = ${address.trim().toLowerCase()}`
   return rows[0] ? mapAccount(rows[0]) : null
 }
 

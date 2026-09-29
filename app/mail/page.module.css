@@ -5066,6 +5066,7 @@
 }
 .accessorItem {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -5170,9 +5171,10 @@
 .mailboxSave:hover { border-color: var(--nc-violet-400); }
 .accessorControls {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
 }
 .accessorBadge {
   font: 600 10px/1 var(--nc-font-mono, ui-monospace, monospace);
@@ -6129,6 +6131,15 @@
   cursor: pointer;
 }
 .linkBtn:hover { text-decoration: underline; }
+.adminPassword {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex-basis: 100%;
+  padding: 14px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 10px;
+}
 .qrBox {
   width: 176px;
   padding: 10px;

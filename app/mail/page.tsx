@@ -160,6 +160,7 @@ type Accessor = {
   status: string
   hasPassword: boolean
   invitedBy: string | null
+  twoStep?: boolean
 }
 
 type Folder = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'scheduled' | 'drafts' | 'archived' | 'spam' | 'trash'
@@ -368,6 +369,8 @@ const SIGNIN_OUTCOMES: Record<string, string> = {
   'wrong-password': 'Wrong password',
   'second-step': 'Password accepted, code asked for',
   'wrong-code': 'Wrong code',
+  'admin-two-step-off': 'Two-step sign-in turned off by an admin',
+  'admin-password': 'Password set by an admin',
 }
 
 type MailSettings = {
@@ -2811,6 +2814,61 @@ export default function DevMailPage() {
       setRecoveryBusy(false)
     }
   }, [apiHeaders, recoveryEmail])
+
+  const [adminPassword, setAdminPassword] = useState<{ email: string; value: string } | null>(null)
+
+  const adminSecurity = useCallback(
+    async (target: string, body: Record<string, string>): Promise<boolean> => {
+      setAccessorsBad(false)
+      setAccessorsMsg('')
+      try {
+        const response = await fetch('/api/mail/accessors/security', {
+          method: 'POST',
+          headers: apiHeaders(),
+          body: JSON.stringify({ email: target, ...body }),
+        })
+        const data = await response.json().catch(() => null)
+        if (!data?.ok) {
+          setAccessorsBad(true)
+          setAccessorsMsg(data?.error || 'That did not work. Try again.')
+          return false
+        }
+        return true
+      } catch {
+        setAccessorsBad(true)
+        setAccessorsMsg('Could not reach the server')
+        return false
+      }
+    },
+    [apiHeaders],
+  )
+
+  const turnOffTwoStepFor = useCallback(
+    async (target: string) => {
+      const agreed = await confirm({
+        title: 'Turn off two-step sign-in?',
+        body: <><strong>{target}</strong> will sign in with their password alone until they turn it back on. Do this when they have lost their phone or cannot get their codes.</>,
+        confirmLabel: 'Turn off',
+        danger: true,
+      })
+      if (!agreed) return
+      if (await adminSecurity(target, { action: 'two-step-off' })) {
+        setAccessorsMsg(`Two-step sign-in is off for ${target}. Ask them to set it up again.`)
+        void loadAccessors()
+      }
+    },
+    [confirm, adminSecurity, loadAccessors],
+  )
+
+  const saveAdminPassword = useCallback(async () => {
+    if (!adminPassword) return
+    const { email: target, value } = adminPassword
+    if (await adminSecurity(target, { action: 'set-password', password: value })) {
+      await navigator.clipboard?.writeText(value).catch(() => {})
+      setAdminPassword(null)
+      setAccessorsMsg(`New password for ${target} copied. Their other devices are signed out. Give it to them privately and ask them to change it.`)
+    }
+  }, [adminPassword, adminSecurity])
 
   const mintResetLink = useCallback(async (target: string) => {
     setAccessorsBad(false)
@@ -9407,9 +9465,11 @@ export default function DevMailPage() {
                     <li key={`${entry.at}-${entry.outcome}`} className={styles.signinRow}>
                       <span className={`${styles.signinOutcome} ${entry.outcome.startsWith('wrong') ? styles.signinBad : ''}`}>
                         {SIGNIN_OUTCOMES[entry.outcome] ?? entry.outcome}
-                        {entry.outcome === 'signed-in' && entry.method && entry.method !== 'password'
-                          ? entry.method === 'authenticator' ? ' · app code' : ' · email code'
-                          : ''}
+                        {entry.method?.startsWith('admin:')
+                          ? ` · ${entry.method.slice(6)}`
+                          : entry.outcome === 'signed-in' && entry.method && entry.method !== 'password'
+                            ? entry.method === 'authenticator' ? ' · app code' : ' · email code'
+                            : ''}
                       </span>
                       <span className={styles.signinMeta}>
                         {new Date(entry.at).toLocaleString()} · {entry.device}{entry.ip ? ` · ${entry.ip}` : ''}
@@ -9970,6 +10030,24 @@ export default function DevMailPage() {
                     Reset link
                   </button>
                   <button
+                    className={styles.mailboxTag}
+                    onClick={() => setAdminPassword(current => (current?.email === entry.email ? null : { email: entry.email, value: '' }))}
+                    title={`Set a new password for ${entry.email} yourself`}
+                    type="button"
+                  >
+                    Set password
+                  </button>
+                  {entry.twoStep && (
+                    <button
+                      className={styles.mailboxTag}
+                      onClick={() => turnOffTwoStepFor(entry.email)}
+                      title={`Turn off two-step sign-in for ${entry.email}`}
+                      type="button"
+                    >
+                      Turn off two-step
+                    </button>
+                  )}
+                  <button
                     className={styles.accessorRemove}
                     onClick={() => removeAccessor(entry.email)}
                     aria-label={`Remove ${entry.email}`}
@@ -9978,6 +10056,44 @@ export default function DevMailPage() {
                     {ICONS.close}
                   </button>
                 </div>
+                {adminPassword?.email === entry.email && (
+                  <form
+                    className={styles.adminPassword}
+                    onSubmit={event => {
+                      event.preventDefault()
+                      void saveAdminPassword()
+                    }}
+                  >
+                    <label className={styles.settingsField}>
+                      <span>New password for {entry.name || entry.email}</span>
+                      <input
+                        value={adminPassword.value}
+                        onChange={event => setAdminPassword({ email: entry.email, value: event.target.value })}
+                        autoComplete="new-password"
+                        placeholder="At least 10 characters"
+                        autoFocus
+                      />
+                    </label>
+                    <div className={styles.factorActions}>
+                      <button type="submit" className={styles.pwSubmit} disabled={adminPassword.value.length < 10}>
+                        Save and copy
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        onClick={() => {
+                          const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+                          const bytes = crypto.getRandomValues(new Uint8Array(16))
+                          const generated = Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('')
+                          setAdminPassword({ email: entry.email, value: `${generated.slice(0, 4)}-${generated.slice(4, 8)}-${generated.slice(8, 12)}-${generated.slice(12)}` })
+                        }}
+                      >
+                        Generate one
+                      </button>
+                      <button type="button" className={styles.linkBtn} onClick={() => setAdminPassword(null)}>Cancel</button>
+                    </div>
+                  </form>
+                )}
               </li>
             ))}
           </ul>
