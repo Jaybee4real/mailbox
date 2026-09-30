@@ -878,7 +878,47 @@ const readerTheme = (spacing: number, dark: boolean, ownDark: boolean) => `<styl
   .nc-paper p { margin: 0 0 ${paragraphGap(spacing)}; }
   .nc-paper img { max-width: 100%; height: auto; }
   .nc-paper a { color: ${ownDark ? '#B69CFF' : '#5418C2'}; }
+  details.nc-quote { margin: 4px 0 0; }
+  details.nc-quote > summary {
+    display: flex; align-items: center; gap: 10px; margin: 6px 0 14px;
+    list-style: none; cursor: pointer; user-select: none;
+  }
+  details.nc-quote > summary::-webkit-details-marker { display: none; }
+  details.nc-quote > summary::before, details.nc-quote > summary::after {
+    content: ''; flex: 1; height: 1px; background: ${ownDark ? '#2E2A3A' : '#E4E1EA'};
+  }
+  details.nc-quote > summary > span {
+    display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 4px 11px;
+    border: 1px solid ${ownDark ? '#2E2A3A' : '#E4E1EA'}; border-radius: 999px;
+    color: ${ownDark ? '#A39DB3' : '#6B6480'}; font: 500 11.5px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  details.nc-quote > summary:hover > span { color: ${ownDark ? '#ECEAF2' : '#1A1030'}; }
+  details.nc-quote > summary svg { width: 11px; height: 8px; }
+  details.nc-quote[open] > summary svg { transform: rotate(180deg); }
+  details.nc-quote .nc-quote-hide, details.nc-quote[open] .nc-quote-show { display: none; }
+  details.nc-quote[open] .nc-quote-hide { display: inline; }
 </style>`
+
+/**
+ * The repeated thread under a reply, folded inside the message itself. The frame runs no
+ * script, so a native disclosure is what can open it; and being part of the message, the
+ * line sits right under what was written rather than at the foot of a tall frame.
+ */
+const foldQuote = (head: string, tail: string) =>
+  `${head}<details class="nc-quote"><summary><span><svg viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1.5l5 5 5-5"/></svg><b class="nc-quote-show" style="font-weight:inherit">Show earlier messages</b><b class="nc-quote-hide" style="font-weight:inherit">Hide earlier messages</b></span></summary>${tail}</details>`
+
+/** Grows a message frame with its content, including when a folded quote is opened. */
+const fitFrame = (frame: HTMLIFrameElement) => {
+  try {
+    const doc = frame.contentDocument
+    if (!doc) return
+    // The body, not the root: the root is at least as tall as the frame, so it never
+    // reports the frame shrinking back when a quote is folded away again.
+    const fit = () => { frame.style.height = `${Math.min(1600, (doc.body?.scrollHeight ?? doc.documentElement.scrollHeight) + 8)}px` }
+    fit()
+    doc.addEventListener('toggle', () => requestAnimationFrame(fit), true)
+  } catch {}
+}
 
 /**
  * Convert pasted rich text into the markdown dialect the composer understands, so
@@ -6379,9 +6419,8 @@ export default function DevMailPage() {
       )
     }
     const split = splitQuotedTail(message.html)
-    const quoteShown = quoteOpen.has(message.id)
     const bodyHtml = healGooglePrivateImages(
-      split.tail && !quoteShown ? split.head : message.html,
+      split.tail ? foldQuote(split.head, split.tail) : message.html,
       sentByUs(message.from) ? CLIENT_BRAND.markUrl : null,
     )
     if (framed) {
@@ -6394,23 +6433,12 @@ export default function DevMailPage() {
             sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
             srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme)}
             title="Email content"
-            onLoad={event => {
-              try {
-                const doc = event.currentTarget.contentDocument
-                if (doc) event.currentTarget.style.height = `${Math.min(1600, doc.documentElement.scrollHeight + 8)}px`
-              } catch {}
-            }}
+            onLoad={event => fitFrame(event.currentTarget)}
           />
-          {split.tail && renderQuoteLine(message.id, quoteShown)}
         </>
       )
     }
-    return (
-      <>
-        <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme)} title="Email content" />
-        {split.tail && renderQuoteLine(message.id, quoteShown)}
-      </>
-    )
+    return <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme)} title="Email content" />
   }
 
   // One message open at a time — opening another collapses the rest.
@@ -6421,26 +6449,28 @@ export default function DevMailPage() {
   const renderSentBody = (sent: SentEmail) => {
     const detail = detailCache[sent.id]
     if (!detail) return <div className={styles.threadPending}>Loading message…</div>
+    const quoteShown = quoteOpen.has(sent.id)
     if (hasMarkup(detail.html)) {
+      const split = splitQuotedTail(detail.html)
       return (
         <iframe
           className={styles.threadFrame}
           sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-          srcDoc={frameHtml(healGooglePrivateImages(detail.html, CLIENT_BRAND.markUrl), true, readerSpacing, resolvedTheme)}
+          srcDoc={frameHtml(healGooglePrivateImages(split.tail ? foldQuote(split.head, split.tail) : detail.html, CLIENT_BRAND.markUrl), true, readerSpacing, resolvedTheme)}
           title="Sent email"
-          onLoad={event => {
-            try {
-              const doc = event.currentTarget.contentDocument
-              if (doc) event.currentTarget.style.height = `${Math.min(1600, doc.documentElement.scrollHeight + 8)}px`
-            } catch {}
-          }}
+          onLoad={event => fitFrame(event.currentTarget)}
         />
       )
     }
     const plainSent = detail.text?.trim() ? detail.text : (detail.html ?? '').trim()
-    return plainSent
-      ? <pre className={styles.readerText}>{plainSent}</pre>
-      : renderBodylessAttachment(detail.attachments ?? []) ?? <pre className={styles.readerText}>(no content)</pre>
+    if (!plainSent) return renderBodylessAttachment(detail.attachments ?? []) ?? <pre className={styles.readerText}>(no content)</pre>
+    const plain = splitQuotedText(plainSent)
+    return (
+      <>
+        <pre className={styles.readerText}>{plain.tail && !quoteShown ? plain.head : plainSent}</pre>
+        {plain.tail && renderQuoteLine(sent.id, quoteShown)}
+      </>
+    )
   }
 
   /** What we attached to a message we sent. The inbound side has always shown these. */

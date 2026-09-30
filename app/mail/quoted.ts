@@ -100,7 +100,7 @@ export function splitQuotedTail(html: string): QuotedSplit {
     const boundary = quoteStart(element)
     if (boundary) { at = index; kind = boundary; break }
   }
-  if (at <= 0) return { head: html, tail: null }
+  if (at <= 0) return nestedSplit(doc, body, html)
 
   const head = children.slice(0, at)
   const kept = head.map(element => element.textContent ?? '').join(' ').trim().length
@@ -112,6 +112,75 @@ export function splitQuotedTail(html: string): QuotedSplit {
     head: head.map(element => element.outerHTML).join(''),
     tail: tail.map(element => element.outerHTML).join(''),
   }
+}
+
+/**
+ * The innermost block that is nothing but an "On … wrote:" line — how this app's own replies,
+ * and many plain clients, introduce the quote without any container to find.
+ */
+function attributionLine(body: HTMLElement): Element | null {
+  for (const element of Array.from(body.querySelectorAll('p, div, span'))) {
+    const text = (element.textContent ?? '').trim()
+    if (text.length >= 400 || !REPLY_DIVIDER.some(pattern => pattern.test(text))) continue
+    const inner = Array.from(element.children).some(child => REPLY_DIVIDER.some(pattern => pattern.test((child.textContent ?? '').trim())))
+    if (!inner) return element
+  }
+  return null
+}
+
+/** Containers that hold the whole quote inside them, so whatever follows is the sender's again. */
+const WRAPPING = [
+  // Older Gmail has no _container class: the attribution line and the blockquote share a
+  // plain gmail_quote div, and cutting at the blockquote would leave "On … wrote:" behind.
+  'div[class~="gmail_quote" i]',
+  '[class*="gmail_quote_container" i]',
+  'blockquote[class*="gmail_quote" i]',
+  'blockquote[type="cite" i]',
+  'blockquote[id*="blockquote_zmail" i]',
+].join(',')
+
+/** How a forward announces itself at the top of what it carries. */
+const FORWARD_START = /^\s*(?:-{2,20}\s*(?:Original Message|Forwarded message)\s*-{2,20}|Begin forwarded message:)/i
+const FORWARD_SUBJECT = /\bSubject\s*:\s*(?:FW|Fwd|TR)\s*:/i
+
+/**
+ * Gmail on a phone sends its reply as a run of divs and then tucks the quote inside one more
+ * — `<div><br><div class="gmail_quote">` — so the boundary is never one of the outer siblings
+ * the walk above looks at. When that walk finds nothing, the first quote container anywhere in
+ * the message is the cut.
+ *
+ * A container that wraps its quote hides only itself: Gmail puts the sender's signature after
+ * the quote, and that stays on screen. Outlook's markers are only a header, with the thread
+ * following as siblings, so from there on everything is the repeat. A forward is folded only
+ * under a real covering note, as above.
+ */
+function nestedSplit(doc: Document, body: HTMLElement, html: string): QuotedSplit {
+  const container = body.querySelector(`${CONTAINER},${WRAPPING}`) ?? attributionLine(body)
+  if (!container) return { head: html, tail: null }
+  const slice = (from: (range: Range) => void, to: (range: Range) => void) => {
+    const range = doc.createRange()
+    from(range)
+    to(range)
+    return range
+  }
+  const serialise = (range: Range) => {
+    const holder = doc.createElement('div')
+    holder.appendChild(range.cloneContents())
+    return holder.innerHTML
+  }
+  const before = slice(range => range.setStart(body, 0), range => range.setEndBefore(container))
+  const wraps = container.matches(WRAPPING)
+  const rest = slice(range => range.setStartBefore(container), range => range.setEnd(body, body.childNodes.length))
+  const quoted = ((wraps ? container.textContent : rest.toString()) ?? '').trim().slice(0, 800)
+  // Outlook's markers are trusted only with the header block they normally introduce.
+  if (!wraps && !REPLY_DIVIDER.some(pattern => pattern.test(container.textContent ?? '')) && !HEADER_BLOCK.test(quoted)) {
+    return { head: html, tail: null }
+  }
+  const forward = FORWARD_START.test(quoted) || FORWARD_SUBJECT.test(quoted)
+  if (before.toString().trim().length < (forward ? MIN_HEAD_CHARS_FORWARD : MIN_HEAD_CHARS)) return { head: html, tail: null }
+  if (!wraps) return { head: serialise(before), tail: serialise(rest) }
+  const after = slice(range => range.setStartAfter(container), range => range.setEnd(body, body.childNodes.length))
+  return { head: serialise(before) + serialise(after), tail: container.outerHTML }
 }
 
 /**
