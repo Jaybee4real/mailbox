@@ -879,24 +879,34 @@ const readerTheme = (spacing: number, dark: boolean, ownDark: boolean) => `<styl
   .nc-paper img { max-width: 100%; height: auto; }
   .nc-paper a { color: ${ownDark ? '#B69CFF' : '#5418C2'}; }
   details.nc-quote { margin: 4px 0 0; }
-  details.nc-quote > summary {
-    display: flex; align-items: center; gap: 10px; margin: 6px 0 14px;
-    list-style: none; cursor: pointer; user-select: none;
-  }
+  details.nc-quote > summary { display: block; margin: 6px 0 14px; list-style: none; cursor: pointer; user-select: none; }
   details.nc-quote > summary::-webkit-details-marker { display: none; }
-  details.nc-quote > summary::before, details.nc-quote > summary::after {
+  /* Folded, the line is the last thing in the message: no margin under it, and none of the
+     paper's own bottom padding. */
+  details.nc-quote:not([open]) > summary { margin-bottom: 0; }
+  .nc-paper:has(> details.nc-quote:not([open]):last-child) { padding-bottom: 0; }
+  body:has(details.nc-quote:not([open])) { padding-bottom: 4px; }
+  .nc-quote-line { display: flex; align-items: center; gap: 10px; }
+  .nc-quote-line::before, .nc-quote-line::after {
     content: ''; flex: 1; height: 1px; background: ${ownDark ? '#2E2A3A' : '#E4E1EA'};
   }
-  details.nc-quote > summary > span {
+  .nc-quote-line > span {
     display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; padding: 4px 11px;
     border: 1px solid ${ownDark ? '#2E2A3A' : '#E4E1EA'}; border-radius: 999px;
     color: ${ownDark ? '#A39DB3' : '#6B6480'}; font: 500 11.5px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   }
-  details.nc-quote > summary:hover > span { color: ${ownDark ? '#ECEAF2' : '#1A1030'}; }
-  details.nc-quote > summary svg { width: 11px; height: 8px; }
-  details.nc-quote[open] > summary svg { transform: rotate(180deg); }
+  details.nc-quote > summary:hover .nc-quote-line > span { color: ${ownDark ? '#ECEAF2' : '#1A1030'}; }
+  .nc-quote-line svg { width: 11px; height: 8px; }
+  details.nc-quote[open] .nc-quote-line svg { transform: rotate(180deg); }
   details.nc-quote .nc-quote-hide, details.nc-quote[open] .nc-quote-show { display: none; }
   details.nc-quote[open] .nc-quote-hide { display: inline; }
+  /* A glimpse of what is folded, fading out under the line; clicking it opens the rest. */
+  .nc-quote-peek {
+    max-height: 64px; overflow: hidden; margin-top: 8px; pointer-events: none; opacity: .75;
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+  }
+  details.nc-quote[open] .nc-quote-peek { display: none; }
 </style>`
 
 /**
@@ -905,7 +915,7 @@ const readerTheme = (spacing: number, dark: boolean, ownDark: boolean) => `<styl
  * line sits right under what was written rather than at the foot of a tall frame.
  */
 const foldQuote = (head: string, tail: string) =>
-  `${head}<details class="nc-quote"><summary><span><svg viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1.5l5 5 5-5"/></svg><b class="nc-quote-show" style="font-weight:inherit">Show earlier messages</b><b class="nc-quote-hide" style="font-weight:inherit">Hide earlier messages</b></span></summary>${tail}</details>`
+  `${head}<details class="nc-quote"><summary><div class="nc-quote-line"><span><svg viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1.5l5 5 5-5"/></svg><b class="nc-quote-show" style="font-weight:inherit">Show earlier messages</b><b class="nc-quote-hide" style="font-weight:inherit">Hide earlier messages</b></span></div><div class="nc-quote-peek" aria-hidden="true">${tail}</div></summary>${tail}</details>`
 
 /** Grows a message frame with its content, including when a folded quote is opened. */
 const fitFrame = (frame: HTMLIFrameElement) => {
