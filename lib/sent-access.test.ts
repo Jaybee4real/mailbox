@@ -55,3 +55,14 @@ test('sent mail belongs to its assignment, else its sender, else the shared addr
   assert.equal(await access.mayReadSent(shared, 'from-ada'), false)
   assert.equal(await access.mayReadSent({ address: null }, 'from-ada'), false)
 })
+
+test('removing an account kills its outstanding reset and invite links', async () => {
+  await mailbox.createAccount({ email: 'leaver@example.com', address: 'leaver@example.com', status: 'pending' })
+  await mailbox.createResetToken('leaver@example.com', 'invite-token', Date.now() + 3_600_000)
+  await mailbox.createResetToken('ada@example.com', 'ada-token', Date.now() + 3_600_000)
+  await mailbox.deleteAccount('Leaver@Example.com')
+  assert.equal(await mailbox.resetTokenEmail('invite-token'), null)
+  assert.equal(await mailbox.resetPasswordWithToken('invite-token', 'hash'), null)
+  assert.equal(await mailbox.getAccount('leaver@example.com'), null, 'the link cannot recreate the account')
+  assert.equal(await mailbox.resetTokenEmail('ada-token'), 'ada@example.com', 'other accounts keep theirs')
+})

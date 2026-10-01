@@ -1982,6 +1982,7 @@ export async function deleteAccount(email: string): Promise<void> {
   await ensureMailSchema()
   const sql = db()
   await sql`DELETE FROM mail_accounts WHERE email = ${email.trim().toLowerCase()}`
+  await sql`DELETE FROM mail_reset_tokens WHERE email = ${email.trim().toLowerCase()}`
 }
 
 /** Record a recovery address as claimed but unproven. Re-saving the same one re-arms it. */
