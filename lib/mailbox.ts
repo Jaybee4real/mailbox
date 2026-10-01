@@ -2231,6 +2231,18 @@ export async function readSentMessage(id: string): Promise<SentMessage | null> {
   }
 }
 
+export async function readSentSenders(ids: string[]): Promise<Record<string, string>> {
+  await ensureMailSchema()
+  const sql = db()
+  const senders: Record<string, string> = {}
+  for (let start = 0; start < ids.length; start += 200) {
+    const chunk = ids.slice(start, start + 200)
+    const rows = await tagged(sql, `SELECT id, from_addr FROM mail_sent WHERE id IN (${chunk.map(() => '?').join(',')})`, chunk)
+    for (const row of rows) senders[String(row.id)] = (row.from_addr as string) ?? ''
+  }
+  return senders
+}
+
 export async function readSentMeta(emailIds?: string[]): Promise<Record<string, SentMeta>> {
   await ensureMailSchema()
   const sql = db()
