@@ -5,6 +5,7 @@ import { FORWARDING_ENABLED, FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-a
 import { ADDRESS_ALIASES, appendInbound, classifyAddressed, isDmarcAggregateReport, judgeMessage, noteSender, senderStanding, senderDomainOf, getAccountByAddress, inboundExists, inboxFiltersFor, recordContact, recordSentMessage, recordSentMeta, repairInbound } from '@/lib/mailbox'
 import { matchesInboxFilters } from '@/lib/inbox-filters'
 import { archiveAddress, sendMail } from '@/lib/mail-provider'
+import { MAIL_FROM, SHARED_INBOX } from '@/lib/scope'
 
 /**
  * Where the receiving API lives. The Resend SDK reads RESEND_BASE_URL for sending, so a
@@ -16,10 +17,6 @@ function receivingBase(): string {
   const configured = (process.env.RESEND_BASE_URL ?? '').trim().replace(/\/+$/, '')
   return configured || 'https://api.resend.com'
 }
-
-// The address we send from, and the inbox that owns mail addressed to nobody specific.
-const MAIL_FROM = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
-const SHARED_ADDRESS = MAIL_FROM.toLowerCase()
 
 /** Attribute an inbound email to the accessor it was delivered to, else the shared inbox. */
 export async function attributeOwner(recipients: string[]): Promise<string> {
@@ -33,7 +30,7 @@ export async function attributeOwner(recipients: string[]): Promise<string> {
       return ADDRESS_ALIASES[owner] ?? owner
     }
   }
-  return SHARED_ADDRESS
+  return SHARED_INBOX
 }
 
 /**

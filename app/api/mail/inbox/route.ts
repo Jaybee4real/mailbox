@@ -5,6 +5,7 @@ import { scopeFor } from '@/lib/scope'
 import { searchInbox, appendEvent, appendInbound, recordContact, setInboundFlags, setInboundSpam, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, trustSenderOf, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
 import { addressedToUs, attributeOwner, forwardToAccounts, ingestReceived, parseSender } from '@/lib/receive'
 import { isBrevoInbound, normalizeBrevoInbound } from '@/lib/mail-provider'
+import { mayReadInbound } from '@/lib/sent-access'
 
 export const runtime = 'nodejs'
 
@@ -63,7 +64,7 @@ export async function PATCH(req: Request) {
   } catch {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
   }
-  const ids = body.ids ?? (body.id ? [body.id] : [])
+  let ids = body.ids ?? (body.id ? [body.id] : [])
   if (!ids.length && !body.threadId) {
     return NextResponse.json({ ok: false, error: 'id, ids or threadId is required' }, { status: 400 })
   }
@@ -93,6 +94,11 @@ export async function PATCH(req: Request) {
     }
     await Promise.all(ids.map(id => setInboxOwner(id, body.owner!)))
     return NextResponse.json({ ok: true })
+  }
+  if (ids.length) {
+    const viewer = await resolveAccount(req)
+    const readable = await Promise.all(ids.map(id => mayReadInbound(viewer, id)))
+    ids = ids.filter((_id, position) => readable[position])
   }
   if (Array.isArray(body.labels)) {
     const labels = body.labels.map(String)

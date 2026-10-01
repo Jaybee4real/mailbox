@@ -66,3 +66,26 @@ test('removing an account kills its outstanding reset and invite links', async (
   assert.equal(await mailbox.getAccount('leaver@example.com'), null, 'the link cannot recreate the account')
   assert.equal(await mailbox.resetTokenEmail('ada-token'), 'ada@example.com', 'other accounts keep theirs')
 })
+
+test('received mail is readable by its owner, the shared address for unowned rows, and the all-inboxes reader', async () => {
+  const received = (id: string, owner: string | null) =>
+    mailbox.appendInbound({ id, from: 'client@elsewhere.com', to: ['x@example.com'], cc: [], bcc: [], replyTo: [], subject: id, html: null, text: null, headers: {}, receivedAt: new Date().toISOString(), read: false, attachments: [], owner })
+  await received('to-ada', 'ada@example.com')
+  await received('to-shared', 'hello@example.com')
+  await received('unowned', null)
+
+  assert.equal(await access.mayReadInbound(member, 'to-ada'), true)
+  assert.equal(await access.mayReadInbound({ ...member, address: ' ADA@example.com ' }, 'to-ada'), true)
+  assert.equal(await access.mayReadInbound(member, 'to-shared'), false)
+  assert.equal(await access.mayReadInbound(member, 'unowned'), false)
+  assert.equal(await access.mayReadInbound(shared, 'to-shared'), true)
+  assert.equal(await access.mayReadInbound(shared, 'unowned'), true)
+  assert.equal(await access.mayReadInbound(shared, 'to-ada'), false, 'administering accounts is not reading them')
+  assert.equal(await access.mayReadInbound(member, 'missing'), false)
+  assert.equal(await access.mayReadInbound({ address: null, role: 'member' }, 'to-ada'), false)
+
+  const everyone = { address: 'boss@example.com', role: 'admin' as const }
+  assert.equal(await access.mayReadInbound(everyone, 'to-ada'), true)
+  assert.equal(await access.mayReadInbound(everyone, 'to-shared'), true)
+  assert.equal(await access.mayReadInbound({ ...everyone, role: 'member' }, 'to-ada'), false, 'the all-inboxes address must also be an admin')
+})

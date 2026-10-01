@@ -1,5 +1,6 @@
 import { BRAND } from '@/lib/brand'
-import { listAccounts, readSentMeta, readSentSenders } from '@/lib/mailbox'
+import { getInboundSource, listAccounts, readSentMeta, readSentSenders } from '@/lib/mailbox'
+import { readsAllInboxes, SHARED_INBOX, type Viewer } from '@/lib/scope'
 
 const SHARED_ADDRESS = (process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim().toLowerCase()
 
@@ -36,4 +37,12 @@ export async function mayReadSent(account: { address: string | null }, id: strin
   const scope = account.address?.trim().toLowerCase()
   if (!scope) return false
   return (await sentOwners([id]))[id] === scope
+}
+
+export async function mayReadInbound(viewer: Viewer, id: string): Promise<boolean> {
+  if (readsAllInboxes(viewer)) return true
+  const scope = viewer.address?.trim().toLowerCase()
+  if (!scope) return false
+  const source = await getInboundSource(id).catch(() => null)
+  return source !== null && (source.owner ?? SHARED_INBOX).toLowerCase() === scope
 }

@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { mailAuthGuard } from '@/lib/dev-auth'
+import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { getInboundAttachments } from '@/lib/mailbox'
 import { getObject, putObject } from '@/lib/r2'
+import { mayReadInbound } from '@/lib/sent-access'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,6 +30,7 @@ export async function POST(req: Request) {
 
   const id = String(body.id ?? '')
   if (!id) return NextResponse.json({ ok: false, error: 'Which message?' }, { status: 400 })
+  if (!(await mayReadInbound(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 
   const held = await getInboundAttachments(id).catch(() => [])
   const copied: Array<{ filename: string; size: number; contentType?: string; key: string }> = []

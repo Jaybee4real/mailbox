@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
-import { mailAuthGuard } from '@/lib/dev-auth'
+import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { getInboundAttachments, resolveInboundBody, setInboundAttachments } from '@/lib/mailbox'
 import { isEmbedded, referencedCids } from '@/lib/attachments'
+import { mayReadInbound } from '@/lib/sent-access'
 
 export const runtime = 'nodejs'
 
@@ -15,6 +16,7 @@ export async function GET(req: Request) {
 
   const id = new URL(req.url).searchParams.get('id')
   if (!id) return NextResponse.json({ ok: false, error: 'id is required' }, { status: 400 })
+  if (!(await mayReadInbound(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 
   // Anything we hold is served back through this domain. A bucket link and a provider
   // link are both hosts the reader's network has to reach separately, and on some of

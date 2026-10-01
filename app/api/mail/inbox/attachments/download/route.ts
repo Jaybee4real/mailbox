@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { attachmentHeaders } from '@/lib/attachments'
-import { mailAuthGuard } from '@/lib/dev-auth'
+import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { getInboundAttachments } from '@/lib/mailbox'
 import { getObject } from '@/lib/r2'
+import { mayReadInbound } from '@/lib/sent-access'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,6 +23,7 @@ export async function GET(req: Request) {
   const id = params.get('id')
   const index = Number(params.get('index') ?? 0)
   if (!id) return NextResponse.json({ ok: false, error: 'id is required' }, { status: 400 })
+  if (!(await mayReadInbound(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 
   // The key is read from the message rather than taken from the caller, so this cannot
   // be pointed at an arbitrary object in the bucket.

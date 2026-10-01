@@ -1,6 +1,10 @@
-import type { MailRole } from './brand'
+import { BRAND, type MailRole } from './brand'
 
 const ALL_INBOXES = (process.env.MAIL_ALL_INBOXES_ADDRESS ?? '').trim().toLowerCase()
+
+// The address we send from, and the inbox that owns mail addressed to nobody specific.
+export const MAIL_FROM = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
+export const SHARED_INBOX = MAIL_FROM.toLowerCase()
 
 export type Viewer = { address: string | null; role: MailRole }
 
