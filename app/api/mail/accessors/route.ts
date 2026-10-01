@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { sendMail } from '@/lib/mail-provider'
 import { renderActionEmail } from '@/lib/emails'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { publicOrigin } from '@/lib/public-url'
 import {
   listAccounts,
   getAccount,
@@ -120,7 +121,7 @@ export async function POST(req: Request) {
   await createResetToken(email, token, Date.now() + INVITE_TTL_MS)
 
   const from = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
-  const origin = process.env.MAIL_PUBLIC_URL?.replace(/\/$/, '') || new URL(req.url).origin
+  const origin = publicOrigin(req)
   const inviteUrl = `${origin}/mail/reset?token=${token}&invite=1`
   try {
     const { id } = await sendMail({

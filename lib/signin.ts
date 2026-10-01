@@ -25,9 +25,11 @@ export async function sendEmailCode(req: Request, challengeId: string, to: strin
     text: `Your code to ${doing} ${BRAND.name} Mail is ${spaced}.\n\nIt expires in 10 minutes. If you did not ask for it, someone has your password — change it.`,
     html: renderActionEmail({
       eyebrow: `${BRAND.name} · Mail`,
-      accent: BRAND.colors.accent,
+      code: spaced,
+      recipient: to,
+      reason: purpose === 'signin' ? 'because two-step sign-in by email is on for your account' : 'because email codes were requested for your account',
       title: spaced,
-      body: `Enter this code to ${doing} ${BRAND.name} Mail.`,
+      body: `Enter this code to ${doing} ${BRAND.name} Mail. ${BRAND.name} will never ask for it by phone, chat or email.`,
       actionLabel: `Open ${BRAND.name} Mail`,
       actionUrl: `${publicOrigin(req)}/mail`,
       expiry: 'The code expires in 10 minutes and works once.',

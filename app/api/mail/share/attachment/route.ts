@@ -4,6 +4,7 @@ import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { createShare, getInboundSource } from '@/lib/mailbox'
 import { hashPassword } from '@/lib/password'
 import { presign } from '@/lib/r2'
+import { publicOrigin } from '@/lib/public-url'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -86,6 +87,6 @@ export async function POST(req: Request) {
     maxDownloads: body.maxDownloads && body.maxDownloads > 0 ? body.maxDownloads : null,
   })
 
-  const base = process.env.MAIL_PUBLIC_URL?.replace(/\/$/, '') || new URL(req.url).origin
+  const base = publicOrigin(req)
   return NextResponse.json({ ok: true, id, url: `${base}/share/${id}`, expiresAt })
 }

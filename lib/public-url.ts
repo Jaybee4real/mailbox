@@ -10,5 +10,8 @@ export function publicOrigin(req: Request): string {
   const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim()
   if (vercel) return `https://${vercel.replace(/^https?:\/\//, '').replace(/\/$/, '')}`
 
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error("MAIL_PUBLIC_URL is not set; refusing to build a link from the request's Host header")
+  }
   return new URL(req.url).origin
 }

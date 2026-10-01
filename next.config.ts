@@ -16,12 +16,6 @@ const noIndexHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  // Ensure the contact-form email templates ship with the serverless bundle.
-  // Without this, `readFileSync('lib/emails/templates/*.html')` works in dev
-  // but the .html files get tree-shaken out of the production trace.
-  outputFileTracingIncludes: {
-    '/api/contact': ['./lib/emails/templates/**/*.html'],
-  },
   poweredByHeader: false,
   env: {
     // Captured at build time. On Vercel this is the last successful build's
