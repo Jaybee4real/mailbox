@@ -14,6 +14,10 @@ const TYPES: Record<string, string> = {
   'image/webp': 'webp',
   'image/svg+xml': 'svg',
 }
+const LOCKED_DOWN = {
+  'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+  'x-content-type-options': 'nosniff',
+}
 
 /** The type the bytes say they are; a browser's label for a file is often missing or wrong. */
 function sniffImageType(bytes: Buffer): string | null {
@@ -40,12 +44,13 @@ function sniffImageType(bytes: Buffer): string | null {
 export async function GET(req: Request) {
   const key = new URL(req.url).searchParams.get('key')
   if (!key || !/^signatures\/[A-Za-z0-9._-]+$/.test(key)) {
-    return NextResponse.json({ ok: false, error: 'Bad key' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'Bad key' }, { status: 400, headers: LOCKED_DOWN })
   }
   const upstream = await fetch(presign(key, 'GET', 300)).catch(() => null)
-  if (!upstream?.ok) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  if (!upstream?.ok) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404, headers: LOCKED_DOWN })
   return new NextResponse(upstream.body, {
     headers: {
+      ...LOCKED_DOWN,
       'content-type': upstream.headers.get('content-type') ?? 'application/octet-stream',
       'cache-control': 'public, max-age=31536000, immutable',
     },
