@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { attachmentHeaders } from '@/lib/attachments'
 import { mailAuthGuard } from '@/lib/dev-auth'
 import { getInboundAttachments } from '@/lib/mailbox'
 import { getObject } from '@/lib/r2'
@@ -34,15 +35,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'That file could not be read.' }, { status: 502 })
   }
 
-  const filename = String(entry.filename ?? 'attachment').replace(/["\\]/g, '')
   // The preview and the download button share this route. `attachment` tells the browser
   // to save rather than render, which turns a preview into a download — so the viewer
   // asks for `inline` and only the download button gets the other.
   const inline = params.get('inline') === '1'
   return new Response(object.body, {
     headers: {
-      'content-type': String(entry.contentType ?? object.headers.get('content-type') ?? 'application/octet-stream'),
-      'content-disposition': `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
+      ...attachmentHeaders(String(entry.filename ?? 'attachment'), inline),
       ...(object.headers.get('content-length') ? { 'content-length': object.headers.get('content-length')! } : {}),
       'cache-control': 'private, max-age=3600',
     },

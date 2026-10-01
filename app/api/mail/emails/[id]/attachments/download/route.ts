@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { attachmentHeaders } from '@/lib/attachments'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { mayReadSent } from '@/lib/sent-access'
 import { getSentAttachments } from '@/lib/mailbox'
@@ -29,11 +30,9 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   if (stored?.key) {
     const object = await getObject(stored.key)
     if (object?.body) {
-      const name = (stored.filename || 'attachment').replace(/["\\]/g, '')
       return new Response(object.body, {
         headers: {
-          'content-type': stored.contentType ?? object.headers.get('content-type') ?? 'application/octet-stream',
-          'content-disposition': `${inline ? 'inline' : 'attachment'}; filename="${name}"`,
+          ...attachmentHeaders(stored.filename || 'attachment', inline),
           ...(object.headers.get('content-length') ? { 'content-length': object.headers.get('content-length')! } : {}),
           'cache-control': 'private, max-age=3600',
         },
@@ -59,11 +58,9 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     return NextResponse.json({ ok: false, error: 'That file could not be read.' }, { status: 502 })
   }
 
-  const filename = String(entry.filename ?? 'attachment').replace(/["\\]/g, '')
   return new Response(file.body, {
     headers: {
-      'content-type': String(entry.content_type ?? file.headers.get('content-type') ?? 'application/octet-stream'),
-      'content-disposition': `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
+      ...attachmentHeaders(String(entry.filename ?? 'attachment'), inline),
       ...(file.headers.get('content-length') ? { 'content-length': file.headers.get('content-length')! } : {}),
       'cache-control': 'private, max-age=3600',
     },

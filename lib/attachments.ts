@@ -50,3 +50,47 @@ export function attachedFiles<T extends FileMeta>(files: T[], html?: string | nu
   const referenced = referencedCids(html)
   return files.filter(file => !isEmbedded(file, referenced))
 }
+
+const INLINE_TYPES: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  mp4: 'video/mp4',
+  m4v: 'video/x-m4v',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+  ogv: 'video/ogg',
+  mkv: 'video/x-matroska',
+  '3gp': 'video/3gpp',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
+  txt: 'text/plain; charset=utf-8',
+}
+
+/**
+ * The sender chose the stored type, so it is never echoed back: served from this origin,
+ * `text/html` or `image/svg+xml` would run the sender's script as the reader.
+ */
+export function attachmentHeaders(filename: string, inline: boolean): Record<string, string> {
+  const extension = filename.includes('.') ? filename.split('.').pop()!.toLowerCase() : ''
+  const safeType = INLINE_TYPES[extension]
+  return {
+    'content-type': safeType ?? 'application/octet-stream',
+    'content-disposition': `${inline && safeType ? 'inline' : 'attachment'}; filename="${filename.replace(/["\\]/g, '')}"`,
+    'x-content-type-options': 'nosniff',
+  }
+}
