@@ -9,6 +9,7 @@ import { ADDRESS_ALIASES, MAIL_SEATS, type MailRole } from './brand'
  */
 
 import { stripCidPlaceholders } from './email-html'
+import { randomBytes } from 'node:crypto'
 import { hashPassword } from './password'
 import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
@@ -453,10 +454,10 @@ export function ensureMailSchema(): Promise<void> {
       // existing password_hash.
       const sql = db()
       for (const seat of MAIL_SEATS) {
-        // Every seat starts with its own address as the password, stored hashed like
-        // any other, and flagged so the interface can ask them to change it. An
-        // account that already has a password of its own is never overwritten.
-        const seeded = await hashPassword(seat.email)
+        // A seat never starts with a guessable password: the operator's initial one when
+        // MAIL_SEAT_INITIAL_PASSWORD is set, otherwise a random one nobody holds, so the
+        // first password comes from an admin or a reset link. Existing passwords are kept.
+        const seeded = await hashPassword(process.env.MAIL_SEAT_INITIAL_PASSWORD?.trim() || randomBytes(32).toString('base64url'))
         await sql`
           INSERT INTO mail_accounts (email, role, name, address, status, created_at, password_hash, password_is_default)
           VALUES (${seat.email}, ${seat.role}, ${seat.name}, ${seat.address}, 'active', ${nowIso()}, ${seeded}, 1)

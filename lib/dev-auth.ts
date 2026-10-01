@@ -58,11 +58,6 @@ export async function isMailAccount(email: string): Promise<boolean> {
 /** Domain every mailbox address lives on. */
 export const MAIL_DOMAIN = (BRAND.domain).trim().toLowerCase()
 
-export function defaultPasswordFor(email: string): string {
-  const localPart = email.trim().toLowerCase().split('@')[0]
-  return `${localPart}@${MAIL_DOMAIN}`
-}
-
 export function isLocalOrigin(req: Request): boolean {
   // origin/referer/host are client-supplied; only trust them off a deployed runtime.
   if (process.env.NODE_ENV === 'production' || process.env.VERCEL) return false
@@ -165,11 +160,6 @@ export async function verifyMailAuth(
     return { ok: false, error: 'Invalid credentials' }
   }
 
-  // No stored password: only the bootstrap admin gets the address-derived default.
-  // Invited people must set their own via the link they were sent.
-  if (legacy && password === defaultPasswordFor(normalized)) {
-    return { ok: true, email: identity }
-  }
   return { ok: false, error: 'Invalid credentials' }
 }
 
