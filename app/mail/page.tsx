@@ -6766,6 +6766,14 @@ export default function DevMailPage() {
       const inboundMembers = threadMembers(inbound.id)
       const unified = unifiedThread(inbound.id)
       const isThread = unified.length > 1
+      const starter = isThread ? unified[0] : null
+      const starterInbound = starter?.kind === 'inbound' ? starter.inbound : null
+      const headline = starter?.kind === 'sent'
+        ? { from: starter.sent.from, to: starter.sent.to, cc: starter.sent.cc ?? [], bcc: starter.sent.bcc ?? [], replyTo: [] as string[], date: starter.sent.createdAt, source: null }
+        : (() => {
+            const message = starterInbound ?? inbound
+            return { from: message.from, to: message.to, cc: message.cc, bcc: message.bcc, replyTo: message.replyTo, date: message.receivedAt, source: message }
+          })()
       const remoteRefs = inboundMembers.reduce((total, message) => total + countRemoteRefs(message.html), 0)
       return (
         <>
@@ -6808,15 +6816,15 @@ export default function DevMailPage() {
               </div>
             )}
             <div className={styles.readerMeta}>
-              <div className={styles.avatar}>{(parseAddress(inbound.from)[0] ?? '?').toUpperCase()}</div>
+              <div className={styles.avatar}>{(parseAddress(headline.from)[0] ?? '?').toUpperCase()}</div>
               <div className={styles.readerMetaText}>
-                <Ticker className={`${styles.readerFrom} ${styles.tickerBlock}`} enabled={tickerOn('readerFrom')}>{inbound.from}</Ticker>
+                <Ticker className={`${styles.readerFrom} ${styles.tickerBlock}`} enabled={tickerOn('readerFrom')}>{headline.from}</Ticker>
                 <span className={styles.threadMsgRecips}>
                   <Ticker className={styles.threadMsgRecipsText} enabled={tickerOn('readerTo')}>
                     {[
-                      `to ${inbound.to.join(', ') || 'you'}`,
-                      inbound.cc.length ? `cc ${inbound.cc.join(', ')}` : '',
-                      inbound.bcc.length ? `bcc ${inbound.bcc.join(', ')}` : '',
+                      `to ${headline.to.join(', ') || 'you'}`,
+                      headline.cc.length ? `cc ${headline.cc.join(', ')}` : '',
+                      headline.bcc.length ? `bcc ${headline.bcc.join(', ')}` : '',
                     ].filter(Boolean).join('  ·  ')}
                   </Ticker>
                   <button className={styles.threadMsgDetails} aria-expanded={showFullHeaders} onClick={() => setShowFullHeaders(open => !open)}>
@@ -6824,7 +6832,7 @@ export default function DevMailPage() {
                   </button>
                 </span>
               </div>
-              <div className={styles.readerDate}>{new Date(inbound.receivedAt).toLocaleString()}</div>
+              <div className={styles.readerDate}>{new Date(headline.date).toLocaleString()}</div>
             </div>
             {inbound.risk && inbound.risk !== 'clean' && (
               <div className={styles.riskBanner} role="alert">
@@ -6870,14 +6878,14 @@ export default function DevMailPage() {
             )}
             {showFullHeaders && (
               <dl className={styles.fullHeaders}>
-                <div><dt>From</dt><dd>{inbound.from}</dd></div>
-                <div><dt>To</dt><dd>{inbound.to.join(', ') || '—'}</dd></div>
-                {inbound.cc.length > 0 && <div><dt>Cc</dt><dd>{inbound.cc.join(', ')}</dd></div>}
-                {inbound.bcc.length > 0 && <div><dt>Bcc</dt><dd>{inbound.bcc.join(', ')}</dd></div>}
-                {inbound.replyTo.length > 0 && <div><dt>Reply-To</dt><dd>{inbound.replyTo.join(', ')}</dd></div>}
-                <div><dt>Date</dt><dd>{new Date(inbound.receivedAt).toUTCString()}</dd></div>
-                <div><dt>Message ID</dt><dd>{headerValue(inbound, 'message-id') || inbound.id}</dd></div>
-                {!plainSpoken && authSummary(inbound) && <div><dt>Security</dt><dd>{authSummary(inbound)}</dd></div>}
+                <div><dt>From</dt><dd>{headline.from}</dd></div>
+                <div><dt>To</dt><dd>{headline.to.join(', ') || '—'}</dd></div>
+                {headline.cc.length > 0 && <div><dt>Cc</dt><dd>{headline.cc.join(', ')}</dd></div>}
+                {headline.bcc.length > 0 && <div><dt>Bcc</dt><dd>{headline.bcc.join(', ')}</dd></div>}
+                {headline.replyTo.length > 0 && <div><dt>Reply-To</dt><dd>{headline.replyTo.join(', ')}</dd></div>}
+                <div><dt>Date</dt><dd>{new Date(headline.date).toUTCString()}</dd></div>
+                {headline.source && <div><dt>Message ID</dt><dd>{headerValue(headline.source, 'message-id') || headline.source.id}</dd></div>}
+                {headline.source && !plainSpoken && authSummary(headline.source) && <div><dt>Security</dt><dd>{authSummary(headline.source)}</dd></div>}
                 {inbound.labels.length > 0 && <div><dt>Labels</dt><dd>{inbound.labels.join(', ')}</dd></div>}
               </dl>
             )}
