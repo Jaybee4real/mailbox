@@ -14,6 +14,13 @@ const session = readSession(withToken(token!))
 assert.equal(session?.email, 'info@example.com', 'the address round-trips, lowercased')
 assert.equal(session?.fingerprint, fingerprint)
 
+const native = new Request('https://mail.example.com/', { headers: { authorization: `Bearer ${token}` } })
+assert.deepEqual(readSession(native), session, 'native bearer and browser cookie authenticate the same identity')
+assert.equal(readSession(new Request('https://mail.example.com/', { headers: { authorization: 'Bearer invalid' } })), null)
+assert.equal(readSession(new Request('https://mail.example.com/', { headers: {
+  authorization: 'Bearer invalid', cookie: `${SESSION_COOKIE}=${token}`,
+} })), null, 'an invalid bearer must not fall back to another account cookie')
+
 // A flipped character in the signature must not verify.
 const tampered = token!.slice(0, -1) + (token!.endsWith('A') ? 'B' : 'A')
 assert.equal(readSession(withToken(tampered)), null, 'a tampered signature is rejected')

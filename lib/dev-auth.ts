@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server'
 import { getAccount, getAccountByAddress, getAccountPasswordHash, setAccountPassword, MAIL_SEATS, type MailRole } from '@/lib/mailbox'
 import { hashPassword, verifyPassword, isLegacyHash } from '@/lib/password'
 import { passwordFingerprint, readSession } from '@/lib/session'
+import { readMobileSession } from '@/lib/mobile-session'
 
 /**
  * The two original accounts. They may sign in with the email-derived default password
@@ -176,7 +177,8 @@ export async function currentFingerprint(email: string): Promise<string> {
  * so changing or resetting a password signs out every device that was already signed in.
  */
 async function sessionIdentity(req: Request): Promise<string | null> {
-  const session = readSession(req)
+  const session = req.headers.get('authorization')?.startsWith('Bearer vm_')
+    ? await readMobileSession(req) : readSession(req)
   if (!session) return null
 
   const account = await getAccount(session.email)

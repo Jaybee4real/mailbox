@@ -3,6 +3,7 @@ import { currentFingerprint } from '@/lib/dev-auth'
 import { countChallengeAttempt, deleteLoginChallenge, getLoginChallenge, recordSignin, totpSecretFor, twoFactorState } from '@/lib/mailbox'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession } from '@/lib/session'
+import { issueMobileSession } from '@/lib/mobile-session'
 import { requestContext } from '@/lib/signin'
 import { EMAIL_CODE_TTL_MS, MAX_CODE_ATTEMPTS, hashEmailCode, verifyTotp, type SecondFactor } from '@/lib/two-factor'
 
@@ -48,5 +49,7 @@ export async function POST(req: Request) {
   await deleteLoginChallenge(challenge.id)
   await recordSignin(challenge.email, { ...context, method: body.method ?? null, outcome: 'signed-in' }).catch(() => {})
   const token = issueSession(challenge.email, await currentFingerprint(challenge.email))
-  return attachSession(NextResponse.json({ ok: true, email: challenge.email, session: Boolean(token) }), token)
+  return attachSession(NextResponse.json({ ok: true, email: challenge.email, session: Boolean(token),
+    ...(req.headers.get('x-mail-client') === 'vela-native' ? { token: await issueMobileSession(challenge.email, await currentFingerprint(challenge.email), req.headers.get('x-mail-device') ?? 'Vela Mail') } : {}),
+  }, { headers: { 'Cache-Control': 'no-store' } }), token)
 }

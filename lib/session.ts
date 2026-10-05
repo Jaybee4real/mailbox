@@ -34,7 +34,10 @@ export function readSession(req: Request): { email: string; fingerprint: string 
   if (!key) return null
 
   const cookies = req.headers.get('cookie') ?? ''
-  const raw = cookies
+  const authorization = req.headers.get('authorization')
+  const bearer = authorization?.match(/^Bearer ([\w.-]+)$/)?.[1]
+  if (authorization && !bearer) return null
+  const raw = bearer ?? cookies
     .split(';')
     .map(entry => entry.trim())
     .find(entry => entry.startsWith(`${SESSION_COOKIE}=`))
