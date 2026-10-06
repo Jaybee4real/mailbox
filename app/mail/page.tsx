@@ -9006,7 +9006,7 @@ export default function DevMailPage() {
               <button className={styles.sendBtn} onClick={sendEmail} disabled={sending} type="button">
                 {sending ? 'Sending…' : compose.delayKey === '0' ? 'Send' : 'Send'}
               </button>
-              {attachments.some(entry => entry.size <= ATTACH_LIMIT_BYTES) ? (
+              {attachments.some(entry => !entry.shareId) ? (
                 <span className={styles.sendNowNote} title="Resend can't schedule a send that carries attachments, so it goes out right away.">
                   Sends now · attachments can’t be scheduled
                 </span>
@@ -10375,8 +10375,8 @@ export default function DevMailPage() {
                               <span className={styles.filesName}>{share.filename}</span>
                               <span className={styles.filesSub}>
                                 {formatSize(share.size)}
-                                {share.access !== 'view' && <> · {share.downloads}{share.maxDownloads != null ? ` / ${share.maxDownloads}` : ''} downloads</>}
-                                {share.access !== 'download' && <> · {share.views}{share.maxViews != null ? ` / ${share.maxViews}` : ''} views</>}
+                                {share.access !== 'view' && <> · {share.downloads}{share.maxDownloads != null ? ` / ${share.maxDownloads}` : ''} download{share.maxDownloads == null && share.downloads === 1 ? '' : 's'}</>}
+                                {share.access !== 'download' && <> · {share.views}{share.maxViews != null ? ` / ${share.maxViews}` : ''} view{share.maxViews == null && share.views === 1 ? '' : 's'}</>}
                                 {share.access === 'view' ? ' · view only' : ''}
                                 {share.hasPassword ? ' · password' : ''} · {status}
                               </span>

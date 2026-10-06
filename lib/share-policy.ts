@@ -72,7 +72,6 @@ function instant(value: unknown): string | null | undefined {
   return Number.isFinite(time) ? new Date(time).toISOString() : undefined
 }
 
-/** Reads settings from a request body; `expiresInDays` is still accepted from older clients. */
 export function parseShareSettings(
   input: Record<string, unknown>,
   filename: string,
