@@ -38,6 +38,10 @@ const nextConfig: NextConfig = {
         source: '/api/mail/emails/:id/attachments/download',
         headers: [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }],
       },
+      {
+        source: '/api/share/:id/download',
+        headers: [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }],
+      },
     ];
   },
 };

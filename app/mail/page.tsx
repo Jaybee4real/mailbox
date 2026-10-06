@@ -62,6 +62,8 @@ import { FIRST_MESSAGE_REASON } from '@/lib/risk'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
 import HumanCheck from './HumanCheck'
+import LinkSettings, { defaultLinkSettings, linkSettingsFromShare, linkSettingsPayload, linkSummary, linkTerms, type LinkSettingsValue } from './LinkSettings'
+import { shareGate, type ShareAccess } from '@/lib/share-policy'
 
 // Files up to this size ride along as real email attachments; larger ones are
 // linked as a download button in the body (email providers cap total size).
@@ -265,7 +267,7 @@ type Attachment = {
   /** Set when the file went to object storage instead of riding along on the email. */
   shareId?: string
   shareUrl?: string
-  password?: string
+  link?: LinkSettingsValue
   progress?: number
   error?: string
   /** Briefly true after the bytes land, so the chip can confirm rather than just stop moving. */
@@ -433,7 +435,15 @@ type ShareLink = {
   downloads: number
   maxDownloads: number | null
   revoked: boolean
+  availableAt: string | null
+  maxViews: number | null
+  views: number
+  access: ShareAccess
 }
+
+type LinkEdit =
+  | { kind: 'attachment'; uid: string; filename: string; big: boolean; asLink: boolean; value: LinkSettingsValue; busy: boolean; error: string }
+  | { kind: 'share'; id: string; filename: string; value: LinkSettingsValue; busy: boolean; error: string }
 
 type LibraryFile = {
   messageId: string
@@ -1224,6 +1234,17 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function shareLinkRowHtml(entry: Attachment): string {
+  const terms = linkTerms(entry.link)
+  const note = terms ? `<div style="font-family:Arial,sans-serif;font-size:12px;color:#5A5170;margin-top:6px">${escapeHtml(terms)}</div>` : ''
+  return `<tr><td style="padding:6px 0"><a href="${entry.shareUrl ?? entry.url}" style="display:inline-block;background:${CLIENT_BRAND.accent};color:#fff;text-decoration:none;font-weight:600;padding:9px 16px;border-radius:8px;font-family:Arial,sans-serif;font-size:14px">${entry.link?.access === 'view' ? 'View' : 'Download'} ${escapeHtml(entry.filename)} (${formatBytes(entry.size)})</a>${note}</td></tr>`
+}
+
+function shareLinkText(entry: Attachment): string {
+  const terms = linkTerms(entry.link)
+  return `${entry.filename} — ${entry.shareUrl ?? entry.url}${terms ? ` (${terms})` : ''}`
+}
+
 type StashHeaders = Record<string, string>
 
 async function fetchStash(kind: 'draft' | 'template', headers: StashHeaders): Promise<Array<{ id: string; data: unknown; updatedAt: string }>> {
@@ -1662,9 +1683,7 @@ export default function DevMailPage() {
   const [filesOpen, setFilesOpen] = useState(false)
   const [shares, setShares] = useState<ShareLink[]>([])
   const [shareDraft, setShareDraft] = useState<LibraryFile | null>(null)
-  const [shareExpiry, setShareExpiry] = useState(7)
-  const [sharePassword, setSharePassword] = useState('')
-  const [shareMax, setShareMax] = useState('')
+  const [shareLink, setShareLink] = useState<LinkSettingsValue>(() => defaultLinkSettings('', 7))
   const [shareBusy, setShareBusy] = useState(false)
   const [shareResult, setShareResult] = useState<string | null>(null)
   const [filesMsg, setFilesMsg] = useState('')
@@ -1689,8 +1708,7 @@ export default function DevMailPage() {
   const [showCcBcc, setShowCcBcc] = useState(false)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [attachmentsLoading, setAttachmentsLoading] = useState(false)
-  // Index of the file whose password sheet is open, or null.
-  const [lockTarget, setLockTarget] = useState<number | null>(null)
+  const [linkEdit, setLinkEdit] = useState<LinkEdit | null>(null)
   const [attachExpanded, setAttachExpanded] = useState<string | null>(null)
   const [attachCopied, setAttachCopied] = useState<{ uid: string; ok: boolean } | null>(null)
   const previewUrls = useRef<string[]>([])
@@ -1698,7 +1716,6 @@ export default function DevMailPage() {
     const urls = previewUrls.current
     return () => urls.forEach(url => URL.revokeObjectURL(url))
   }, [])
-  const [lockValue, setLockValue] = useState('')
   // 'armed' = a file is loose over the window, 'over' = it's above the drop target.
   const [dragState, setDragState] = useState<'idle' | 'armed' | 'over'>('idle')
   const dragDepth = useRef(0)
@@ -4631,7 +4648,7 @@ export default function DevMailPage() {
    * well below what people routinely drag in.
    */
   const uploadAsShare = useCallback(
-    async (file: File, uid: string): Promise<Attachment> => {
+    async (file: File, uid: string, link: LinkSettingsValue = defaultLinkSettings(file.name)): Promise<Attachment> => {
       const register = await fetch('/api/mail/share', {
         method: 'POST',
         headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
@@ -4639,7 +4656,8 @@ export default function DevMailPage() {
           filename: file.name,
           contentType: file.type || 'application/octet-stream',
           size: file.size,
-          expiresInDays: 30,
+          ...linkSettingsPayload(link),
+          password: link.password.trim() || undefined,
         }),
       })
       const registered = await register.json().catch(() => null)
@@ -4655,6 +4673,7 @@ export default function DevMailPage() {
         size: file.size,
         shareId: registered.id as string,
         shareUrl: `${window.location.origin}/share/${registered.id}`,
+        link,
       }
     },
     [apiHeaders, putWithProgress],
@@ -4763,22 +4782,6 @@ export default function DevMailPage() {
   }
 
 
-  const applyLock = useCallback(async () => {
-    if (lockTarget == null) return
-    const target = attachments[lockTarget]
-    if (!target?.shareId) return
-    const next = lockValue.trim()
-    setAttachments(list =>
-      list.map((entry, index) => (index === lockTarget ? { ...entry, password: next || undefined } : entry)),
-    )
-    setLockTarget(null)
-    setLockValue('')
-    await fetch('/api/mail/share', {
-      method: 'PATCH',
-      headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: target.shareId, password: next }),
-    }).catch(() => {})
-  }, [apiHeaders, attachments, lockTarget, lockValue])
 
   const resolveScheduledAt = (): string | null => {
     if (compose.delayKey === '0') return null
@@ -4813,19 +4816,14 @@ export default function DevMailPage() {
       setComposeError(`${failedUpload.filename} did not upload. Remove it or try again.`)
       return
     }
-    const attachable = attachments.filter(entry => entry.size <= ATTACH_LIMIT_BYTES)
-    const linked = attachments.filter(entry => entry.size > ATTACH_LIMIT_BYTES)
+    const attachable = attachments.filter(entry => !entry.shareId)
+    const linked = attachments.filter(entry => entry.shareId)
     let linksHtml = ''
     let linksText = ''
     if (linked.length) {
-      const rows = linked
-        .map(
-          entry =>
-            `<tr><td style="padding:6px 0"><a href="${entry.shareUrl ?? entry.url}" style="display:inline-block;background:${CLIENT_BRAND.accent};color:#fff;text-decoration:none;font-weight:600;padding:9px 16px;border-radius:8px;font-family:Arial,sans-serif;font-size:14px">Download ${escapeHtml(entry.filename)} (${formatBytes(entry.size)})</a></td></tr>`,
-        )
-        .join('')
+      const rows = linked.map(shareLinkRowHtml).join('')
       linksHtml = `<div style="margin:18px 0"><p style="font-family:Arial,sans-serif;font-size:14px;color:#5A5170;margin:0 0 8px">${linked.length === 1 ? 'Attached, as a download link:' : 'Attached, as download links:'}</p><table role="presentation">${rows}</table></div>`
-      linksText = `\n\n${linked.length === 1 ? 'Attached, as a download link:' : 'Attached, as download links:'}\n${linked.map(entry => `${entry.filename} — ${entry.shareUrl ?? entry.url}`).join('\n')}`
+      linksText = `\n\n${linked.length === 1 ? 'Attached, as a download link:' : 'Attached, as download links:'}\n${linked.map(shareLinkText).join('\n')}`
     }
 
     const html = buildEmailHtml(compose, signatureHtml, fontCss, defaultFont, linksHtml)
@@ -5170,14 +5168,9 @@ export default function DevMailPage() {
     try {
       // Files ride along the same way the full composer sends them: anything past the
       // attachment ceiling becomes a download link rather than being dropped.
-      const attachable = attachments.filter(entry => entry.size <= ATTACH_LIMIT_BYTES && !entry.error)
-      const linked = attachments.filter(entry => entry.size > ATTACH_LIMIT_BYTES && !entry.error)
-      const linkRows = linked
-        .map(
-          entry =>
-            `<tr><td style="padding:6px 0"><a href="${entry.shareUrl ?? entry.url}" style="display:inline-block;background:${CLIENT_BRAND.accent};color:#fff;text-decoration:none;font-weight:600;padding:9px 16px;border-radius:8px;font-family:Arial,sans-serif;font-size:14px">Download ${escapeHtml(entry.filename)} (${formatBytes(entry.size)})</a></td></tr>`,
-        )
-        .join('')
+      const attachable = attachments.filter(entry => !entry.shareId && !entry.error)
+      const linked = attachments.filter(entry => entry.shareId && !entry.error)
+      const linkRows = linked.map(shareLinkRowHtml).join('')
       const linkBlock = linkRows ? `<table role="presentation" style="margin-top:18px">${linkRows}</table>` : ''
 
       const response = await fetch('/api/mail/send', {
@@ -5692,12 +5685,79 @@ export default function DevMailPage() {
     return [...fromInbox, ...fromSent].sort((first, second) => (first.at < second.at ? 1 : -1))
   }, [libraryInbox, detailCache])
 
+  const openAttachmentLink = (attachment: Attachment) => {
+    if (!attachment.uid) return
+    const big = attachment.size > ATTACH_LIMIT_BYTES
+    setLinkEdit({
+      kind: 'attachment',
+      uid: attachment.uid,
+      filename: attachment.filename,
+      big,
+      asLink: true,
+      value: attachment.link ?? defaultLinkSettings(attachment.filename),
+      busy: false,
+      error: '',
+    })
+  }
+
+  const saveLinkEdit = useCallback(async () => {
+    if (!linkEdit) return
+    setLinkEdit(current => (current ? { ...current, busy: true, error: '' } : current))
+    const fail = (error: string) => setLinkEdit(current => (current ? { ...current, busy: false, error } : current))
+    const patchShare = async (id: string, value: LinkSettingsValue, withPassword: boolean) => {
+      const response = await fetch('/api/mail/share', {
+        method: 'PATCH',
+        headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, settings: linkSettingsPayload(value), ...(withPassword ? { password: value.password } : {}) }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data?.ok) throw new Error(data?.error ?? 'Could not save the link settings.')
+    }
+    try {
+      if (linkEdit.kind === 'share') {
+        await patchShare(linkEdit.id, linkEdit.value, false)
+        setLinkEdit(null)
+        loadShares()
+        return
+      }
+      const target = attachments.find(entry => entry.uid === linkEdit.uid)
+      if (!target) return setLinkEdit(null)
+      if (!linkEdit.asLink && !linkEdit.big) {
+        if (target.shareId) {
+          await fetch(`/api/mail/share?id=${encodeURIComponent(target.shareId)}`, { method: 'DELETE', headers: apiHeaders() }).catch(() => {})
+        }
+        setAttachments(list =>
+          list.map(entry => (entry.uid === target.uid ? { ...entry, shareId: undefined, shareUrl: undefined, link: undefined } : entry)),
+        )
+        return setLinkEdit(null)
+      }
+      if (target.shareId) {
+        await patchShare(target.shareId, linkEdit.value, true)
+        setAttachments(list => list.map(entry => (entry.uid === target.uid ? { ...entry, link: linkEdit.value } : entry)))
+        return setLinkEdit(null)
+      }
+      if (!target.file) return fail('Attach the file again to send it as a link.')
+      const uid = linkEdit.uid
+      setAttachments(list => list.map(entry => (entry.uid === uid ? { ...entry, uploading: true, progress: 0 } : entry)))
+      try {
+        const finished = await uploadAsShare(target.file, uid, linkEdit.value)
+        setAttachments(list =>
+          list.map(entry => (entry.uid === uid ? { ...entry, shareId: finished.shareId, shareUrl: finished.shareUrl, link: finished.link, uploading: false } : entry)),
+        )
+        setLinkEdit(null)
+      } catch (err) {
+        setAttachments(list => list.map(entry => (entry.uid === uid ? { ...entry, uploading: false, progress: 0 } : entry)))
+        throw err
+      }
+    } catch (err) {
+      fail(err instanceof Error ? err.message : 'Could not save the link settings.')
+    }
+  }, [apiHeaders, attachments, linkEdit, loadShares, uploadAsShare])
+
   const openShareDialog = (file: LibraryFile) => {
     setShareDraft(file)
     setShareResult(null)
-    setSharePassword('')
-    setShareMax('')
-    setShareExpiry(7)
+    setShareLink(defaultLinkSettings(file.filename, 7))
     setFilesMsg('')
   }
 
@@ -5712,9 +5772,8 @@ export default function DevMailPage() {
         body: JSON.stringify({
           messageId: shareDraft.messageId,
           filename: shareDraft.filename,
-          expiresInDays: shareExpiry || undefined,
-          password: sharePassword || undefined,
-          maxDownloads: shareMax ? Number(shareMax) : undefined,
+          ...linkSettingsPayload(shareLink),
+          password: shareLink.password.trim() || undefined,
         }),
       })
       const data = await response.json()
@@ -6311,12 +6370,23 @@ export default function DevMailPage() {
               </span>
               <button
                 type="button"
-                className={`${styles.attachLock} ${attachment.password ? styles.attachLockOn : ''}`}
-                onClick={() => { setLockValue(attachment.password ?? ''); setLockTarget(index) }}
+                className={`${styles.attachLock} ${linkSummary(attachment.link) !== 'Link settings' ? styles.attachLockOn : ''}`}
+                title={linkTerms(attachment.link) || 'Set a password, expiry, opening time and view or download limits'}
+                onClick={() => openAttachmentLink(attachment)}
               >
-                {attachment.password ? 'Password set' : 'Add password'}
+                {linkSummary(attachment.link)}
               </button>
             </>
+          )}
+          {withExtras && !attachment.uploading && !attachment.error && !attachment.shareId && attachment.file && (
+            <button
+              type="button"
+              className={styles.attachLock}
+              title="Send this file as a protected link with a password, expiry and limits"
+              onClick={() => openAttachmentLink(attachment)}
+            >
+              Send as link
+            </button>
           )}
           <button
             type="button"
@@ -8922,10 +8992,10 @@ export default function DevMailPage() {
                         </div>
                       ))}
                   </div>
-                  {attachments.some(entry => entry.size > ATTACH_LIMIT_BYTES) && (
-                    <span className={styles.attachNote}>large files (&gt;20MB) are sent as download links</span>
+                  {attachments.some(entry => entry.shareId || entry.size > ATTACH_LIMIT_BYTES) && (
+                    <span className={styles.attachNote}>large files (&gt;20MB) and files sent as links go out as download links</span>
                   )}
-                  {attachments.every(entry => entry.size <= ATTACH_LIMIT_BYTES) && (
+                  {attachments.every(entry => !entry.shareId && entry.size <= ATTACH_LIMIT_BYTES) && (
                     <span className={styles.attachNoteMuted}>attachments send immediately (no delay)</span>
                   )}
                 </div>
@@ -10250,35 +10320,13 @@ export default function DevMailPage() {
                       </div>
                     </div>
                     <div className={styles.settingsFoot}>
-                      <span className={styles.settingsHint}>{filesMsg || 'Anyone with the link can download until it expires.'}</span>
+                      <span className={styles.settingsHint}>{filesMsg || linkTerms(shareLink) || 'Anyone with the link can open it until it expires.'}</span>
                       <button type="button" className={styles.themeReset} onClick={() => setShareDraft(null)}>Done</button>
                     </div>
                   </>
                 ) : (
                   <>
-                    <div className={styles.settingsField}>
-                      <span>Expires</span>
-                      <div className={styles.themeRow}>
-                        {([[1, '1 day'], [7, '7 days'], [30, '30 days'], [0, 'Never']] as Array<[number, string]>).map(([days, label]) => (
-                          <button
-                            key={days}
-                            type="button"
-                            className={`${styles.themeChip} ${shareExpiry === days ? styles.themeChipOn : ''}`}
-                            onClick={() => setShareExpiry(days)}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <label className={styles.settingsField}>
-                      <span>Password (optional)</span>
-                      <input type="text" value={sharePassword} onChange={event => setSharePassword(event.target.value)} placeholder="Leave blank for none" autoComplete="off" />
-                    </label>
-                    <label className={styles.settingsField}>
-                      <span>Download limit (optional)</span>
-                      <input type="number" min={1} value={shareMax} onChange={event => setShareMax(event.target.value)} placeholder="Unlimited" />
-                    </label>
+                    <LinkSettings filename={shareDraft.filename} value={shareLink} onChange={setShareLink} />
                     {filesMsg && <p className={styles.accessorMsg}>{filesMsg}</p>}
                     <div className={styles.settingsFoot}>
                       <button type="button" className={styles.themeReset} onClick={() => setShareDraft(null)}>Cancel</button>
@@ -10308,30 +10356,43 @@ export default function DevMailPage() {
                     <ul className={styles.filesList}>
                       {shares.map(share => {
                         const expired = Boolean(share.expiresAt && new Date(share.expiresAt) < new Date())
-                        const exhausted = share.maxDownloads != null && share.downloads >= share.maxDownloads
-                        const dead = share.revoked || expired || exhausted
+                        const gate = shareGate(share)
+                        const dead = gate.state === 'gone'
                         const status = share.revoked
                           ? 'revoked'
                           : expired
                             ? 'expired'
-                            : exhausted
+                            : dead
                               ? 'limit reached'
-                              : share.expiresAt
-                                ? `expires ${new Date(share.expiresAt).toLocaleDateString()}`
-                                : 'never expires'
+                              : [
+                                  gate.state === 'pending' && share.availableAt ? `opens ${new Date(share.availableAt).toLocaleString()}` : '',
+                                  share.expiresAt ? `expires ${new Date(share.expiresAt).toLocaleDateString()}` : 'never expires',
+                                ].filter(Boolean).join(' · ')
                         return (
                           <li key={share.id} className={`${styles.filesRow} ${dead ? styles.filesRowDead : ''}`}>
                             <span className={styles.filesIcon}>{ICONS.file}</span>
                             <span className={styles.filesMeta}>
                               <span className={styles.filesName}>{share.filename}</span>
                               <span className={styles.filesSub}>
-                                {formatSize(share.size)} · {share.downloads}{share.maxDownloads != null ? ` / ${share.maxDownloads}` : ''} downloads
+                                {formatSize(share.size)}
+                                {share.access !== 'view' && <> · {share.downloads}{share.maxDownloads != null ? ` / ${share.maxDownloads}` : ''} downloads</>}
+                                {share.access !== 'download' && <> · {share.views}{share.maxViews != null ? ` / ${share.maxViews}` : ''} views</>}
+                                {share.access === 'view' ? ' · view only' : ''}
                                 {share.hasPassword ? ' · password' : ''} · {status}
                               </span>
                             </span>
                             {!dead && (
                               <span className={styles.filesActions}>
                                 <button type="button" className={styles.attachAction} onClick={() => copyText(`${window.location.origin}/share/${share.id}`)}>Copy link</button>
+                                <button
+                                  type="button"
+                                  className={styles.attachAction}
+                                  onClick={() =>
+                                    setLinkEdit({ kind: 'share', id: share.id, filename: share.filename, value: linkSettingsFromShare(share), busy: false, error: '' })
+                                  }
+                                >
+                                  Settings
+                                </button>
                                 <button type="button" className={styles.attachAction} onClick={() => changeSharePassword(share.id)}>
                                   {share.hasPassword ? 'Change password' : 'Add password'}
                                 </button>
@@ -10387,6 +10448,50 @@ export default function DevMailPage() {
         </div>
       )}
 
+
+      {linkEdit && (
+        <div className={styles.confirmScrim} onClick={() => !linkEdit.busy && setLinkEdit(null)}>
+          <div
+            className={`${styles.confirmCard} ${styles.linkCard}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Link settings"
+            onClick={event => event.stopPropagation()}
+          >
+            <p className={styles.confirmTitle}>Link settings</p>
+            <div className={styles.confirmBody}>{linkEdit.filename}</div>
+            <div className={styles.linkFields}>
+              {linkEdit.kind === 'attachment' && !linkEdit.big && (
+                <label className={styles.settingsToggle}>
+                  <input
+                    type="checkbox"
+                    checked={linkEdit.asLink}
+                    onChange={event => setLinkEdit(current => (current?.kind === 'attachment' ? { ...current, asLink: event.target.checked } : current))}
+                  />
+                  <span>Send as a protected link instead of an attachment</span>
+                </label>
+              )}
+              {(linkEdit.kind === 'share' || linkEdit.asLink) && (
+                <LinkSettings
+                  filename={linkEdit.filename}
+                  value={linkEdit.value}
+                  showPassword={linkEdit.kind === 'attachment'}
+                  onChange={value => setLinkEdit(current => (current ? { ...current, value } : current))}
+                />
+              )}
+              {linkEdit.error && <p className={styles.accessorMsg} role="alert">{linkEdit.error}</p>}
+            </div>
+            <div className={styles.confirmActions}>
+              <button type="button" className={styles.confirmCancel} disabled={linkEdit.busy} onClick={() => setLinkEdit(null)}>
+                Cancel
+              </button>
+              <button type="button" className={styles.confirmGo} disabled={linkEdit.busy} onClick={saveLinkEdit}>
+                {linkEdit.busy ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {undo && (
         <div className={styles.toast}>

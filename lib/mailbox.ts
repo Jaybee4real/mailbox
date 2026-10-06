@@ -16,6 +16,7 @@ import { turso, tursoBatch, tursoQuery } from './turso'
 import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
 import { inboxFiltersSql, normalizeInboxFilters, type InboxFilter } from './inbox-filters'
 import { judgeMessage, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
+import type { ShareAccess, ShareSettings } from './share-policy'
 
 export { judgeMessage, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding }
 
@@ -405,6 +406,14 @@ export function ensureMailSchema(): Promise<void> {
       // mailbox here holds six figures of mail.
       for (const column of ['country', 'region', 'city', 'timezone']) {
         await sqlRaw(`ALTER TABLE mail_signins ADD COLUMN ${column} TEXT`).catch(() => {})
+      }
+      for (const column of [
+        'available_at TEXT',
+        'max_views INTEGER',
+        'views INTEGER NOT NULL DEFAULT 0',
+        "access TEXT NOT NULL DEFAULT 'download'",
+      ]) {
+        await sqlRaw(`ALTER TABLE mail_shares ADD COLUMN ${column}`).catch(() => {})
       }
       await sqlRaw(`CREATE TABLE IF NOT EXISTS mail_sent_origin (
         email_id TEXT PRIMARY KEY,
@@ -2516,6 +2525,10 @@ export type ShareRecord = {
   downloads: number
   maxDownloads: number | null
   revoked: boolean
+  availableAt: string | null
+  maxViews: number | null
+  views: number
+  access: ShareAccess
 }
 
 function mapShare(row: Record<string, unknown>): ShareRecord {
@@ -2530,6 +2543,10 @@ function mapShare(row: Record<string, unknown>): ShareRecord {
     downloads: Number(row.downloads ?? 0),
     maxDownloads: row.max_downloads == null ? null : Number(row.max_downloads),
     revoked: Number(row.revoked ?? 0) === 1,
+    availableAt: row.available_at == null ? null : String(row.available_at),
+    maxViews: row.max_views == null ? null : Number(row.max_views),
+    views: Number(row.views ?? 0),
+    access: row.access === 'view' || row.access === 'both' ? row.access : 'download',
   }
 }
 
@@ -2541,16 +2558,28 @@ export async function createShare(input: {
   size: number
   passwordHash?: string | null
   owner: string
-  expiresAt?: string | null
-  maxDownloads?: number | null
+  settings: ShareSettings
 }): Promise<void> {
   await ensureMailSchema()
   const sql = db()
+  const { expiresAt, availableAt, maxDownloads, maxViews, access } = input.settings
   await sql`
-    INSERT INTO mail_shares (id, object_key, filename, content_type, size, password_hash, owner, created_at, expires_at, max_downloads)
+    INSERT INTO mail_shares (id, object_key, filename, content_type, size, password_hash, owner, created_at, expires_at,
+                             max_downloads, available_at, max_views, access)
     VALUES (${input.id}, ${input.objectKey}, ${input.filename}, ${input.contentType ?? null}, ${input.size},
-            ${input.passwordHash ?? null}, ${input.owner.toLowerCase()}, ${nowIso()}, ${input.expiresAt ?? null},
-            ${input.maxDownloads ?? null})`
+            ${input.passwordHash ?? null}, ${input.owner.toLowerCase()}, ${nowIso()}, ${expiresAt},
+            ${maxDownloads}, ${availableAt}, ${maxViews}, ${access})`
+}
+
+export async function updateShareSettings(id: string, owner: string, settings: ShareSettings): Promise<boolean> {
+  await ensureMailSchema()
+  const sql = db()
+  const rows = await sql`
+    UPDATE mail_shares
+    SET expires_at = ${settings.expiresAt}, available_at = ${settings.availableAt}, max_downloads = ${settings.maxDownloads},
+        max_views = ${settings.maxViews}, access = ${settings.access}
+    WHERE id = ${id} AND owner = ${owner.toLowerCase()} RETURNING id`
+  return rows.length > 0
 }
 
 export async function getShare(id: string): Promise<ShareRecord | null> {
@@ -2569,10 +2598,19 @@ export async function getSharePasswordHash(id: string): Promise<string | null> {
   return hash == null ? null : String(hash)
 }
 
-export async function recordShareDownload(id: string): Promise<void> {
+/** Counts one view or download, and refuses in the same statement once the limit is reached. */
+export async function claimShare(id: string, mode: 'view' | 'download'): Promise<boolean> {
   await ensureMailSchema()
   const sql = db()
-  await sql`UPDATE mail_shares SET downloads = downloads + 1 WHERE id = ${id}`
+  const rows =
+    mode === 'view'
+      ? await sql`
+          UPDATE mail_shares SET views = views + 1
+          WHERE id = ${id} AND (max_views IS NULL OR views < max_views) RETURNING id`
+      : await sql`
+          UPDATE mail_shares SET downloads = downloads + 1
+          WHERE id = ${id} AND (max_downloads IS NULL OR downloads < max_downloads) RETURNING id`
+  return rows.length > 0
 }
 
 export async function listShares(owner: string): Promise<ShareRecord[]> {

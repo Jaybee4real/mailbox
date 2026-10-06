@@ -7876,3 +7876,20 @@
   background-clip: padding-box;
 }
 .wpTabs { padding-bottom: 6px; }
+
+.linkCard {
+  max-width: 460px;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+}
+
+.linkFields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.linkFields input[type='datetime-local'] {
+  color-scheme: light dark;
+}

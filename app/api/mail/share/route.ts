@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
-import { createShare, getShare, listShares, revokeShare, setSharePassword } from '@/lib/mailbox'
+import { createShare, getShare, listShares, revokeShare, setSharePassword, updateShareSettings } from '@/lib/mailbox'
 import { hashPassword } from '@/lib/password'
+import { parseShareSettings } from '@/lib/share-policy'
 import { deleteObject, presign } from '@/lib/r2'
 
 export const runtime = 'nodejs'
@@ -36,14 +37,7 @@ export async function POST(req: Request) {
   const account = await resolveAccount(req)
   if (!account.email) return NextResponse.json({ ok: false, error: 'Not signed in.' }, { status: 401 })
 
-  let body: {
-    filename?: string
-    contentType?: string
-    size?: number
-    password?: string
-    expiresInDays?: number
-    maxDownloads?: number
-  }
+  let body: Record<string, unknown>
   try {
     body = await req.json()
   } catch {
@@ -60,24 +54,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'That file is larger than 2GB.' }, { status: 413 })
   }
 
+  const parsed = parseShareSettings(body, filename)
+  if (!parsed.settings) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 })
+  const password = String(body.password ?? '').trim()
+
   const id = randomBytes(9).toString('base64url')
   const objectKey = objectKeyFor(filename)
-  const expiresAt =
-    body.expiresInDays && body.expiresInDays > 0
-      ? new Date(Date.now() + body.expiresInDays * 86400_000).toISOString()
-      : null
 
   try {
     await createShare({
       id,
       objectKey,
       filename,
-      contentType: body.contentType ?? null,
+      contentType: body.contentType ? String(body.contentType) : null,
       size,
-      passwordHash: body.password ? await hashPassword(body.password) : null,
+      passwordHash: password ? await hashPassword(password) : null,
       owner: account.email,
-      expiresAt,
-      maxDownloads: body.maxDownloads && body.maxDownloads > 0 ? body.maxDownloads : null,
+      settings: parsed.settings,
     })
     // An hour is plenty for the upload itself and short enough that a leaked URL
     // is not a standing grant.
@@ -91,14 +84,14 @@ export async function POST(req: Request) {
   }
 }
 
-/** Sets or clears the password on a share the caller owns. */
+/** Sets or clears the password, and replaces the access settings when they are sent. */
 export async function PATCH(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
   const account = await resolveAccount(req)
   if (!account.email) return NextResponse.json({ ok: false, error: 'Not signed in.' }, { status: 401 })
 
-  let body: { id?: string; password?: string }
+  let body: { id?: string; password?: string; settings?: Record<string, unknown> }
   try {
     body = await req.json()
   } catch {
@@ -107,6 +100,17 @@ export async function PATCH(req: Request) {
 
   const id = String(body.id ?? '')
   if (!id) return NextResponse.json({ ok: false, error: 'Which share?' }, { status: 400 })
+
+  if (body.settings && typeof body.settings === 'object') {
+    const share = await getShare(id)
+    if (!share) return NextResponse.json({ ok: false, error: 'That link is not here.' }, { status: 404 })
+    const parsed = parseShareSettings(body.settings, share.filename)
+    if (!parsed.settings) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 })
+    if (!(await updateShareSettings(id, account.email, parsed.settings))) {
+      return NextResponse.json({ ok: false, error: 'That link is not here.' }, { status: 404 })
+    }
+  }
+  if (body.password === undefined) return NextResponse.json({ ok: true })
 
   const password = String(body.password ?? '').trim()
   const updated = await setSharePassword(id, account.email, password ? await hashPassword(password) : null)

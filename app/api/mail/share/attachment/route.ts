@@ -5,6 +5,7 @@ import { createShare, getInboundSource } from '@/lib/mailbox'
 import { hashPassword } from '@/lib/password'
 import { presign } from '@/lib/r2'
 import { publicOrigin } from '@/lib/public-url'
+import { parseShareSettings } from '@/lib/share-policy'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
   const account = await resolveAccount(req)
   if (!account.email) return NextResponse.json({ ok: false, error: 'Not signed in.' }, { status: 401 })
 
-  let body: { messageId?: string; filename?: string; password?: string; expiresInDays?: number; maxDownloads?: number }
+  let body: Record<string, unknown>
   try {
     body = await req.json()
   } catch {
@@ -31,6 +32,9 @@ export async function POST(req: Request) {
   const messageId = String(body.messageId ?? '')
   const filename = String(body.filename ?? '')
   if (!messageId || !filename) return NextResponse.json({ ok: false, error: 'Which attachment?' }, { status: 400 })
+  const parsed = parseShareSettings(body, filename)
+  if (!parsed.settings) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 })
+  const password = String(body.password ?? '').trim()
 
   const source = await getInboundSource(messageId)
   if (!source) return NextResponse.json({ ok: false, error: 'That message is not here.' }, { status: 404 })
@@ -71,22 +75,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Could not copy the file into share storage.' }, { status: 502 })
   }
 
-  const expiresAt =
-    body.expiresInDays && body.expiresInDays > 0
-      ? new Date(Date.now() + body.expiresInDays * 86400_000).toISOString()
-      : null
   await createShare({
     id,
     objectKey,
     filename,
     contentType,
     size: bytes.length,
-    passwordHash: body.password ? await hashPassword(body.password) : null,
+    passwordHash: password ? await hashPassword(password) : null,
     owner: account.email,
-    expiresAt,
-    maxDownloads: body.maxDownloads && body.maxDownloads > 0 ? body.maxDownloads : null,
+    settings: parsed.settings,
   })
 
   const base = publicOrigin(req)
-  return NextResponse.json({ ok: true, id, url: `${base}/share/${id}`, expiresAt })
+  return NextResponse.json({ ok: true, id, url: `${base}/share/${id}`, expiresAt: parsed.settings.expiresAt })
 }

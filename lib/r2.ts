@@ -143,10 +143,10 @@ export async function putObject(key: string, body: Buffer | Uint8Array, contentT
 }
 
 /** Streams an object back out, for serving through our own domain instead of a bucket URL. */
-export async function getObject(key: string): Promise<Response | null> {
+export async function getObject(key: string, range?: string | null): Promise<Response | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const response = await fetch(presign(key, 'GET', 300))
+      const response = await fetch(presign(key, 'GET', 300), range ? { headers: { range } } : undefined)
       if (response.ok) return response
       if (response.status < 500) return null
     } catch (err) {

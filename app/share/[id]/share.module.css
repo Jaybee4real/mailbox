@@ -153,6 +153,91 @@
   color: #9a96a6;
 }
 
+.cardWide {
+  max-width: min(1100px, 100%);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+}
+.actions .go { margin-top: 0; }
+
+.ghost {
+  width: 100%;
+  padding: 12px 18px;
+  border: 1px solid #d3d3de;
+  border-radius: 10px;
+  background: #fff;
+  color: #221d33;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .16s ease, transform .16s ease;
+}
+.ghost:hover:not(:disabled) { border-color: var(--brand-accent, #6d28d9); transform: translateY(-1px); }
+.ghost:disabled { opacity: .55; cursor: default; }
+
+.pending {
+  margin-top: 22px;
+  padding: 18px 16px;
+  border: 1px solid #e4e4ec;
+  border-radius: 12px;
+  background: #f7f7fa;
+}
+.pendingLabel {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #221d33;
+}
+.pendingCount {
+  margin: 6px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-accent, #6d28d9);
+}
+
+.viewer {
+  margin-top: 22px;
+  border: 1px solid #e4e4ec;
+  border-radius: 12px;
+  background: #f7f7fa;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.viewer img {
+  display: block;
+  max-width: 100%;
+  max-height: 75dvh;
+  margin: 0 auto;
+  object-fit: contain;
+}
+.viewer iframe {
+  display: block;
+  width: 100%;
+  height: 75dvh;
+  border: 0;
+  background: #fff;
+}
+.viewer video {
+  display: block;
+  width: 100%;
+  max-height: 75dvh;
+  background: #000;
+}
+.viewer audio {
+  display: block;
+  width: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
 /* Shown while the file's details are still being fetched. */
 .skelMark, .skelLine, .skelLineShort {
   display: block;
@@ -168,6 +253,6 @@
 @media (prefers-reduced-motion: reduce) {
   .card { animation: none; }
   .skelMark, .skelLine, .skelLineShort { animation: none; }
-  .go, .field input { transition: none; }
-  .go:hover:not(:disabled), .go:active:not(:disabled) { transform: none; }
+  .go, .ghost, .field input { transition: none; }
+  .go:hover:not(:disabled), .go:active:not(:disabled), .ghost:hover:not(:disabled) { transform: none; }
 }

@@ -19,24 +19,27 @@ function sign(payload: string, key: string): string {
   return createHmac('sha256', key).update(payload).digest('base64url')
 }
 
-export function issueShareTicket(id: string): string | null {
+export type TicketMode = 'view' | 'download'
+
+export function issueShareTicket(id: string, mode: TicketMode): string | null {
   const key = secret()
   if (!key) return null
-  const payload = `${id}.${Date.now() + TTL_SECONDS * 1000}`
+  const payload = `${id}.${mode}.${Date.now() + TTL_SECONDS * 1000}`
   return `${payload}.${sign(payload, key)}`
 }
 
-/** True only for a ticket this server signed, for this share, that has not expired. */
-export function shareTicketValid(ticket: string | null, id: string): boolean {
+/** The mode of a ticket this server signed, for this share, that has not expired; otherwise null. */
+export function shareTicketMode(ticket: string | null, id: string): TicketMode | null {
   const key = secret()
-  if (!key || !ticket) return false
+  if (!key || !ticket) return null
   const cut = ticket.lastIndexOf('.')
-  if (cut < 1) return false
+  if (cut < 1) return null
   const payload = ticket.slice(0, cut)
   const given = ticket.slice(cut + 1)
   const expected = sign(payload, key)
-  if (given.length !== expected.length) return false
-  if (!timingSafeEqual(Buffer.from(given), Buffer.from(expected))) return false
-  const [signedId, expires] = payload.split('.')
-  return signedId === id && Number(expires) > Date.now()
+  if (given.length !== expected.length) return null
+  if (!timingSafeEqual(Buffer.from(given), Buffer.from(expected))) return null
+  const [signedId, mode, expires] = payload.split('.')
+  if (signedId !== id || !(Number(expires) > Date.now())) return null
+  return mode === 'view' || mode === 'download' ? mode : null
 }
