@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { BRAND } from '@/lib/brand'
+import { ADDRESS_DOMAINS, BRAND } from '@/lib/brand'
 import { CLIENT_BRAND } from '@/lib/brand.client'
 
 export const runtime = 'nodejs'
@@ -10,10 +10,10 @@ export async function GET() {
   return NextResponse.json({
     protocol: 'novacraft-mailbox', version: 1,
     name: BRAND.name, domain: BRAND.domain,
-    domains: [...new Set([BRAND.domain, ...CLIENT_BRAND.addressDomains])],
-    baseUrl: CLIENT_BRAND.publicUrl,
-    accent: CLIENT_BRAND.accent,
-    logo: new URL(CLIENT_BRAND.chromeMarkUrl, CLIENT_BRAND.publicUrl).href,
+    domains: [...new Set([...ADDRESS_DOMAINS, ...CLIENT_BRAND.addressDomains])],
+    baseUrl: BRAND.publicUrl,
+    accent: BRAND.accentHex,
+    logo: new URL(BRAND.chromeMarkUrl, BRAND.publicUrl).href,
     capabilities: ['bearer-session', 'threads', 'search', 'scheduled', 'stash', 'workspace'],
   }, { headers: { 'Cache-Control': 'public, max-age=300' } })
 }

@@ -86,6 +86,24 @@ providers is an environment change rather than a code change. SES is signed
 in-process, with no SDK. Adding a fourth provider means one send function and one case in
 `lib/mail-provider.ts`.
 
+## Mobile discovery
+
+Vela Mail requires the backend's mobile session support and public
+`/.well-known/mailbox` route. Deploy the updated shared image to every mailbox
+instance; updating the mobile app alone cannot enable these endpoints.
+
+Discovery uses each instance's `BRAND_NAME`, `MAIL_PUBLIC_URL`,
+`BRAND_ACCENT_HEX` (falling back to `NEXT_PUBLIC_BRAND_ACCENT`) and
+`BRAND_CHROME_MARK_URL`. Its accepted domains include `MAIL_ADDRESS_DOMAIN`,
+`MAIL_DEFAULT_ADDRESS_DOMAIN`, `MAIL_ADDRESS_DOMAINS` and
+`NEXT_PUBLIC_MAIL_ADDRESS_DOMAINS`. It never publishes individual accounts.
+
+After rollout, verify discovery returns JSON with `protocol: novacraft-mailbox`,
+`version: 1`, the correct brand and all login domains. Unauthenticated requests
+to `/api/mail/me` and `/api/mail/mobile/devices` must reject access. Finally,
+verify a real native sign-in, including two-factor authentication where enabled;
+public endpoint checks alone do not establish successful login.
+
 ## Tests
 
 ```
