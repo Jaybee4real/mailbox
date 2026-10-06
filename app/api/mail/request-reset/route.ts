@@ -7,6 +7,7 @@ import { sendMail } from '@/lib/mail-provider'
 import { renderActionEmail } from '@/lib/emails'
 import { publicOrigin } from '@/lib/public-url'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
+import { humanCheck } from '@/lib/turnstile'
 
 export const runtime = 'nodejs'
 
@@ -28,14 +29,17 @@ export async function POST(req: Request) {
   const limited = rateLimit(clientKey(req, 'request-reset'), 5, 60 * 60 * 1000)
   if (limited) return limited
 
-  let body: { email?: string }
+  let body: { email?: string; turnstile?: string }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const email = (body.email ?? '').trim().toLowerCase()
+  const human = await humanCheck(req, body.turnstile)
+  if (human) return human
+
+  const email = String(body.email ?? '').trim().toLowerCase()
 
   // Also capped per address, so a rotating-IP caller cannot bury someone in reset mail.
   const perAddress = rateLimit(`request-reset-address:${email}`, 5, 60 * 60 * 1000)

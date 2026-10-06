@@ -403,6 +403,22 @@ export function ensureMailSchema(): Promise<void> {
       // Whether the mailbox was actually written to, or only copied. Stored rather than
       // worked out per query: matching an address inside the cc JSON means a scan, and a
       // mailbox here holds six figures of mail.
+      for (const column of ['country', 'region', 'city', 'timezone']) {
+        await sqlRaw(`ALTER TABLE mail_signins ADD COLUMN ${column} TEXT`).catch(() => {})
+      }
+      await sqlRaw(`CREATE TABLE IF NOT EXISTS mail_sent_origin (
+        email_id TEXT PRIMARY KEY,
+        owner TEXT,
+        at TEXT NOT NULL,
+        ip TEXT,
+        user_agent TEXT,
+        device TEXT,
+        country TEXT,
+        region TEXT,
+        city TEXT,
+        timezone TEXT,
+        language TEXT
+      )`).catch(() => {})
       await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN addressed TEXT").catch(() => {})
       // What the scanners and the sender's own domain said about this message.
       await sqlRaw("ALTER TABLE mail_inbox ADD COLUMN risk TEXT").catch(() => {})
@@ -2396,19 +2412,30 @@ export async function deleteLoginChallenge(id: string): Promise<void> {
   await db()`DELETE FROM mail_login_challenges WHERE id = ${id}`
 }
 
-export type SigninRecord = { at: string; ip: string | null; userAgent: string | null; method: string | null; outcome: string }
+export type SigninRecord = {
+  at: string
+  ip: string | null
+  userAgent: string | null
+  method: string | null
+  outcome: string
+  country?: string | null
+  region?: string | null
+  city?: string | null
+  timezone?: string | null
+}
 
 export async function recordSignin(email: string, entry: Omit<SigninRecord, 'at'>): Promise<void> {
   await ensureMailSchema()
   await db()`
-    INSERT INTO mail_signins (email, at, ip, user_agent, method, outcome)
-    VALUES (${email.toLowerCase()}, ${nowIso()}, ${entry.ip}, ${entry.userAgent?.slice(0, 300) ?? null}, ${entry.method}, ${entry.outcome})`
+    INSERT INTO mail_signins (email, at, ip, user_agent, method, outcome, country, region, city, timezone)
+    VALUES (${email.toLowerCase()}, ${nowIso()}, ${entry.ip}, ${entry.userAgent?.slice(0, 300) ?? null}, ${entry.method}, ${entry.outcome},
+      ${entry.country ?? null}, ${entry.region ?? null}, ${entry.city ?? null}, ${entry.timezone ?? null})`
 }
 
 export async function listSignins(email: string, limit = 30): Promise<SigninRecord[]> {
   await ensureMailSchema()
   const rows = await db()`
-    SELECT at, ip, user_agent, method, outcome FROM mail_signins
+    SELECT at, ip, user_agent, method, outcome, country, region, city, timezone FROM mail_signins
     WHERE email = ${email.toLowerCase()} ORDER BY at DESC LIMIT ${limit}`
   return rows.map(row => ({
     at: String(row.at),
@@ -2416,7 +2443,50 @@ export async function listSignins(email: string, limit = 30): Promise<SigninReco
     userAgent: row.user_agent == null ? null : String(row.user_agent),
     method: row.method == null ? null : String(row.method),
     outcome: String(row.outcome),
+    country: row.country == null ? null : String(row.country),
+    region: row.region == null ? null : String(row.region),
+    city: row.city == null ? null : String(row.city),
+    timezone: row.timezone == null ? null : String(row.timezone),
   }))
+}
+
+export type SentOrigin = { device: string | null; location: string | null; ip: string | null; at: string }
+
+export async function recordSentOrigin(
+  emailId: string,
+  owner: string | null,
+  context: { ip: string | null; userAgent: string | null; device: string; country: string | null; region: string | null; city: string | null; timezone: string | null; language: string | null },
+): Promise<void> {
+  await ensureMailSchema()
+  await db()`
+    INSERT INTO mail_sent_origin (email_id, owner, at, ip, user_agent, device, country, region, city, timezone, language)
+    VALUES (${emailId}, ${owner}, ${nowIso()}, ${context.ip}, ${context.userAgent?.slice(0, 300) ?? null}, ${context.device},
+      ${context.country}, ${context.region}, ${context.city}, ${context.timezone}, ${context.language})
+    ON CONFLICT (email_id) DO NOTHING`
+}
+
+export async function readSentOrigins(emailIds: string[]): Promise<Record<string, SentOrigin>> {
+  await ensureMailSchema()
+  const out: Record<string, SentOrigin> = {}
+  for (let start = 0; start < emailIds.length; start += 200) {
+    const chunk = emailIds.slice(start, start + 200)
+    if (!chunk.length) break
+    const rows = await tagged(
+      db(),
+      `SELECT email_id, at, ip, device, country, region, city FROM mail_sent_origin WHERE email_id IN (${chunk.map(() => '?').join(',')})`,
+      chunk,
+    )
+    for (const row of rows) {
+      const location = [row.city, row.region, row.country].filter((part, index, all) => part && all.indexOf(part) === index).join(', ')
+      out[String(row.email_id)] = {
+        device: row.device == null ? null : String(row.device),
+        location: location || null,
+        ip: row.ip == null ? null : String(row.ip),
+        at: String(row.at),
+      }
+    }
+  }
+  return out
 }
 
 /** True while the account is still on the address-derived password it was seeded with. */

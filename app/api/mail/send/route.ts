@@ -4,7 +4,8 @@ import { NextResponse } from 'next/server'
 import { providerConfigProblem, sendMail } from '@/lib/mail-provider'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { presign } from '@/lib/r2'
-import { recordContact, recordPixel, recordSentMeta, recordSentMessage } from '@/lib/mailbox'
+import { recordContact, recordPixel, recordSentMeta, recordSentMessage, recordSentOrigin } from '@/lib/mailbox'
+import { originHeaders, visitorContext } from '@/lib/client-context'
 import { scheduleSend } from '@/lib/scheduled'
 import { absoluteUrls, stripOwnPixel } from '@/lib/email-html'
 import { adaptiveEmail } from '@/lib/color-scheme'
@@ -159,6 +160,12 @@ export async function POST(req: Request) {
   const fromEmail = from.replace(/^.*<|>$/g, '').trim()
   const fromName = from.includes('<') ? from.slice(0, from.indexOf('<')).replace(/["']/g, '').trim() : undefined
 
+  const sender = visitorContext(req)
+  const headers = {
+    ...originHeaders(sender),
+    ...(inReplyToId ? { 'In-Reply-To': inReplyToId, References: inReplyToId } : {}),
+  }
+
   const dueAt = body.scheduledAt ? new Date(body.scheduledAt) : null
   if (dueAt && !Number.isNaN(dueAt.getTime()) && dueAt.getTime() > Date.now() + 5_000) {
     // Held here, not handed over: SES has no scheduling and drops the instruction without
@@ -184,9 +191,10 @@ export async function POST(req: Request) {
         subject: body.subject.trim(),
         html: trackedHtml,
         text: body.text,
-        ...(inReplyToId ? { headers: { 'In-Reply-To': inReplyToId, References: inReplyToId } } : {}),
+        headers,
       },
     })
+    await recordSentOrigin(scheduledId, account.address ?? fromEmail, sender).catch(() => {})
     return NextResponse.json({ ok: true, id: scheduledId, scheduled: true, scheduledAt: dueAt.toISOString() })
   }
 
@@ -203,7 +211,7 @@ export async function POST(req: Request) {
       html: trackedHtml,
       text: body.text,
       attachments,
-      ...(inReplyToId ? { headers: { 'In-Reply-To': inReplyToId, References: inReplyToId } } : {}),
+      headers,
       // A person's own message is already in their Sent folder; the archive is for mail the
       // app sends on its own behalf, which no one would otherwise see.
       skipArchive: true,
@@ -218,6 +226,7 @@ export async function POST(req: Request) {
       ? recordPixel(pixelId, data.id, recipients[0] ?? '', body.subject.trim()).catch(() => {})
       : Promise.resolve(),
     data?.id ? recordSentMeta(data.id, account.address, false, body.inReplyTo ?? null).catch(() => {}) : Promise.resolve(),
+    data?.id ? recordSentOrigin(data.id, account.address ?? fromEmail, sender).catch(() => {}) : Promise.resolve(),
     data?.id
       ? recordSentMessage({
           id: data.id,

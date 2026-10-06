@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { describeLocation } from '@/lib/client-context'
 import { BRAND } from '@/lib/brand'
 import { mailAuthGuard, resolveAccount, verifyMailAuth } from '@/lib/dev-auth'
 import {
@@ -29,7 +30,7 @@ export async function GET(req: Request) {
     email: factors.email,
     recoveryEmail: factors.recoveryEmail,
     recoveryVerified: factors.recoveryVerified,
-    signins: signins.map(entry => ({ ...entry, device: describeDevice(entry.userAgent ?? '') })),
+    signins: signins.map(entry => ({ ...entry, device: describeDevice(entry.userAgent ?? ''), location: describeLocation(entry) })),
   })
 }
 

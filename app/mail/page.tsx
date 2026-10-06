@@ -61,6 +61,7 @@ import { matchesInboxFilters, normalizeInboxFilters, type InboxFilter } from '@/
 import { FIRST_MESSAGE_REASON } from '@/lib/risk'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
+import HumanCheck from './HumanCheck'
 
 // Files up to this size ride along as real email attachments; larger ones are
 // linked as a download button in the body (email providers cap total size).
@@ -187,6 +188,7 @@ type SentEmail = {
   inReplyTo?: string | null
   /** Sent by the app itself — an invite, a reset, an auto-reply. */
   isAuto?: boolean
+  origin?: { device: string | null; location: string | null; ip: string | null } | null
 }
 
 type DownloadAttachment = { filename: string; size: number; downloadUrl: string; shareId?: string; contentType?: string; contentId?: string }
@@ -361,7 +363,7 @@ type SecurityInfo = {
   email: boolean
   recoveryEmail: string | null
   recoveryVerified: boolean
-  signins: Array<{ at: string; ip: string | null; device: string; method: string | null; outcome: string }>
+  signins: Array<{ at: string; ip: string | null; device: string; location?: string | null; method: string | null; outcome: string }>
 }
 
 const SIGNIN_OUTCOMES: Record<string, string> = {
@@ -371,6 +373,7 @@ const SIGNIN_OUTCOMES: Record<string, string> = {
   'wrong-code': 'Wrong code',
   'admin-two-step-off': 'Two-step sign-in turned off by an admin',
   'admin-password': 'Password set by an admin',
+  'human-check-failed': 'Blocked: human check not passed',
 }
 
 type MailSettings = {
@@ -1452,6 +1455,9 @@ export default function DevMailPage() {
   const [recoveryBad, setRecoveryBad] = useState(false)
   const [recoveryBusy, setRecoveryBusy] = useState(false)
   const [resetBusy, setResetBusy] = useState(false)
+  const [humanKey, setHumanKey] = useState<string | null>(null)
+  const [humanToken, setHumanToken] = useState('')
+  const [humanRound, setHumanRound] = useState(0)
   const [showPassword, setShowPassword] = useState(false)
   const [loginDomain, setLoginDomain] = useState(DEFAULT_MAIL_DOMAIN)
   const [loginRaw, setLoginRaw] = useState('')
@@ -2048,8 +2054,11 @@ export default function DevMailPage() {
             'Content-Type': 'application/json',
             'x-dev-email': candidateEmail,
             'x-dev-password': candidatePassword,
+            'x-turnstile': humanToken,
           },
         })
+        setHumanRound(round => round + 1)
+        setHumanToken('')
         const raw = await response.text()
         let data: { ok?: boolean; error?: string; twoFactor?: boolean; challenge?: string; methods?: SecondStep['methods']; emailHint?: string | null } = {}
         try {
@@ -2093,8 +2102,15 @@ export default function DevMailPage() {
         setLoginBusy(false)
       }
     },
-    [],
+    [humanToken],
   )
+
+  useEffect(() => {
+    void fetch('/api/mail/login')
+      .then(response => (response.ok ? response.json() : null))
+      .then(data => setHumanKey(typeof data?.turnstile === 'string' ? data.turnstile : null))
+      .catch(() => {})
+  }, [])
 
   const secondStepFailed = useCallback((data: { error?: string; expired?: boolean } | null, fallback: string) => {
     setLoginError(data?.error ?? fallback)
@@ -2186,9 +2202,11 @@ export default function DevMailPage() {
     emails: Array<Omit<SentEmail, 'starred' | 'archived' | 'trashed' | 'opened' | 'openCount' | 'openedAt'>>
     flags?: Record<string, { starred: boolean; archived: boolean; trashed: boolean }>
     opens?: Record<string, { opened: boolean; openCount: number; openedAt: string | null }>
+    origins?: Record<string, { device: string | null; location: string | null; ip: string | null }>
   }): SentEmail[] => {
     const flags = data.flags ?? {}
     const opens = data.opens ?? {}
+    const origins = data.origins ?? {}
     return data.emails.map(entry => ({
       ...entry,
       starred: flags[entry.id]?.starred ?? false,
@@ -2197,6 +2215,7 @@ export default function DevMailPage() {
       opened: opens[entry.id]?.opened ?? false,
       openCount: opens[entry.id]?.openCount ?? 0,
       openedAt: opens[entry.id]?.openedAt ?? null,
+      origin: origins[entry.id] ?? null,
     }))
   }
 
@@ -5790,8 +5809,10 @@ export default function DevMailPage() {
       const response = await fetch('/api/mail/request-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, turnstile: humanToken }),
       })
+      setHumanRound(round => round + 1)
+      setHumanToken('')
       const data = await response.json().catch(() => ({}))
       setResetMessage(typeof data.message === 'string' ? data.message : '')
       setResetSent(true)
@@ -5849,7 +5870,8 @@ export default function DevMailPage() {
                   <input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="username" />
                 </label>
                 {loginError && <p className={styles.loginError}>{loginError}</p>}
-                <button className={styles.loginBtn} onClick={requestReset} disabled={resetBusy}>
+                {humanKey && <HumanCheck key={humanRound} siteKey={humanKey} onToken={setHumanToken} />}
+                <button className={styles.loginBtn} onClick={requestReset} disabled={resetBusy || (Boolean(humanKey) && !humanToken)}>
                   {resetBusy ? 'Sending…' : 'Send reset link'}
                 </button>
                 <button className={styles.loginTextLink} onClick={() => { setResetMode(false); setLoginError('') }}>
@@ -6070,7 +6092,8 @@ export default function DevMailPage() {
               )}
             </div>
           )}
-          <button type="submit" className={styles.loginBtn} disabled={loginBusy}>
+          {humanKey && <HumanCheck key={humanRound} siteKey={humanKey} onToken={setHumanToken} />}
+          <button type="submit" className={styles.loginBtn} disabled={loginBusy || (Boolean(humanKey) && !humanToken)}>
             {loginBusy ? <><span className={styles.loginSpinner} aria-hidden />Signing in…</> : 'Sign in'}
           </button>
           <button type="button" className={styles.loginTextLink} onClick={() => { setResetMode(true); setLoginError('') }}>
@@ -7455,6 +7478,11 @@ export default function DevMailPage() {
               <div className={styles.readerMetaText}>
                 <Ticker className={`${styles.readerFrom} ${styles.tickerBlock}`} enabled={tickerOn('readerFrom')}>{selectedDetail?.from ?? selectedSent.from}</Ticker>
                 <Ticker className={`${styles.readerTo} ${styles.tickerBlock}`} enabled={tickerOn('readerTo')}>to {selectedSent.to.join(', ')}</Ticker>
+                {selectedSent.origin && (
+                  <span className={styles.readerTo}>
+                    sent from {[selectedSent.origin.device, selectedSent.origin.location, selectedSent.origin.ip].filter(Boolean).join(' · ')}
+                  </span>
+                )}
               </div>
               <div className={styles.readerDate}>
                 {isScheduled && selectedSent.scheduledAt
@@ -9520,7 +9548,7 @@ export default function DevMailPage() {
                             : ''}
                       </span>
                       <span className={styles.signinMeta}>
-                        {new Date(entry.at).toLocaleString()} · {entry.device}{entry.ip ? ` · ${entry.ip}` : ''}
+                        {new Date(entry.at).toLocaleString()} · {entry.device}{entry.location ? ` · ${entry.location}` : ''}{entry.ip ? ` · ${entry.ip}` : ''}
                       </span>
                     </li>
                   ))}

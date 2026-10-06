@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { clientIp } from './client-context'
 
 type Bucket = { count: number; resetAt: number }
 
@@ -8,8 +9,7 @@ type Bucket = { count: number; resetAt: number }
 const buckets = new Map<string, Bucket>()
 
 export function clientKey(req: Request, scope: string): string {
-  const forwarded = req.headers.get('x-forwarded-for') ?? ''
-  const address = forwarded.split(',')[0].trim() || req.headers.get('x-real-ip') || 'unknown'
+  const address = clientIp(req) ?? 'unknown'
   return `${scope}:${address}`
 }
 

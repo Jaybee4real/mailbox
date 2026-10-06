@@ -150,6 +150,13 @@ async function dispatchRow(row: Record<string, unknown>): Promise<'sent' | 'fail
       skipArchive: true,
     })
     await recordSend(send, result?.id ?? null)
+    if (result?.id) {
+      await sql`
+        INSERT INTO mail_sent_origin (email_id, owner, at, ip, user_agent, device, country, region, city, timezone, language)
+        SELECT ${result.id}, owner, at, ip, user_agent, device, country, region, city, timezone, language
+        FROM mail_sent_origin WHERE email_id = ${id}
+        ON CONFLICT (email_id) DO NOTHING`.catch(() => {})
+    }
     await sql`
       UPDATE mail_scheduled SET status = 'sent', sent_id = ${result?.id ?? null}, last_error = NULL WHERE id = ${id}`
     return 'sent'

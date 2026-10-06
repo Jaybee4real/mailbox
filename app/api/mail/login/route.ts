@@ -5,6 +5,7 @@ import { clientKey, rateLimit, clearRateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession } from '@/lib/session'
 import { issueMobileSession } from '@/lib/mobile-session'
 import { requestContext } from '@/lib/signin'
+import { humanCheck, turnstileSiteKey } from '@/lib/turnstile'
 import { CHALLENGE_TTL_MS, maskEmail, newChallengeId } from '@/lib/two-factor'
 
 export const runtime = 'nodejs'
@@ -13,6 +14,10 @@ export const dynamic = 'force-dynamic'
 /** Ten attempts per address per fifteen minutes: generous for a typo, useless for a list. */
 const MAX_ATTEMPTS = 10
 const WINDOW_MS = 15 * 60 * 1000
+
+export function GET() {
+  return NextResponse.json({ ok: true, turnstile: turnstileSiteKey() }, { headers: { 'cache-control': 'no-store' } })
+}
 
 export async function POST(req: Request) {
   const email = (req.headers.get('x-dev-email') ?? '').trim().toLowerCase()
@@ -26,6 +31,13 @@ export async function POST(req: Request) {
 
   if (!email || !password) {
     return NextResponse.json({ ok: false, error: 'Enter your email and password.' }, { status: 400 })
+  }
+
+  const human = await humanCheck(req, req.headers.get('x-turnstile'))
+  if (human) {
+    const seat = await resolveSeat(email).catch(() => null)
+    if (seat) await recordSignin(seat.email, { ...requestContext(req), method: 'password', outcome: 'human-check-failed' }).catch(() => {})
+    return human
   }
 
   const result = await verifyMailAuth(email, password)

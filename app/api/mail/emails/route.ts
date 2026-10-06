@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { matchesQuery, parseQuery } from '@/app/mail/search'
 import { FORWARD_RECIPIENTS, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
-import { readSentFlags, setSentFlags, readPixelOpens, readSentMeta, setSentMetaOwner, listAccounts, readSentArchive, type SentFlags } from '@/lib/mailbox'
+import { readSentFlags, setSentFlags, readPixelOpens, readSentMeta, readSentOrigins, setSentMetaOwner, listAccounts, readSentArchive, type SentFlags } from '@/lib/mailbox'
 
 const SHARED_ADDRESS = (process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim().toLowerCase()
 
@@ -51,11 +51,12 @@ export async function GET(req: Request) {
     // Automated sends are shown rather than hidden, tagged so the list can say so.
     includeAuto: true,
   }).catch(() => [])
-  const [flags, opens, sentMeta, accounts] = await Promise.all([
+  const [flags, opens, sentMeta, accounts, origins] = await Promise.all([
     readSentFlags().catch(() => ({})),
     readPixelOpens().catch(() => ({})),
     readSentMeta(archive.map(item => item.id)).catch(() => ({})),
     listAccounts().catch(() => []),
+    readSentOrigins(archive.map(item => item.id)).catch(() => ({})),
   ])
 
   const archiveById = new Map(archive.map(item => [item.id, item]))
@@ -125,7 +126,7 @@ export async function GET(req: Request) {
     )
 
   const truncated = Boolean(query) && archive.length >= SEARCH_LIMIT
-  return NextResponse.json({ ok: true, emails, flags, opens, searched: Boolean(query), truncated })
+  return NextResponse.json({ ok: true, emails, flags, opens, origins, searched: Boolean(query), truncated })
 }
 
 export async function PATCH(req: Request) {

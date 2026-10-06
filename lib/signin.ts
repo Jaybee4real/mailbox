@@ -4,10 +4,11 @@ import { sendMail } from '@/lib/mail-provider'
 import { recordSentMeta, setChallengeCode } from '@/lib/mailbox'
 import { publicOrigin } from '@/lib/public-url'
 import { hashEmailCode, newEmailCode } from '@/lib/two-factor'
+import { visitorContext } from '@/lib/client-context'
 
-export function requestContext(req: Request): { ip: string | null; userAgent: string | null } {
-  const forwarded = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim()
-  return { ip: forwarded || req.headers.get('x-real-ip') || null, userAgent: req.headers.get('user-agent') }
+export function requestContext(req: Request) {
+  const { ip, userAgent, country, region, city, timezone } = visitorContext(req)
+  return { ip, userAgent, country, region, city, timezone }
 }
 
 /** Sends a fresh six-digit code for a challenge; the code itself is never stored. */
