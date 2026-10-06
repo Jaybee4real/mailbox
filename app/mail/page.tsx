@@ -938,8 +938,14 @@ const fitFrame = (frame: HTMLIFrameElement) => {
     // The body, not the root: the root is at least as tall as the frame, so it never
     // reports the frame shrinking back when a quote is folded away again.
     const fit = () => { frame.style.height = `${Math.min(1600, (doc.body?.scrollHeight ?? doc.documentElement.scrollHeight) + 8)}px` }
+    const refit = () => requestAnimationFrame(fit)
     fit()
-    doc.addEventListener('toggle', () => requestAnimationFrame(fit), true)
+    doc.addEventListener('toggle', refit, true)
+    doc.addEventListener('load', refit, true)
+    void doc.fonts?.ready.then(refit)
+    const view = doc.defaultView
+    const paper = doc.querySelector('.nc-paper')
+    if (view && paper && 'ResizeObserver' in view) new view.ResizeObserver(refit).observe(paper)
   } catch {}
 }
 
@@ -7479,12 +7485,7 @@ export default function DevMailPage() {
                       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                       srcDoc={frameHtml(replyEffHtml, true, readerSpacing, resolvedTheme)}
                       title="Reply preview"
-                      onLoad={event => {
-                        try {
-                          const doc = event.currentTarget.contentDocument
-                          if (doc) event.currentTarget.style.height = `${Math.max(180, doc.documentElement.scrollHeight + 8)}px`
-                        } catch {}
-                      }}
+                      onLoad={event => fitFrame(event.currentTarget)}
                     />
                   </div>
                 )}
