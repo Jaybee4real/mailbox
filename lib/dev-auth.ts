@@ -223,6 +223,12 @@ export async function resolveAccount(
   return { email: '', address: null, name: null, role: 'member' }
 }
 
+export async function signedInAs(req: Request, email: string | null): Promise<boolean> {
+  if (!email) return false
+  const viewer = await authenticate(req).catch(() => null)
+  return Boolean(viewer && viewer.toLowerCase() === email.toLowerCase())
+}
+
 /** Guard for mail routes: a valid session or credential headers, localhost included. */
 export async function mailAuthGuard(req: Request): Promise<NextResponse | null> {
   if (await authenticate(req)) return null

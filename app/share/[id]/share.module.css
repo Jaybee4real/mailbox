@@ -238,6 +238,16 @@
   box-sizing: border-box;
 }
 
+.previewNote {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--brand-accent, #6d28d9) 9%, #fff);
+  color: #3b3450;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 /* Shown while the file's details are still being fetched. */
 .skelMark, .skelLine, .skelLineShort {
   display: block;

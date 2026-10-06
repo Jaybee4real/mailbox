@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { signedInAs } from '@/lib/dev-auth'
 import { getShare } from '@/lib/mailbox'
 import { getObject, objectExists } from '@/lib/r2'
 import { viewableType } from '@/lib/share-policy'
@@ -18,7 +19,7 @@ const GONE = { ok: false as const, error: 'This link is no longer available.' }
  * because a failed navigation reports nothing back to the page it left. Every other
  * attachment in this product is already served from here; this one now is too.
  */
-async function resolve(id: string, ticket: string | null) {
+async function resolve(req: Request, id: string, ticket: string | null) {
   const mode = shareTicketMode(ticket, id)
   if (!mode) return { error: NextResponse.json(GONE, { status: 403 }) }
   const share = await getShare(id)
@@ -27,7 +28,7 @@ async function resolve(id: string, ticket: string | null) {
   if (share.expiresAt && new Date(share.expiresAt).getTime() <= now) {
     return { error: NextResponse.json(GONE, { status: 410 }) }
   }
-  if (share.availableAt && new Date(share.availableAt).getTime() > now) {
+  if (share.availableAt && new Date(share.availableAt).getTime() > now && !(await signedInAs(req, share.owner))) {
     return { error: NextResponse.json(GONE, { status: 403 }) }
   }
   const inlineType = mode === 'view' ? viewableType(share.filename) : null
@@ -43,7 +44,7 @@ function disposition(filename: string, inline: boolean): string {
 /** Lets the page check the file is reachable before it sends the reader away from it. */
 export async function HEAD(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
-  const { share, inlineType, error } = await resolve(id, new URL(req.url).searchParams.get('t'))
+  const { share, inlineType, error } = await resolve(req, id, new URL(req.url).searchParams.get('t'))
   if (error) return error
   if (!(await objectExists(share.objectKey))) return NextResponse.json(GONE, { status: 410 })
   return new Response(null, {
@@ -58,7 +59,7 @@ export async function HEAD(req: Request, context: { params: Promise<{ id: string
 
 export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
-  const { share, inlineType, error } = await resolve(id, new URL(req.url).searchParams.get('t'))
+  const { share, inlineType, error } = await resolve(req, id, new URL(req.url).searchParams.get('t'))
   if (error) return error
 
   const range = req.headers.get('range')

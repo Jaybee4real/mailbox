@@ -9,6 +9,7 @@ const brandStyle = { '--brand-accent': CLIENT_BRAND.accent } as React.CSSPropert
 type ViewKind = 'image' | 'pdf' | 'video' | 'audio' | 'text'
 
 type Meta = {
+  preview?: boolean
   filename: string
   size: number
   contentType: string | null
@@ -227,6 +228,14 @@ export default function SharePage({ params }: { params: Promise<{ id: string }> 
           {limits.map(limit => ` · ${limit}`)}
           {viewOnly ? ' · view only' : ''}
         </p>
+        {meta.preview && (
+          <p className={styles.previewNote}>
+            You sent this link, so opening it here is not counted
+            {meta.availableAt && new Date(meta.availableAt).getTime() > now
+              ? `. Recipients see a countdown until ${longDate(meta.availableAt, true)}.`
+              : '.'}
+          </p>
+        )}
 
         {meta.pending && meta.availableAt ? (
           <div className={styles.pending}>

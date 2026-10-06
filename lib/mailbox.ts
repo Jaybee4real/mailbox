@@ -2529,6 +2529,7 @@ export type ShareRecord = {
   maxViews: number | null
   views: number
   access: ShareAccess
+  owner: string | null
 }
 
 function mapShare(row: Record<string, unknown>): ShareRecord {
@@ -2547,6 +2548,7 @@ function mapShare(row: Record<string, unknown>): ShareRecord {
     maxViews: row.max_views == null ? null : Number(row.max_views),
     views: Number(row.views ?? 0),
     access: row.access === 'view' || row.access === 'both' ? row.access : 'download',
+    owner: row.owner == null ? null : String(row.owner),
   }
 }
 

@@ -442,8 +442,8 @@ type ShareLink = {
 }
 
 type LinkEdit =
-  | { kind: 'attachment'; uid: string; filename: string; big: boolean; asLink: boolean; value: LinkSettingsValue; busy: boolean; error: string }
-  | { kind: 'share'; id: string; filename: string; value: LinkSettingsValue; busy: boolean; error: string }
+  | { kind: 'attachment'; uid: string; filename: string; big: boolean; asLink: boolean; value: LinkSettingsValue; busy: boolean; error: string; note: string }
+  | { kind: 'share'; id: string; filename: string; value: LinkSettingsValue; busy: boolean; error: string; note: string }
 
 type LibraryFile = {
   messageId: string
@@ -5697,6 +5697,7 @@ export default function DevMailPage() {
       value: attachment.link ?? defaultLinkSettings(attachment.filename),
       busy: false,
       error: '',
+      note: '',
     })
   }
 
@@ -5753,6 +5754,12 @@ export default function DevMailPage() {
       fail(err instanceof Error ? err.message : 'Could not save the link settings.')
     }
   }, [apiHeaders, attachments, linkEdit, loadShares, uploadAsShare])
+
+  const linkEditUrl = !linkEdit
+    ? null
+    : linkEdit.kind === 'share'
+      ? `${window.location.origin}/share/${linkEdit.id}`
+      : attachments.find(entry => entry.uid === linkEdit.uid)?.shareUrl ?? null
 
   const openShareDialog = (file: LibraryFile) => {
     setShareDraft(file)
@@ -10317,6 +10324,7 @@ export default function DevMailPage() {
                       <div className={styles.shareLinkRow}>
                         <input readOnly value={shareResult} onFocus={event => event.currentTarget.select()} />
                         <button type="button" className={styles.sendBtn} onClick={() => copyText(shareResult)}>Copy</button>
+                        <button type="button" className={styles.attachAction} onClick={() => window.open(shareResult, '_blank', 'noopener')}>Test</button>
                       </div>
                     </div>
                     <div className={styles.settingsFoot}>
@@ -10384,11 +10392,12 @@ export default function DevMailPage() {
                             {!dead && (
                               <span className={styles.filesActions}>
                                 <button type="button" className={styles.attachAction} onClick={() => copyText(`${window.location.origin}/share/${share.id}`)}>Copy link</button>
+                                <button type="button" className={styles.attachAction} onClick={() => window.open(`${window.location.origin}/share/${share.id}`, '_blank', 'noopener')}>Test</button>
                                 <button
                                   type="button"
                                   className={styles.attachAction}
                                   onClick={() =>
-                                    setLinkEdit({ kind: 'share', id: share.id, filename: share.filename, value: linkSettingsFromShare(share), busy: false, error: '' })
+                                    setLinkEdit({ kind: 'share', id: share.id, filename: share.filename, value: linkSettingsFromShare(share), busy: false, error: '', note: '' })
                                   }
                                 >
                                   Settings
@@ -10478,6 +10487,32 @@ export default function DevMailPage() {
                   showPassword={linkEdit.kind === 'attachment'}
                   onChange={value => setLinkEdit(current => (current ? { ...current, value } : current))}
                 />
+              )}
+              {linkEditUrl && (
+                <div className={styles.settingsField}>
+                  <span>Link</span>
+                  <div className={styles.shareLinkRow}>
+                    <input readOnly value={linkEditUrl} onFocus={event => event.currentTarget.select()} />
+                    <button
+                      type="button"
+                      className={styles.attachAction}
+                      onClick={() =>
+                        navigator.clipboard
+                          .writeText(linkEditUrl)
+                          .then(() => setLinkEdit(current => (current ? { ...current, note: 'Link copied.' } : current)))
+                          .catch(() => setLinkEdit(current => (current ? { ...current, note: 'Copy did not work. Select the link and copy it.' } : current)))
+                      }
+                    >
+                      Copy
+                    </button>
+                    <button type="button" className={styles.attachAction} onClick={() => window.open(linkEditUrl, '_blank', 'noopener')}>
+                      Test
+                    </button>
+                  </div>
+                  <p className={styles.settingsNote}>
+                    {linkEdit.note || 'Testing opens it as a recipient would, without using up a view or download. Save first to test changed settings.'}
+                  </p>
+                </div>
               )}
               {linkEdit.error && <p className={styles.accessorMsg} role="alert">{linkEdit.error}</p>}
             </div>

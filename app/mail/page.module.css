@@ -6570,7 +6570,7 @@
   gap: 16px;
 }
 .shareLinkRow { display: flex; gap: 8px; }
-.shareLinkRow input { flex: 1; }
+.shareLinkRow input { flex: 1; min-width: 0; }
 @media (max-width: 720px) {
   .filesRow { flex-wrap: wrap; }
   .settingsField .filesActions { width: 100%; justify-content: flex-start; }

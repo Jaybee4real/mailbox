@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { signedInAs } from '@/lib/dev-auth'
 import { claimShare, getShare, getSharePasswordHash } from '@/lib/mailbox'
 import { verifyPassword } from '@/lib/password'
 import { objectExists } from '@/lib/r2'
@@ -21,21 +22,23 @@ const opensOn = (iso: string) =>
   new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' })
 
 /** What the page needs to render before anyone types anything. */
-export async function GET(_req: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
   const share = await getShare(id)
   if (!share) return NextResponse.json(GONE, { status: 404 })
   const gate = shareGate(share)
   if (gate.state === 'gone') return NextResponse.json(GONE, { status: 410 })
+  const preview = await signedInAs(req, share.owner)
   return NextResponse.json({
     ok: true,
+    preview,
     filename: share.filename,
     size: share.size,
     contentType: share.contentType,
     needsPassword: share.hasPassword,
     expiresAt: share.expiresAt,
     availableAt: share.availableAt,
-    pending: gate.state === 'pending',
+    pending: gate.state === 'pending' && !preview,
     canView: gate.canView,
     canDownload: gate.canDownload,
     viewKind: viewKind(share.filename),
@@ -64,7 +67,8 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (!share) return NextResponse.json(GONE, { status: 404 })
   const gate = shareGate(share)
   if (gate.state === 'gone') return NextResponse.json(GONE, { status: 410 })
-  if (gate.state === 'pending' && share.availableAt) {
+  const preview = await signedInAs(req, share.owner)
+  if (gate.state === 'pending' && share.availableAt && !preview) {
     return NextResponse.json({ ok: false, error: `This file opens on ${opensOn(share.availableAt)}.` }, { status: 403 })
   }
   if (mode === 'view' ? !gate.canView : !gate.canDownload) {
@@ -88,7 +92,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     )
   }
 
-  if (!(await claimShare(id, mode))) return NextResponse.json(GONE, { status: 410 })
+  if (!preview && !(await claimShare(id, mode))) return NextResponse.json(GONE, { status: 410 })
   // Served from this domain rather than the bucket: the bucket is a second hostname for
   // the recipient's network to reach, and when it cannot the download silently never
   // starts. The ticket carries the password decision the short distance to the bytes.
