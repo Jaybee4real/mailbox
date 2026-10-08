@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { appendEvent, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent } from '@/lib/mailbox'
 import { awsSnsUrl, verifySns, type SnsEnvelope } from '@/lib/sns'
+import { blockAddress } from '@/lib/blocked'
 
 export const runtime = 'nodejs'
 
@@ -8,7 +9,7 @@ type SesEvent = {
   eventType?: string
   mail?: { messageId?: string; timestamp?: string; destination?: string[]; commonHeaders?: { subject?: string } }
   bounce?: { bounceType?: string; bounceSubType?: string; timestamp?: string; bouncedRecipients?: Array<{ emailAddress?: string; diagnosticCode?: string }> }
-  complaint?: { timestamp?: string; complaintFeedbackType?: string }
+  complaint?: { timestamp?: string; complaintFeedbackType?: string; complainedRecipients?: Array<{ emailAddress?: string }> }
   delivery?: { timestamp?: string }
   deliveryDelay?: { timestamp?: string; delayType?: string }
   reject?: { reason?: string }
@@ -79,6 +80,14 @@ export async function POST(req: Request) {
     ?? event.deliveryDelay?.timestamp ?? event.mail?.timestamp ?? new Date().toISOString()
   try {
     await appendEvent({ emailId, type, at, meta: Object.keys(meta).length ? meta : undefined })
+    if (event.bounce?.bounceType === 'Permanent') {
+      for (const recipient of event.bounce.bouncedRecipients ?? []) {
+        if (recipient.emailAddress) await blockAddress(recipient.emailAddress, 'bounce', recipient.diagnosticCode ?? event.bounce.bounceSubType ?? null, at)
+      }
+    }
+    for (const recipient of event.complaint?.complainedRecipients ?? []) {
+      if (recipient.emailAddress) await blockAddress(recipient.emailAddress, 'complaint', event.complaint?.complaintFeedbackType ?? null, at)
+    }
   } catch (err) {
     await releaseWebhookEvent(claimKey)
     throw err

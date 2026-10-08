@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, isLocalOrigin, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
+import { blockAddress } from '@/lib/blocked'
 import { searchInbox, appendEvent, appendInbound, recordContact, setInboundFlags, setInboundSpam, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, trustSenderOf, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
 import { addressedToUs, attributeOwner, forwardToAccounts, ingestReceived, parseSender } from '@/lib/receive'
 import { isBrevoInbound, normalizeBrevoInbound } from '@/lib/mail-provider'
@@ -305,11 +306,19 @@ export async function POST(req: Request) {
     if (data.name) meta.name = String(data.name)
   }
 
+  const at = String(data.created_at ?? new Date().toISOString())
   await appendEvent({
     emailId: String(data.email_id ?? ''),
     type,
-    at: String(data.created_at ?? new Date().toISOString()),
+    at,
     meta: Object.keys(meta).length ? meta : undefined,
   })
+  // A provider webhook names every recipient, not the one that failed, so only a message
+  // with a single recipient can be pinned on an address.
+  const recipients = Array.isArray(data.to) ? (data.to as string[]) : data.to ? [String(data.to)] : []
+  const permanent = type === 'email.bounced' && /permanent/i.test(String(bounce?.type ?? ''))
+  if ((permanent || type === 'email.complained') && recipients.length === 1) {
+    await blockAddress(recipients[0], permanent ? 'bounce' : 'complaint', meta.bounceMessage ?? null, at, false).catch(() => {})
+  }
   return NextResponse.json({ ok: true })
 }

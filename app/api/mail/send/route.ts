@@ -10,6 +10,7 @@ import { scheduleSend } from '@/lib/scheduled'
 import { absoluteUrls, stripOwnPixel } from '@/lib/email-html'
 import { adaptiveEmail } from '@/lib/color-scheme'
 import { publicOrigin } from '@/lib/public-url'
+import { BlockedRecipientsError, blockedAmong } from '@/lib/blocked'
 
 export const runtime = 'nodejs'
 
@@ -35,11 +36,6 @@ export async function POST(req: Request) {
 
   const account = await resolveAccount(req)
 
-  const configProblem = providerConfigProblem()
-  if (configProblem) {
-    return NextResponse.json({ ok: false, error: configProblem }, { status: 500 })
-  }
-
   let body: SendBody
   try {
     body = await req.json()
@@ -48,6 +44,16 @@ export async function POST(req: Request) {
   }
 
   const recipients = (body.to ?? []).filter(Boolean)
+
+  const blocked = await blockedAmong([...recipients, ...(body.cc ?? []), ...(body.bcc ?? [])])
+  if (blocked.length) {
+    return NextResponse.json({ ok: false, error: new BlockedRecipientsError(blocked).message, blocked }, { status: 422 })
+  }
+
+  const configProblem = providerConfigProblem()
+  if (configProblem) {
+    return NextResponse.json({ ok: false, error: configProblem }, { status: 500 })
+  }
 
   // Send from the accessor's personal address so replies route back to their mailbox.
   //
@@ -217,6 +223,9 @@ export async function POST(req: Request) {
       skipArchive: true,
     })
   } catch (sendError) {
+    if (sendError instanceof BlockedRecipientsError) {
+      return NextResponse.json({ ok: false, error: sendError.message, blocked: sendError.blocked }, { status: 422 })
+    }
     return NextResponse.json({ ok: false, error: (sendError as Error).message }, { status: 502 })
   }
 

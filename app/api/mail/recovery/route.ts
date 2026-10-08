@@ -1,3 +1,4 @@
+import { BlockedRecipientsError } from '@/lib/blocked'
 import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
@@ -86,7 +87,7 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error('[mail] recovery verification email failed:', err)
     return NextResponse.json(
-      { ok: false, error: 'Saved, but the confirmation email could not be sent', recoveryEmail: recovery, verified: false },
+      { ok: false, error: err instanceof BlockedRecipientsError ? `Saved, but the confirmation email was not sent. ${err.message}` : 'Saved, but the confirmation email could not be sent', recoveryEmail: recovery, verified: false },
       { status: 502 },
     )
   }

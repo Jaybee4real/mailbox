@@ -1,3 +1,4 @@
+import { BlockedRecipientsError } from '@/lib/blocked'
 import { NextResponse } from 'next/server'
 import { getLoginChallenge, twoFactorState } from '@/lib/mailbox'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
@@ -32,7 +33,10 @@ export async function POST(req: Request) {
     await sendEmailCode(req, challenge.id, factors.recoveryEmail, 'signin')
   } catch (err) {
     console.error('[mail] sign-in code failed:', err)
-    return NextResponse.json({ ok: false, error: 'The code could not be sent. Try again.' }, { status: 502 })
+    const error = err instanceof BlockedRecipientsError
+      ? 'The code could not be sent: your recovery address is blocked because mail to it bounced. Ask an admin to unblock it.'
+      : 'The code could not be sent. Try again.'
+    return NextResponse.json({ ok: false, error }, { status: 502 })
   }
   return NextResponse.json({ ok: true, sentTo: maskEmail(factors.recoveryEmail) })
 }

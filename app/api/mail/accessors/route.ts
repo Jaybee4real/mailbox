@@ -1,3 +1,4 @@
+import { BlockedRecipientsError } from '@/lib/blocked'
 import { BRAND, ADDRESS_DOMAINS as BRAND_ADDRESS_DOMAINS } from '@/lib/brand'
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
@@ -145,7 +146,7 @@ export async function POST(req: Request) {
   } catch (err) {
     // The account row already exists; say the invite did not go out rather than imply it did.
     console.error('[mail] invite email failed:', err)
-    return NextResponse.json({ ok: false, error: 'Account created, but the invite email could not be sent', email, address, role }, { status: 502 })
+    return NextResponse.json({ ok: false, error: err instanceof BlockedRecipientsError ? `Account created, but the invite was not sent. ${err.message}` : 'Account created, but the invite email could not be sent', email, address, role }, { status: 502 })
   }
 
   return NextResponse.json({ ok: true, email, address, role })

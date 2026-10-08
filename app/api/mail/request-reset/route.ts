@@ -1,3 +1,4 @@
+import { BlockedRecipientsError } from '@/lib/blocked'
 import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
@@ -94,7 +95,10 @@ export async function POST(req: Request) {
   } catch (err) {
     // A reset that silently sends nothing is indistinguishable from one that worked.
     console.error('[mail] reset email failed:', err)
-    return NextResponse.json({ ok: false, error: 'Could not send the reset email' }, { status: 502 })
+    const error = err instanceof BlockedRecipientsError
+      ? 'Could not send the reset email: the recovery address is blocked because mail to it bounced. Ask an admin to unblock it.'
+      : 'Could not send the reset email'
+    return NextResponse.json({ ok: false, error }, { status: 502 })
   }
 
   return NextResponse.json({ ok: true, message: `Reset link sent to ${mask(destination)}.` })

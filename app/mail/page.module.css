@@ -2556,6 +2556,85 @@
 }
 .addrChip button:hover { color: var(--nc-danger); }
 .addrChipBad { border-color: color-mix(in srgb, var(--nc-danger) 50%, transparent); color: var(--nc-danger-soft); }
+.addrChipBlocked {
+  border-color: color-mix(in srgb, var(--nc-danger) 60%, transparent);
+  background: color-mix(in srgb, var(--nc-danger) 12%, var(--nc-ink-3));
+  color: var(--nc-danger-soft);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--nc-danger) 55%, transparent);
+}
+.addrChipFlag {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font: 700 9.5px/1.2 var(--nc-font-sans);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  display: inline-block;
+  background: var(--nc-danger);
+  color: #fff;
+}
+.suggestBlocked {
+  margin-left: auto;
+  align-self: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font: 700 10px/1.2 var(--nc-font-sans);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  background: color-mix(in srgb, var(--nc-danger) 16%, transparent);
+  color: var(--nc-danger-soft);
+}
+.blockedNote {
+  display: flex;
+  gap: 10px;
+  margin: 8px 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--nc-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--nc-danger) 9%, transparent);
+  color: var(--nc-fg-1);
+  font: 400 13px/1.5 var(--nc-font-sans);
+}
+.blockedNoteIcon {
+  flex-shrink: 0;
+  color: var(--nc-danger);
+}
+.blockedNoteIcon svg {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+.blockedNoteBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.blockedNoteRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.blockedNoteText {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--nc-fg-2);
+}
+.blockedNoteRow button {
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--nc-danger) 50%, transparent);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: transparent;
+  color: var(--nc-danger-soft);
+  font: 600 12px/1.3 var(--nc-font-sans);
+  cursor: pointer;
+}
+.blockedNoteRow button:hover { background: color-mix(in srgb, var(--nc-danger) 14%, transparent); }
 
 .toolbar {
   display: flex;

@@ -266,6 +266,12 @@ export function ensureMailSchema(): Promise<void> {
           owner TEXT PRIMARY KEY,
           data TEXT
         )`,
+        `CREATE TABLE IF NOT EXISTS mail_blocked (
+          address TEXT PRIMARY KEY,
+          reason TEXT NOT NULL,
+          detail TEXT,
+          created_at TEXT NOT NULL
+        )`,
         `CREATE TABLE IF NOT EXISTS mail_events (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           email_id TEXT,

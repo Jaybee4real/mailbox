@@ -9,6 +9,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { sesConfigured, sesSendRaw } from './ses-send'
+import { BlockedRecipientsError, blockedAmong } from './blocked'
 
 export type MailProvider = 'resend' | 'brevo' | 'ses'
 
@@ -236,7 +237,9 @@ function withArchive(payload: SendPayload): SendPayload {
   return { ...payload, bcc: [...(payload.bcc ?? []), archive] }
 }
 
-export function sendMail(raw: SendPayload): Promise<SendResult> {
+export async function sendMail(raw: SendPayload): Promise<SendResult> {
+  const blocked = await blockedAmong([...raw.to, ...(raw.cc ?? []), ...(raw.bcc ?? [])])
+  if (blocked.length) throw new BlockedRecipientsError(blocked)
   const payload = withArchive(raw)
   switch (activeProvider()) {
     case 'ses': return sendViaSes(payload)

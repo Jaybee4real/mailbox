@@ -425,7 +425,18 @@ const DEFAULT_SETTINGS: MailSettings = {
   defaultFont: EMPTY_FONT,
 }
 
-type SettingsTab = 'profile' | 'security' | 'signature' | 'appearance' | 'notifications' | 'mail' | 'people' | 'app'
+type SettingsTab = 'profile' | 'security' | 'signature' | 'appearance' | 'notifications' | 'mail' | 'people' | 'blocked' | 'app'
+
+type BlockedEntry = { address: string; reason: 'bounce' | 'complaint' | 'manual'; detail: string | null; createdAt: string }
+
+const BLOCK_REASON: Record<BlockedEntry['reason'], string> = {
+  bounce: 'Mail to it bounced',
+  complaint: 'Its owner marked our mail as spam',
+  manual: 'Blocked by an admin',
+}
+
+const blockedReason = (entry: BlockedEntry) =>
+  `${BLOCK_REASON[entry.reason] ?? 'Blocked'} on ${new Date(entry.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
 
 type ShareLink = {
   id: string
@@ -466,6 +477,7 @@ const SETTINGS_TABS: Array<{ key: SettingsTab; label: string; hint: string; admi
   { key: 'appearance', label: 'Appearance', hint: 'Theme, size and density' },
   { key: 'notifications', label: 'Notifications', hint: 'How you hear about mail' },
   { key: 'people', label: 'People with access', hint: 'Mailboxes and roles', adminOnly: true },
+  { key: 'blocked', label: 'Blocked addresses', hint: "Addresses mail won't be sent to" },
   { key: 'app', label: 'Installed app', hint: 'Install, version, sign out' },
 ]
 
@@ -1296,11 +1308,13 @@ function ChipField({
   onChange,
   placeholder,
   suggest,
+  blocked,
 }: {
   chips: string[]
   onChange: (next: string[]) => void
   placeholder: string
   suggest?: (query: string) => Promise<Array<{ email: string; name: string | null }>>
+  blocked?: Map<string, BlockedEntry>
 }) {
   const [text, setText] = useState('')
   const [suggestions, setSuggestions] = useState<Array<{ email: string; name: string | null }>>([])
@@ -1342,14 +1356,22 @@ function ChipField({
 
   return (
     <>
-      {chips.map(chip => (
-        <span key={chip} className={`${styles.addrChip} ${EMAIL_RE.test(chip) ? '' : styles.addrChipBad}`}>
-          {chip}
-          <button type="button" aria-label={`Remove ${chip}`} onClick={() => onChange(chips.filter(entry => entry !== chip))}>
-            ×
-          </button>
-        </span>
-      ))}
+      {chips.map(chip => {
+        const block = blocked?.get(parseAddress(chip).toLowerCase())
+        return (
+          <span
+            key={chip}
+            className={`${styles.addrChip} ${EMAIL_RE.test(chip) ? '' : styles.addrChipBad} ${block ? styles.addrChipBlocked : ''}`}
+            title={block ? `Blocked: ${blockedReason(block)}${block.detail ? ` (${block.detail})` : ''}` : undefined}
+          >
+            {block && <span className={styles.addrChipFlag}>Blocked</span>}
+            {chip}
+            <button type="button" aria-label={`Remove ${chip}`} onClick={() => onChange(chips.filter(entry => entry !== chip))}>
+              ×
+            </button>
+          </span>
+        )
+      })}
       <span className={styles.chipInputWrap}>
         <input
           value={text}
@@ -1399,12 +1421,34 @@ function ChipField({
                   {entry.name && <span className={styles.suggestName}>{entry.name}</span>}
                   <span className={styles.suggestEmail}>{entry.email}</span>
                 </span>
+                {blocked?.has(entry.email.toLowerCase()) && <span className={styles.suggestBlocked}>Blocked</span>}
               </button>
             ))}
           </div>
         )}
       </span>
     </>
+  )
+}
+
+function BlockedNote({ recipients, blocked, onRemove }: { recipients: string[]; blocked: Map<string, BlockedEntry>; onRemove: (address: string) => void }) {
+  const hits = [...new Set(recipients.map(chip => parseAddress(chip).toLowerCase()))]
+    .map(address => blocked.get(address))
+    .filter((entry): entry is BlockedEntry => Boolean(entry))
+  if (!hits.length) return null
+  return (
+    <div className={styles.blockedNote} role="alert">
+      <span className={styles.blockedNoteIcon}>{ICONS.warn}</span>
+      <div className={styles.blockedNoteBody}>
+        <strong>{hits.length === 1 ? 'This email will not be sent: a recipient is blocked' : `This email will not be sent: ${hits.length} recipients are blocked`}</strong>
+        {hits.map(entry => (
+          <span key={entry.address} className={styles.blockedNoteRow}>
+            <span className={styles.blockedNoteText}>{entry.address} · {blockedReason(entry)}</span>
+            <button type="button" onClick={() => onRemove(entry.address)}>Remove</button>
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -1465,6 +1509,7 @@ const SETTINGS_TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
   notifications: ICONS.bell,
   mail: ICONS.pencil,
   people: ICONS.users,
+  blocked: ICONS.alert,
   app: ICONS.install,
 }
 
@@ -1857,6 +1902,37 @@ export default function DevMailPage() {
     ],
     [mailboxes],
   )
+
+  const [blockedList, setBlockedList] = useState<BlockedEntry[]>([])
+  const blockedMap = useMemo(() => new Map(blockedList.map(entry => [entry.address, entry])), [blockedList])
+  const [blockInput, setBlockInput] = useState('')
+  const [blockMsg, setBlockMsg] = useState<{ text: string; bad: boolean } | null>(null)
+  const loadBlocked = useCallback(async () => {
+    const data = await fetch('/api/mail/blocked', { headers: apiHeaders() }).then(response => response.json()).catch(() => null)
+    if (data?.ok) setBlockedList(data.blocked)
+  }, [apiHeaders])
+  useEffect(() => {
+    if (isLoggedIn) void loadBlocked()
+  }, [isLoggedIn, loadBlocked])
+  const mergeBlocked = useCallback((entries?: BlockedEntry[]) => {
+    if (!entries?.length) return
+    setBlockedList(current => [...entries, ...current.filter(entry => !entries.some(fresh => fresh.address === entry.address))])
+  }, [])
+  const changeBlocked = async (method: 'POST' | 'DELETE', address: string) => {
+    setBlockMsg(null)
+    const data = await fetch('/api/mail/blocked', {
+      method,
+      headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address }),
+    }).then(response => response.json()).catch(() => null)
+    if (!data?.ok) {
+      setBlockMsg({ text: data?.error ?? 'Could not reach the server.', bad: true })
+      return
+    }
+    setBlockedList(data.blocked)
+    if (method === 'POST') setBlockInput('')
+    setBlockMsg({ text: data.warning ?? (method === 'POST' ? `${address.trim().toLowerCase()} is blocked.` : `${address} is unblocked.`), bad: Boolean(data.warning) })
+  }
 
   const [threads, setThreads] = useState<ConversationRow[]>([])
   const [priorityIds, setPriorityIds] = useState<Set<string>>(() => new Set())
@@ -4924,6 +5000,7 @@ export default function DevMailPage() {
       })
       const data = await response.json()
       if (!data.ok) {
+        mergeBlocked(data.blocked)
         setComposeError(data.error ?? 'Send failed')
         return
       }
@@ -5238,6 +5315,7 @@ export default function DevMailPage() {
       // button not working, and the commonest refusal — replying to your own address —
       // is one the sender can act on immediately.
       if (!response.ok || !data?.ok) {
+        mergeBlocked(data?.blocked)
         setReplyError(data?.error ?? `Send failed (${response.status})`)
         return
       }
@@ -5379,6 +5457,33 @@ export default function DevMailPage() {
     // After openCompose, which clears the list the files are about to go into.
     if (messageId) void carryForwardAttachments(messageId, kind)
   }
+
+  const checkedRecipients = useRef(new Set<string>())
+  const typedRecipients = useMemo(
+    () =>
+      [...compose.to, ...compose.cc, ...compose.bcc, ...replyToList, ...replyCc, ...replyBcc]
+        .map(chip => parseAddress(chip).toLowerCase())
+        .filter(address => EMAIL_RE.test(address)),
+    [compose.to, compose.cc, compose.bcc, replyToList, replyCc, replyBcc],
+  )
+  useEffect(() => {
+    const fresh = [...new Set(typedRecipients)].filter(address => !checkedRecipients.current.has(address))
+    if (!fresh.length) return
+    const timer = window.setTimeout(() => {
+      fresh.forEach(address => checkedRecipients.current.add(address))
+      fetch('/api/mail/blocked/check', {
+        method: 'POST',
+        headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addresses: fresh }),
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data?.ok) mergeBlocked(data.blocked)
+        })
+        .catch(() => fresh.forEach(address => checkedRecipients.current.delete(address)))
+    }, 400)
+    return () => window.clearTimeout(timer)
+  }, [typedRecipients, apiHeaders, mergeBlocked])
 
   const resendSent = (sent: SentDetail) => {
     const missing = sent.attachments.length > 1 ? 'attachments that were' : 'attachment that was'
@@ -7423,18 +7528,29 @@ export default function DevMailPage() {
                   <div className={styles.replyRecipsFields}>
                     <div className={styles.replyRecipRow}>
                       <span className={styles.replyRecipLabel}>To</span>
-                      <ChipField chips={replyToList} onChange={next => { setReplyRecipsEdited(true); setReplyToList(next) }} placeholder="someone@example.com" suggest={suggestContacts} />
+                      <ChipField chips={replyToList} onChange={next => { setReplyRecipsEdited(true); setReplyToList(next) }} placeholder="someone@example.com" suggest={suggestContacts} blocked={blockedMap} />
                     </div>
                     <div className={styles.replyRecipRow}>
                       <span className={styles.replyRecipLabel}>Cc</span>
-                      <ChipField chips={replyCc} onChange={next => { setReplyRecipsEdited(true); setReplyCc(next) }} placeholder="cc@example.com" suggest={suggestContacts} />
+                      <ChipField chips={replyCc} onChange={next => { setReplyRecipsEdited(true); setReplyCc(next) }} placeholder="cc@example.com" suggest={suggestContacts} blocked={blockedMap} />
                     </div>
                     <div className={styles.replyRecipRow}>
                       <span className={styles.replyRecipLabel}>Bcc</span>
-                      <ChipField chips={replyBcc} onChange={next => { setReplyRecipsEdited(true); setReplyBcc(next) }} placeholder="bcc@example.com" suggest={suggestContacts} />
+                      <ChipField chips={replyBcc} onChange={next => { setReplyRecipsEdited(true); setReplyBcc(next) }} placeholder="bcc@example.com" suggest={suggestContacts} blocked={blockedMap} />
                     </div>
                   </div>
                 )}
+                <BlockedNote
+                  recipients={[...replyToList, ...replyCc, ...replyBcc]}
+                  blocked={blockedMap}
+                  onRemove={address => {
+                    const keep = (chip: string) => parseAddress(chip).toLowerCase() !== address
+                    setReplyRecipsEdited(true)
+                    setReplyToList(list => list.filter(keep))
+                    setReplyCc(list => list.filter(keep))
+                    setReplyBcc(list => list.filter(keep))
+                  }}
+                />
               </div>
               <div className={styles.replyToolbar}>
                 <button className={styles.toolBtn} onClick={() => insertReply('**bold**')} title="Bold" type="button">B</button>
@@ -8845,7 +8961,7 @@ export default function DevMailPage() {
               </div>
               <div className={styles.fieldRow}>
                 <span className={styles.fieldLabel}>To</span>
-                <ChipField chips={compose.to} onChange={next => setCompose(data => ({ ...data, to: next }))} placeholder="someone@example.com" suggest={suggestContacts} />
+                <ChipField chips={compose.to} onChange={next => setCompose(data => ({ ...data, to: next }))} placeholder="someone@example.com" suggest={suggestContacts} blocked={blockedMap} />
                 <button
                   className={`${styles.ccToggle} ${showCcBcc ? styles.ccToggleOn : ''}`}
                   onClick={() => setShowCcBcc(open => !open)}
@@ -8858,11 +8974,11 @@ export default function DevMailPage() {
                 <>
                   <div className={styles.fieldRow}>
                     <span className={styles.fieldLabel}>Cc</span>
-                    <ChipField chips={compose.cc} onChange={next => setCompose(data => ({ ...data, cc: next }))} placeholder="cc@example.com" suggest={suggestContacts} />
+                    <ChipField chips={compose.cc} onChange={next => setCompose(data => ({ ...data, cc: next }))} placeholder="cc@example.com" suggest={suggestContacts} blocked={blockedMap} />
                   </div>
                   <div className={styles.fieldRow}>
                     <span className={styles.fieldLabel}>Bcc</span>
-                    <ChipField chips={compose.bcc} onChange={next => setCompose(data => ({ ...data, bcc: next }))} placeholder="bcc@example.com" suggest={suggestContacts} />
+                    <ChipField chips={compose.bcc} onChange={next => setCompose(data => ({ ...data, bcc: next }))} placeholder="bcc@example.com" suggest={suggestContacts} blocked={blockedMap} />
                   </div>
                   <div className={styles.fieldRow}>
                     <span className={styles.fieldLabel}>Reply</span>
@@ -8874,6 +8990,14 @@ export default function DevMailPage() {
                   </div>
                 </>
               )}
+              <BlockedNote
+                recipients={[...compose.to, ...compose.cc, ...compose.bcc]}
+                blocked={blockedMap}
+                onRemove={address => {
+                  const keep = (chip: string) => parseAddress(chip).toLowerCase() !== address
+                  setCompose(data => ({ ...data, to: data.to.filter(keep), cc: data.cc.filter(keep), bcc: data.bcc.filter(keep) }))
+                }}
+              />
               <div className={styles.fieldRow}>
                 <span className={styles.fieldLabel}>Subj</span>
                 <input
@@ -10354,6 +10478,55 @@ export default function DevMailPage() {
             </>
             )}
 
+            {settingsTab === 'blocked' && (<>
+            <p className={styles.settingsNote}>
+              Mail is never sent to these addresses. One lands here by itself when mail to it bounces for good or its
+              owner marks our mail as spam, so a dead address cannot hurt how the rest of our mail is delivered.
+              {isAdmin ? ' Unblock one once you know it works again.' : ' Ask an admin to unblock one that works again.'}
+            </p>
+            {isAdmin && (
+              <form
+                className={styles.accessorInviteRow}
+                onSubmit={event => {
+                  event.preventDefault()
+                  if (blockInput.trim()) void changeBlocked('POST', blockInput)
+                }}
+              >
+                <input
+                  className={styles.accessorInput}
+                  type="email"
+                  placeholder="address@example.com"
+                  aria-label="Address to block"
+                  value={blockInput}
+                  onChange={event => setBlockInput(event.target.value)}
+                />
+                <button className={styles.sendBtn} type="submit" disabled={!blockInput.trim()}>Block</button>
+              </form>
+            )}
+            {blockMsg && (
+              <p className={`${styles.accessorMsg} ${blockMsg.bad ? styles.msgBad : ''}`} role={blockMsg.bad ? 'alert' : undefined}>{blockMsg.text}</p>
+            )}
+            {blockedList.length === 0 ? (
+              <p className={styles.accessorHint}>Nothing is blocked.</p>
+            ) : (
+              <ul className={styles.accessorList}>
+                {blockedList.map(entry => (
+                  <li key={entry.address} className={styles.accessorItem}>
+                    <div className={styles.accessorMeta}>
+                      <strong>{entry.address}</strong>
+                      <span className={styles.accessorSub}>{blockedReason(entry)}</span>
+                      {entry.detail && <span className={styles.accessorSub}>{entry.detail}</span>}
+                    </div>
+                    {isAdmin && (
+                      <button className={styles.mailboxTag} type="button" onClick={() => void changeBlocked('DELETE', entry.address)}>
+                        Unblock
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            </>)}
             {settingsTab === 'app' && (<>
             <div className={styles.settingsField}>
               <span>Install {CLIENT_BRAND.name} Mail</span>

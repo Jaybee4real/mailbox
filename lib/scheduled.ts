@@ -1,5 +1,6 @@
 import { BRAND } from '@/lib/brand'
 import { absoluteUrls } from '@/lib/email-html'
+import { BlockedRecipientsError } from '@/lib/blocked'
 import { randomUUID } from 'node:crypto'
 import { db, ensureMailSchema, recordContact, recordPixel, recordSentMeta, recordSentMessage } from '@/lib/mailbox'
 import { sendMail, type SendPayload } from '@/lib/mail-provider'
@@ -165,7 +166,7 @@ async function dispatchRow(row: Record<string, unknown>): Promise<'sent' | 'fail
     const reason = err instanceof Error ? err.message : String(err)
     await sql`
       UPDATE mail_scheduled
-      SET status = ${attempts >= MAX_ATTEMPTS ? 'failed' : 'pending'}, attempts = ${attempts}, last_error = ${reason}
+      SET status = ${attempts >= MAX_ATTEMPTS || err instanceof BlockedRecipientsError ? 'failed' : 'pending'}, attempts = ${attempts}, last_error = ${reason}
       WHERE id = ${id}`
     return 'failed'
   }

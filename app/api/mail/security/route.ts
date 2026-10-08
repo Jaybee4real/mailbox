@@ -1,3 +1,4 @@
+import { BlockedRecipientsError } from '@/lib/blocked'
 import { NextResponse } from 'next/server'
 import { describeLocation } from '@/lib/client-context'
 import { BRAND } from '@/lib/brand'
@@ -82,7 +83,7 @@ export async function POST(req: Request) {
       await sendEmailCode(req, challenge, factors.recoveryEmail, 'enroll')
     } catch (err) {
       console.error('[mail] enrolment code failed:', err)
-      return fail('The code could not be sent. Try again.', 502)
+      return fail(err instanceof BlockedRecipientsError ? `The code was not sent. ${err.message}` : 'The code could not be sent. Try again.', 502)
     }
     return NextResponse.json({ ok: true, challenge, sentTo: maskEmail(factors.recoveryEmail), resendAfterMs: EMAIL_RESEND_MS })
   }
