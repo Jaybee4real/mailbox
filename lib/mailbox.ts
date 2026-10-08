@@ -14,7 +14,7 @@ import { hashPassword } from './password'
 import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
 import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
-import { inboxFiltersSql, normalizeInboxFilters, type InboxFilter } from './inbox-filters'
+import { inboxFiltersSql, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters'
 import { judgeMessage, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
 import type { ShareAccess, ShareSettings } from './share-policy'
 
@@ -1070,7 +1070,7 @@ async function rethreadAfterChange(id: string, previousOwner?: string | null, pr
   }
 }
 
-export type ThreadFolder = 'inbox' | 'archive' | 'trash' | 'starred' | 'snoozed' | 'spam' | 'filtered'
+export type ThreadFolder = 'inbox' | 'archive' | 'trash' | 'starred' | 'snoozed' | 'spam' | 'filtered' | 'priority'
 
 /** The newest conversations in a folder: one row each, already summarised. */
 export type ThreadPage = { rows: ThreadRow[]; nextCursor: string | null }
@@ -1083,9 +1083,9 @@ export async function listThreads(
   filters: InboxFilter[] = [],
 ): Promise<ThreadPage> {
   await ensureMailSchema()
-  const filterSql = folder === 'inbox' || folder === 'filtered' ? inboxFiltersSql(filters) : null
-  if (folder === 'filtered' && !filterSql) return { rows: [], nextCursor: null }
-  const filterClause = filterSql ? (folder === 'filtered' ? filterSql.sql : `NOT ${filterSql.sql}`) : ''
+  const filterSql = folder === 'priority' ? prioritySql(prioritySenders()) : folder === 'inbox' || folder === 'filtered' ? inboxFiltersSql(filters) : null
+  if ((folder === 'filtered' || folder === 'priority') && !filterSql) return { rows: [], nextCursor: null }
+  const filterClause = filterSql ? (folder === 'inbox' ? `NOT ${filterSql.sql}` : filterSql.sql) : ''
   const filterArgs = filterSql?.args ?? []
   const owner = ownerRaw === null ? null : ownerRaw.toLowerCase()
   const nowIso = new Date().toISOString()
@@ -1095,10 +1095,11 @@ export async function listThreads(
     : folder === 'trash' ? 'trashed_count > 0'
     : folder === 'starred' ? 'starred_count > 0'
     : folder === 'snoozed' ? 'snoozed_until > ?'
+    : folder === 'priority' ? 'inbox_count > 0 AND unread_count > 0 AND (snoozed_until IS NULL OR snoozed_until <= ?)'
     : 'inbox_count > 0 AND (snoozed_until IS NULL OR snoozed_until <= ?)'
   // Both snooze predicates carry one bound timestamp; the others carry none, and the
   // cursor's arguments have to follow whatever the predicate used.
-  const folderArgs = folder === 'snoozed' || folder === 'inbox' || folder === 'filtered' ? [nowIso] : []
+  const folderArgs = folder === 'archive' || folder === 'trash' || folder === 'starred' || folder === 'spam' ? [] : [nowIso]
   const cursor = decodeCursor(cursorRaw)
   const cursorClause = cursor ? '(latest_at < ? OR (latest_at = ? AND thread_id < ?))' : ''
   const cursorArgs = cursor ? [cursor.receivedAt, cursor.receivedAt, cursor.id] : []

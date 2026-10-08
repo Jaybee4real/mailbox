@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { DEFAULT_INBOX_FILTERS, inboxFiltersSql, matchesInboxFilters, normalizeInboxFilters, type InboxFilter } from './inbox-filters.ts'
+import { DEFAULT_INBOX_FILTERS, inboxFiltersSql, matchesInboxFilters, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters.ts'
 
 assert.deepEqual(normalizeInboxFilters(undefined), DEFAULT_INBOX_FILTERS, 'untouched settings get the defaults')
 assert.deepEqual(normalizeInboxFilters([]), [], 'an emptied list stays empty')
@@ -50,5 +50,15 @@ for (const [filters, expected] of cases) {
   assert.deepEqual(viaJs(filters), expected, `js ${JSON.stringify(filters)}`)
 }
 assert.equal(inboxFiltersSql([]), null)
+
+const priority = (raw: string) => {
+  const clause = prioritySql(prioritySenders(raw))
+  if (!clause) return []
+  return db.prepare(`SELECT thread_id FROM mail_threads t WHERE ${clause.sql} ORDER BY thread_id`).all(...clause.args).map(row => String(row.thread_id))
+}
+assert.deepEqual(priority(''), [], 'no priority senders, no priority')
+assert.deepEqual(priority(' ADA@example.org '), ['dmarc-joined', 'person'], 'an address matches any sender in the conversation')
+assert.deepEqual(priority('@example.net,@microsoft.com'), ['dmarc', 'dmarc-joined', 'newsletter'], 'a domain matches its own senders')
+assert.deepEqual(priority('@mail.example'), [], 'a domain is matched at its end, not inside')
 
 console.log('inbox-filters: ok')

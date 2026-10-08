@@ -1832,6 +1832,7 @@ export default function DevMailPage() {
   )
 
   const [threads, setThreads] = useState<ConversationRow[]>([])
+  const [priorityIds, setPriorityIds] = useState<Set<string>>(() => new Set())
   const [threadsResolved, setThreadsResolved] = useState(false)
   const threadFolder = folder === 'inbox' && showFiltered ? 'filtered' : folder === 'archived' ? 'archive' : folder === 'trash' ? 'trash' : folder === 'starred' ? 'starred' : folder === 'snoozed' ? 'snoozed' : folder === 'spam' ? 'spam' : 'inbox'
   const threadsFetch = useRef<string | null>(null)
@@ -1859,10 +1860,22 @@ export default function DevMailPage() {
       const params = new URLSearchParams(mailboxQuery.replace(/^\?/, ''))
       params.set('folder', threadFolder)
       params.set('limit', String(THREAD_PAGE))
-      const response = await fetch(`/api/mail/threads?${params.toString()}`, { headers: apiHeaders() })
-      const data = await response.json().catch(() => null)
+      const priorityParams = new URLSearchParams(params)
+      priorityParams.set('folder', 'priority')
+      priorityParams.set('limit', '50')
+      const [data, priorityData] = await Promise.all([
+        fetch(`/api/mail/threads?${params.toString()}`, { headers: apiHeaders() }).then(response => response.json()).catch(() => null),
+        threadFolder === 'inbox'
+          ? fetch(`/api/mail/threads?${priorityParams.toString()}`, { headers: apiHeaders() }).then(response => response.json()).catch(() => null)
+          : null,
+      ])
+      const pinned = priorityData?.ok && Array.isArray(priorityData.threads) ? (priorityData.threads as ConversationRow[]) : null
+      if (pinned) setPriorityIds(new Set(pinned.map(thread => thread.threadId)))
       if (data?.ok && Array.isArray(data.threads)) {
-        const fresh = data.threads as ConversationRow[]
+        const listed = data.threads as ConversationRow[]
+        const listedIds = new Set(listed.map(entry => entry.threadId))
+        // A rule can hold priority mail out of the inbox page, and old mail sits past it.
+        const fresh = [...listed, ...(pinned ?? []).filter(entry => !listedIds.has(entry.threadId))]
         const replace = threadsLoadedFolder.current !== threadKey
         threadsLoadedFolder.current = threadKey
         setThreads(current => {
@@ -3627,6 +3640,9 @@ export default function DevMailPage() {
                 threadCount: thread.count,
                 latestAt: new Date(thread.latestAt).getTime(),
                 labels: thread.labels,
+                priority:
+                  folder === 'inbox' && !showFiltered && priorityIds.has(thread.threadId) &&
+                  (thread.unreadCount > 0 || selectedId === (thread.latestId ?? thread.threadId)),
               }
             })
         : null
@@ -3682,7 +3698,9 @@ export default function DevMailPage() {
       const sentItems = sentInFolder
         .filter(matchesSent)
         .map(entry => sentToItem(entry))
-      return [...inboundItems, ...sentItems].sort((a, b) => b.latestAt - a.latestAt)
+      const sorted = [...inboundItems, ...sentItems].sort((a, b) => b.latestAt - a.latestAt)
+      const pinned = sorted.filter(item => 'priority' in item && item.priority)
+      return pinned.length ? [...pinned, ...sorted.filter(item => !('priority' in item && item.priority))] : sorted
     }
     if (folder === 'drafts') {
       return drafts
@@ -3709,7 +3727,7 @@ export default function DevMailPage() {
       .filter(entry => searched || matches(`${entry.to.join(' ')} ${entry.subject}`))
       .filter(entry => !(folder === 'sent' && (entry.archived || entry.trashed)))
       .map(entry => sentToItem(entry))
-  }, [folder, isInboundFolder, inboxEmails, drafts, scheduledEmails, deliveredEmails, sentSearchResults, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, now, hideForwarded, threadSentMembers, detailCache, threads, search, inboxFilters, showFiltered])
+  }, [folder, isInboundFolder, inboxEmails, drafts, scheduledEmails, deliveredEmails, sentSearchResults, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, now, hideForwarded, threadSentMembers, detailCache, threads, search, inboxFilters, showFiltered, priorityIds, selectedId])
 
   const listSettling = searching || sentSearching || ((mailboxLoading || !threadsResolved) && listItems.length === 0)
   const listRefreshing = !listSettling && (mailboxStale || mailboxLoading || !threadsResolved)
@@ -8440,7 +8458,8 @@ export default function DevMailPage() {
                 </div>
               )
             })()}
-            {listItems.map(item => (
+            {(() => {
+              const row = (item: (typeof listItems)[number]) => (
               <button
                 key={item.id}
                 className={`${styles.item} ${selectedId === item.id ? styles.itemActive : ''} ${item.unread ? styles.itemUnread : ''} ${selectedBulk.has(item.id) ? styles.itemChecked : ''} ${'threadId' in item && item.threadId && threadOpening === item.threadId ? styles.itemOpening : ''}`}
@@ -8610,7 +8629,27 @@ export default function DevMailPage() {
                   </span>
                 )}
               </button>
-            ))}
+              )
+              const pinnedCount = listItems.findIndex(item => !('priority' in item && item.priority))
+              const pinned = pinnedCount === -1 ? listItems : listItems.slice(0, pinnedCount)
+              if (!pinned.length || !('priority' in pinned[0] && pinned[0].priority)) return listItems.map(row)
+              const rest = listItems.slice(pinned.length)
+              return (
+                <>
+                  <section className={styles.priority} aria-label="Priority">
+                    <div className={styles.priorityHead}>
+                      <span className={styles.priorityIcon}>{ICONS.pin}</span>
+                      <span className={styles.priorityTitle}>Priority</span>
+                      <span className={styles.priorityCount}>{pinned.length}</span>
+                      <span className={styles.priorityHint}>Stays here until opened</span>
+                    </div>
+                    {pinned.map(row)}
+                  </section>
+                  {rest.length > 0 && <div className={styles.restHead}>Everything else</div>}
+                  {rest.map(row)}
+                </>
+              )
+            })()}
             </>
           )}
           {/* Nothing to load more of when nothing is listed: the skeleton under an empty

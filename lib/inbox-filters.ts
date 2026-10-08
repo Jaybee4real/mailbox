@@ -83,6 +83,20 @@ export function inboxFiltersSql(filters: InboxFilter[]): { sql: string; args: st
   return { sql: `(${parts.join(' OR ')})`, args: [...senderArgs, ...args] }
 }
 
+export function prioritySenders(raw = process.env.MAIL_PRIORITY_SENDERS ?? ''): string[] {
+  return [...new Set(raw.split(',').map(entry => entry.trim().toLowerCase()).filter(Boolean))]
+}
+
+/** A conversation is priority when any of its senders is listed: an address, or an `@domain` and its subdomains. */
+export function prioritySql(senders: string[]): { sql: string; args: string[] } | null {
+  if (!senders.length) return null
+  const rules = senders.map(sender =>
+    sender.startsWith('@') ? `${ADDRESS_SQL} LIKE ? ESCAPE '\\' OR ${ADDRESS_SQL} LIKE ? ESCAPE '\\'` : `${ADDRESS_SQL} = ?`)
+  const args = senders.flatMap(sender =>
+    sender.startsWith('@') ? [`%${likeEscape(sender)}`, `%.${likeEscape(sender.slice(1))}`] : [sender])
+  return { sql: `EXISTS (SELECT 1 FROM json_each(coalesce(t.senders, '[]')) WHERE ${rules.join(' OR ')})`, args }
+}
+
 /** The same rules for one message, for the paths that never reach SQL — a push, say. */
 export function matchesInboxFilters(
   filters: InboxFilter[],
