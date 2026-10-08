@@ -6910,7 +6910,10 @@ export default function DevMailPage() {
               <div><dt>To</dt><dd>{recips.to.join(', ') || '—'}</dd></div>
               {recips.cc.length > 0 && <div><dt>Cc</dt><dd>{recips.cc.join(', ')}</dd></div>}
               {recips.bcc.length > 0 && <div><dt>Bcc</dt><dd>{recips.bcc.join(', ')}</dd></div>}
+              {!mine && item.inbound.replyTo.length > 0 && <div><dt>Reply-To</dt><dd>{item.inbound.replyTo.join(', ')}</dd></div>}
               <div><dt>Date</dt><dd>{new Date(when).toLocaleString()}</dd></div>
+              <div><dt>Message ID</dt><dd>{mine ? item.sent.id : headerValue(item.inbound, 'message-id') || item.inbound.id}</dd></div>
+              {!mine && !plainSpoken && authSummary(item.inbound) && <div><dt>Security</dt><dd>{authSummary(item.inbound)}</dd></div>}
             </dl>
           )}
           <div className={styles.threadMsgBody}>
