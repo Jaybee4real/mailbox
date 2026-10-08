@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { extractUrls, inspectUrl, type LinkVerdict } from '@/lib/link-safety'
 import AttachmentLightbox, { attachmentKind, formatSize, inlineUrl, type PreviewItem } from './AttachmentLightbox'
 import AccessCheck from './AccessCheck'
@@ -5334,6 +5334,35 @@ export default function DevMailPage() {
     // After openCompose, which clears the list the files are about to go into.
     if (messageId) void carryForwardAttachments(messageId, kind)
   }
+
+  const resendSent = (sent: SentDetail) => {
+    const missing = sent.attachments.length > 1 ? 'attachments that were' : 'attachment that was'
+    openCompose({
+      to: sent.to.map(parseAddress),
+      cc: sent.cc.map(parseAddress),
+      bcc: sent.bcc.map(parseAddress),
+      subject: sent.subject,
+      bodyHtml: `<p>Sending this again with the ${missing} missing from my earlier email.</p>`,
+      quoteHtml: sent.html ?? forwardQuote(sent.subject, null, sent.text),
+      useSignature: false,
+      inReplyTo: sent.id,
+    })
+    void carryForwardAttachments(sent.id, 'sent')
+  }
+  const onResendLoaded = useEffectEvent((sent: SentDetail) => resendSent(sent))
+
+  useEffect(() => {
+    if (!account) return
+    const resendId = new URLSearchParams(window.location.search).get('resend')
+    if (!resendId) return
+    window.history.replaceState(null, '', window.location.pathname)
+    fetch(`/api/mail/emails/${encodeURIComponent(resendId)}`, { headers: apiHeaders() })
+      .then(response => response.json())
+      .then(data => {
+        if (data.ok) onResendLoaded(data.email)
+      })
+      .catch(() => {})
+  }, [account, apiHeaders])
 
   const openReplyBar = (entry: InboundEmail, kind: 'reply' | 'all' | 'forward') => {
     setReplyBar(kind)
