@@ -12,7 +12,7 @@ import { sesConfigured, sesSendRaw } from './ses-send'
 
 export type MailProvider = 'resend' | 'brevo' | 'ses'
 
-export type SendAttachment = { filename: string; content: string; contentType?: string }
+export type SendAttachment = { filename: string; content: string; contentType?: string; contentId?: string }
 
 export type SendPayload = {
   from: string
@@ -137,6 +137,38 @@ function encodeHeaderWord(value: string): string {
   return /^[\x20-\x7E]*$/.test(value) ? value : `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=`
 }
 
+const CONTENT_TYPES: Record<string, string> = {
+  pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+  heic: 'image/heic', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  csv: 'text/csv', txt: 'text/plain', zip: 'application/zip', rtf: 'application/rtf', mp4: 'video/mp4', mp3: 'audio/mpeg',
+}
+
+const wrap76 = (base64: string) => base64.replace(/.{1,76}/g, line => `${line}\r\n`)
+
+/** A filename a client can show whatever its script: ASCII for the old ones, RFC 2231 for the rest. */
+function filenameParams(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_')
+  if (ascii === name) return `filename="${name}"`
+  return `filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`
+}
+
+function attachmentPart(file: SendAttachment): string[] {
+  const extension = file.filename.split('.').pop()?.toLowerCase() ?? ''
+  const type = file.contentType || CONTENT_TYPES[extension] || 'application/octet-stream'
+  const params = filenameParams(file.filename)
+  const contentId = file.contentId?.replace(/^<|>$/g, '')
+  return [
+    `Content-Type: ${type}; name${params.slice('filename'.length)}`,
+    `Content-Disposition: ${contentId ? 'inline' : 'attachment'}; ${params}`,
+    ...(contentId ? [`Content-ID: <${contentId}>`] : []),
+    'Content-Transfer-Encoding: base64',
+    '',
+    wrap76(file.content.replace(/\s+/g, '')),
+  ]
+}
+
 function buildRawMime(payload: SendPayload): string {
   const boundary = `nc_${randomBytes(12).toString('hex')}`
   const sender = payload.fromName ? `${encodeHeaderWord(payload.fromName)} <${payload.from}>` : payload.from
@@ -152,18 +184,35 @@ function buildRawMime(payload: SendPayload): string {
 
   const text = payload.text ?? ''
   const html = payload.html ?? ''
+  const body: string[] = []
   if (html && text) {
-    lines.push(`Content-Type: multipart/alternative; boundary="${boundary}"`, '',
+    body.push(`Content-Type: multipart/alternative; boundary="${boundary}"`, '',
       `--${boundary}`, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '',
-      Buffer.from(text, 'utf8').toString('base64'), '',
+      wrap76(Buffer.from(text, 'utf8').toString('base64')),
       `--${boundary}`, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '',
-      Buffer.from(html, 'utf8').toString('base64'), '', `--${boundary}--`, '')
+      wrap76(Buffer.from(html, 'utf8').toString('base64')), `--${boundary}--`, '')
   } else {
-    lines.push(`Content-Type: text/${html ? 'html' : 'plain'}; charset=UTF-8`, 'Content-Transfer-Encoding: base64', '',
-      Buffer.from(html || text, 'utf8').toString('base64'), '')
+    body.push(`Content-Type: text/${html ? 'html' : 'plain'}; charset=UTF-8`, 'Content-Transfer-Encoding: base64', '',
+      wrap76(Buffer.from(html || text, 'utf8').toString('base64')))
   }
-  return lines.join('\r\n')
+
+  const files = payload.attachments?.filter(file => file.content) ?? []
+  if (!files.length) return [...lines, ...body].join('\r\n')
+  const mixed = `nc_${randomBytes(12).toString('hex')}`
+  return [
+    ...lines,
+    `Content-Type: multipart/mixed; boundary="${mixed}"`,
+    '',
+    `--${mixed}`,
+    ...body,
+    ...files.flatMap(file => [`--${mixed}`, ...attachmentPart(file)]),
+    `--${mixed}--`,
+    '',
+  ].join('\r\n')
 }
+
+/** For tests: the raw message the SES path would send. */
+export const rawMimeFor = buildRawMime
 
 async function sendViaSes(payload: SendPayload): Promise<SendResult> {
   const region = process.env.AWS_SES_REGION ?? 'eu-north-1'
