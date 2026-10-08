@@ -935,6 +935,14 @@ const fitFrame = (frame: HTMLIFrameElement) => {
     fit()
     doc.addEventListener('toggle', refit, true)
     doc.addEventListener('load', refit, true)
+    doc.addEventListener('click', event => {
+      const link = (event.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+      if (!link) return
+      const url = new URL(link.href, window.location.href)
+      if (url.origin !== window.location.origin || url.pathname !== '/mail' || !url.searchParams.has('resend')) return
+      event.preventDefault()
+      window.dispatchEvent(new CustomEvent('mailbox:resend', { detail: url.searchParams.get('resend') }))
+    })
     void doc.fonts?.ready.then(refit)
     const view = doc.defaultView
     const paper = doc.querySelector('.nc-paper')
@@ -1063,6 +1071,25 @@ function sentByUs(address: string): boolean {
   return MAIL_ADDRESSES.includes(email) || LOGIN_DOMAINS.includes(domain)
 }
 
+/**
+ * A sender's own link targets are dropped, so the base target sends every link to a new tab;
+ * only a resend link back into this mailbox is let through to replace the page it sits in.
+ */
+function ownLinkTargets(html: string): string {
+  if (typeof window === 'undefined') return html
+  return html.replace(/<(a|area)\b[^>]*>/gi, tag => {
+    const stripped = tag.replace(/\starget\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    const href = stripped.match(/\shref\s*=\s*(?:"([^"]*)"|'([^']*)')/i)
+    try {
+      const url = new URL((href?.[1] ?? href?.[2] ?? '').replace(/&amp;/g, '&'), window.location.href)
+      if (url.origin === window.location.origin && url.pathname === '/mail' && url.searchParams.has('resend')) {
+        return stripped.replace(/\s*\/?>$/, ' target="_top">')
+      }
+    } catch {}
+    return stripped
+  })
+}
+
 // When allowRemote is false the CSP blocks remote fetches so tracking pixels never load.
 function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SPACING, theme: ThemeBase = 'light'): string {
   const dark = theme === 'dark'
@@ -1074,7 +1101,7 @@ function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SP
   // navigation, which reads as a broken button rather than a blocked one. Scripts are still
   // not allowed, so nothing here can open a tab on its own — only a real click can.
   const ownDark = theme !== 'light' && designsForDark(html)
-  return `<!doctype html><html><head><meta charset="utf-8">${csp}${readerTheme(spacing, dark, ownDark)}<base target="_blank"></head><body><div class="nc-paper">${stripOwnPixel(pinColorScheme(html, theme !== 'light'))}</div></body>`
+  return `<!doctype html><html><head><meta charset="utf-8">${csp}${readerTheme(spacing, dark, ownDark)}<base target="_blank"></head><body><div class="nc-paper">${ownLinkTargets(stripOwnPixel(pinColorScheme(html, theme !== 'light')))}</div></body>`
 }
 
 function headerValue(email: InboundEmail, key: string): string {
@@ -5367,20 +5394,29 @@ export default function DevMailPage() {
     })
     void carryForwardAttachments(sent.id, 'sent')
   }
-  const onResendLoaded = useEffectEvent((sent: SentDetail) => resendSent(sent))
+  const openResend = useEffectEvent((resendId: string) => {
+    fetch(`/api/mail/emails/${encodeURIComponent(resendId)}`, { headers: apiHeaders() })
+      .then(response => response.json())
+      .then(data => {
+        if (data.ok) resendSent(data.email)
+      })
+      .catch(() => {})
+  })
 
   useEffect(() => {
     if (!account) return
     const resendId = new URLSearchParams(window.location.search).get('resend')
-    if (!resendId) return
-    window.history.replaceState(null, '', window.location.pathname)
-    fetch(`/api/mail/emails/${encodeURIComponent(resendId)}`, { headers: apiHeaders() })
-      .then(response => response.json())
-      .then(data => {
-        if (data.ok) onResendLoaded(data.email)
-      })
-      .catch(() => {})
-  }, [account, apiHeaders])
+    if (resendId) {
+      window.history.replaceState(null, '', window.location.pathname)
+      openResend(resendId)
+    }
+    const onResendLink = (event: Event) => {
+      const id = (event as CustomEvent<string | null>).detail
+      if (id) openResend(id)
+    }
+    window.addEventListener('mailbox:resend', onResendLink)
+    return () => window.removeEventListener('mailbox:resend', onResendLink)
+  }, [account])
 
   const openReplyBar = (entry: InboundEmail, kind: 'reply' | 'all' | 'forward') => {
     setReplyBar(kind)
@@ -6586,7 +6622,7 @@ export default function DevMailPage() {
         <>
           <iframe
             className={styles.threadFrame}
-            sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+            sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
             srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme)}
             title="Email content"
             onLoad={event => fitFrame(event.currentTarget)}
@@ -6594,7 +6630,7 @@ export default function DevMailPage() {
         </>
       )
     }
-    return <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme)} title="Email content" />
+    return <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation" srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme)} title="Email content" />
   }
 
   // One message open at a time — opening another collapses the rest.
@@ -6611,7 +6647,7 @@ export default function DevMailPage() {
       return (
         <iframe
           className={styles.threadFrame}
-          sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+          sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
           srcDoc={frameHtml(healGooglePrivateImages(split.tail ? foldQuote(split.head, split.tail) : detail.html, CLIENT_BRAND.markUrl), true, readerSpacing, resolvedTheme)}
           title="Sent email"
           onLoad={event => fitFrame(event.currentTarget)}
@@ -7522,7 +7558,7 @@ export default function DevMailPage() {
                   <div className={styles.replyPreviewWrap}>
                     <iframe
                       className={styles.replyPreview}
-                      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
                       srcDoc={frameHtml(replyEffHtml, true, readerSpacing, resolvedTheme)}
                       title="Reply preview"
                       onLoad={event => fitFrame(event.currentTarget)}
@@ -7793,7 +7829,7 @@ export default function DevMailPage() {
             {!selectedDetail ? (
               <BodySkeleton />
             ) : selectedDetail.html ? (
-              <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(selectedDetail.html, true, readerSpacing, resolvedTheme)} title="Email content" />
+              <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation" srcDoc={frameHtml(selectedDetail.html, true, readerSpacing, resolvedTheme)} title="Email content" />
             ) : selectedDetail.text ? (
               <pre className={styles.readerText}>{selectedDetail.text}</pre>
             ) : (
