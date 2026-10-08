@@ -313,6 +313,7 @@ type ComposeData = {
   htmlSource: string
   htmlDirty: boolean
   useSignature: boolean
+  track: boolean
   delayKey: string
   customDate: string
   campaign: Campaign
@@ -347,6 +348,7 @@ const EMPTY_COMPOSE: ComposeData = {
   htmlSource: '',
   htmlDirty: false,
   useSignature: true,
+  track: true,
   delayKey: '20',
   customDate: '',
   campaign: EMPTY_CAMPAIGN,
@@ -1489,6 +1491,8 @@ const ICONS = {
   chevron: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>,
   bell: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>,
   bellOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13.7 21a2 2 0 0 1-3.4 0"/><path d="M18.6 13A16.7 16.7 0 0 1 18 8a6 6 0 0 0-9.3-5"/><path d="M6.3 6.3A6 6 0 0 0 6 8c0 7-3 9-3 9h14"/><path d="m2 2 20 20"/></svg>,
+  eye: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>,
+  eyeOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9.9 4.2A10.4 10.4 0 0 1 12 4c6.5 0 10 8 10 8a17.6 17.6 0 0 1-2.2 3.2"/><path d="M6.6 6.6C3.9 8.4 2 12 2 12s3.5 8 10 8c1.9 0 3.6-.6 5-1.5"/><path d="M14.1 14.1a3 3 0 0 1-4.2-4.2"/><path d="m2 2 20 20"/></svg>,
   users: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
   install: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 7v7"/><path d="m9 11 3 3 3-3"/></svg>,
   play: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 4.5v15l13-7.5-13-7.5z"/></svg>,
@@ -4994,6 +4998,7 @@ export default function DevMailPage() {
           text,
           scheduledAt: scheduledAt ?? undefined,
           inReplyTo: compose.inReplyTo || undefined,
+          track: compose.track,
           actAs: actingAs ?? undefined,
           attachments: attachable.map(({ filename, url, key }) => (key ? { filename, key } : { filename, path: url })),
         }),
@@ -9263,6 +9268,15 @@ export default function DevMailPage() {
               )}
               {composeError && <span className={styles.composeError}>{composeError}</span>}
               <span className={styles.footSpacer} />
+              <button
+                className={`${styles.attachBtn} ${compose.track ? '' : styles.attachBtnActive}`}
+                onClick={() => setCompose(data => ({ ...data, track: !data.track }))}
+                title={compose.track ? 'An invisible image reports when this email is opened. Click to send it without one.' : 'This email goes out without the open-tracking image.'}
+                type="button"
+              >
+                {compose.track ? ICONS.eye : ICONS.eyeOff}
+                <span>{compose.track ? 'Tracking on' : 'Not tracked'}</span>
+              </button>
               <button
                 className={`${styles.attachBtn} ${attachments.length ? styles.attachBtnActive : ''}`}
                 onClick={() => fileRef.current?.click()}

@@ -7,7 +7,7 @@ import { presign } from '@/lib/r2'
 import { recordContact, recordPixel, recordSentMeta, recordSentMessage, recordSentOrigin } from '@/lib/mailbox'
 import { originHeaders, visitorContext } from '@/lib/client-context'
 import { scheduleSend } from '@/lib/scheduled'
-import { absoluteUrls, stripOwnPixel } from '@/lib/email-html'
+import { outgoingBody } from '@/lib/email-html'
 import { adaptiveEmail } from '@/lib/color-scheme'
 import { publicOrigin } from '@/lib/public-url'
 import { BlockedRecipientsError, blockedAmong } from '@/lib/blocked'
@@ -25,6 +25,7 @@ type SendBody = {
   text?: string
   scheduledAt?: string
   inReplyTo?: string
+  track?: boolean
   /** Admin only: the mailbox to send on behalf of. */
   actAs?: string
   attachments?: Array<{ filename: string; content?: string; path?: string; key?: string }>
@@ -152,10 +153,8 @@ export async function POST(req: Request) {
   // Open-tracking pixel: a 1x1 image whose load hits our endpoint, so we can tell
   // an HTML email was opened independently of Resend's own tracking.
   const origin = publicOrigin(req)
-  const pixelId = randomUUID()
-  const trackedHtml = body.html?.trim()
-    ? adaptiveEmail(`${stripOwnPixel(absoluteUrls(body.html.trim(), origin))}<img src="${origin}/api/mail/pixel/${pixelId}" alt="" width="1" height="1" style="display:none;width:1px;height:1px;border:0" />`)
-    : null
+  const pixelId = body.track === false ? null : randomUUID()
+  const outgoingHtml = body.html?.trim() ? adaptiveEmail(outgoingBody(body.html.trim(), origin, pixelId)) : null
 
   // Thread the reply: In-Reply-To/References point at the inbound Message-ID so the
   // recipient's client threads it, and so future replies chain back to this conversation.
@@ -178,7 +177,7 @@ export async function POST(req: Request) {
     // a word, so "in an hour" arrived at once. The dispatcher sends it when it is due.
     const scheduledId = await scheduleSend(account.address ?? fromEmail, dueAt.toISOString(), {
       owner: account.address ?? fromEmail,
-      pixelId: trackedHtml ? pixelId : null,
+      pixelId: outgoingHtml ? pixelId : null,
       subject: body.subject.trim(),
       from,
       recipients,
@@ -195,7 +194,7 @@ export async function POST(req: Request) {
         bcc: body.bcc,
         replyTo,
         subject: body.subject.trim(),
-        html: trackedHtml,
+        html: outgoingHtml,
         text: body.text,
         headers,
       },
@@ -214,7 +213,7 @@ export async function POST(req: Request) {
       bcc: body.bcc,
       replyTo,
       subject: body.subject.trim(),
-      html: trackedHtml,
+      html: outgoingHtml,
       text: body.text,
       attachments,
       headers,
@@ -231,7 +230,7 @@ export async function POST(req: Request) {
 
   await Promise.all([
     ...[...recipients, ...(body.cc ?? []), ...(body.bcc ?? [])].map(address => recordContact(address, null).catch(() => {})),
-    trackedHtml && data?.id
+    outgoingHtml && pixelId && data?.id
       ? recordPixel(pixelId, data.id, recipients[0] ?? '', body.subject.trim()).catch(() => {})
       : Promise.resolve(),
     data?.id ? recordSentMeta(data.id, account.address, false, body.inReplyTo ?? null).catch(() => {}) : Promise.resolve(),
@@ -245,7 +244,7 @@ export async function POST(req: Request) {
           bcc: body.bcc ?? [],
           replyTo: replyTo ? [replyTo] : [],
           subject: body.subject!.trim(),
-          html: trackedHtml,
+          html: outgoingHtml,
           text: body.text ?? null,
           createdAt: new Date().toISOString(),
           // Recorded so the Sent folder and a forward read our own bucket rather than
