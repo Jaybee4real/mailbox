@@ -56,6 +56,7 @@ import InboxFilters from './InboxFilters'
 import qrcode from 'qrcode-generator'
 import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
 import { splitQuotedTail, splitQuotedText } from './quoted'
+import { isEmbedded, referencedCids } from '@/lib/attachments'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { matchesInboxFilters, normalizeInboxFilters, type InboxFilter } from '@/lib/inbox-filters'
 import { FIRST_MESSAGE_REASON } from '@/lib/risk'
@@ -722,18 +723,10 @@ function htmlToQuoteText(html: string | null, text: string | null): string {
 const hasMarkup = (html: string | null | undefined): html is string =>
   typeof html === 'string' && /<[a-z!/][^>]*>/i.test(html)
 
-const INLINE_IMAGE_MAX_BYTES = 150_000
-const INLINE_IMAGE_NAME = /^(image\d*|outlook-[\w-]+|blocked|[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(png|gif|jpe?g)$/i
+/** Images the body itself draws: those are part of the message, not files offered to the reader. */
 function inlineAttachmentNames(message: InboundEmail): Set<string> {
-  const html = message.html ?? ''
-  const referenced = new Set((html.match(/cid:([^"'\s>)]+)/gi) ?? []).map(match => match.slice(4).toLowerCase()))
-  const names = new Set<string>()
-  for (const entry of message.attachments) {
-    if (!entry.contentType?.startsWith('image/') || (entry.size ?? 0) > INLINE_IMAGE_MAX_BYTES) continue
-    const id = entry.contentId?.replace(/^<|>$/g, '').toLowerCase()
-    if (id || INLINE_IMAGE_NAME.test(entry.filename) || (id && referenced.has(id))) names.add(entry.filename)
-  }
-  return names
+  const referenced = referencedCids(message.html)
+  return new Set(message.attachments.filter(entry => isEmbedded(entry, referenced)).map(entry => entry.filename))
 }
 function visibleAttachments(message: InboundEmail): InboundEmail['attachments'] {
   const inline = inlineAttachmentNames(message)
