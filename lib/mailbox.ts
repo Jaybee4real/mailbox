@@ -17,6 +17,7 @@ import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
 import { inboxFiltersSql, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters'
 import { judgeMessage, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
 import type { ShareAccess, ShareSettings } from './share-policy'
+import { providerBase } from './provider-base'
 
 export { judgeMessage, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding }
 
@@ -2850,13 +2851,13 @@ export async function backfillAttachments(limit: number, countRemaining = false)
 
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) return result
+  const base = providerBase()
   const { putObject } = await import('./r2')
 
   await Promise.all(
     rows.map(async row => {
       const id = String(row.id)
       try {
-        const base = (process.env.RESEND_BASE_URL ?? '').trim().replace(/\/+$/, '') || 'https://api.resend.com'
         const listing = await fetch(`${base}/emails/receiving/${encodeURIComponent(id.split('~')[0])}/attachments`, {
           headers: { authorization: `Bearer ${apiKey}` },
         })

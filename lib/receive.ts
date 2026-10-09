@@ -6,17 +6,7 @@ import { ADDRESS_ALIASES, appendInbound, classifyAddressed, isDmarcAggregateRepo
 import { matchesInboxFilters } from '@/lib/inbox-filters'
 import { archiveAddress, sendMail } from '@/lib/mail-provider'
 import { MAIL_FROM, SHARED_INBOX } from '@/lib/scope'
-
-/**
- * Where the receiving API lives. The Resend SDK reads RESEND_BASE_URL for sending, so a
- * deployment pointed at another Resend-compatible host sends there — these calls are hand
- * rolled and have to honour the same variable, or receiving silently talks to a host that
- * has never seen the message and every body arrives empty.
- */
-function receivingBase(): string {
-  const configured = (process.env.RESEND_BASE_URL ?? '').trim().replace(/\/+$/, '')
-  return configured || 'https://api.resend.com'
-}
+import { providerBase } from '@/lib/provider-base'
 
 /** The row id of a further mailbox's copy of one delivery. */
 export const copyId = (emailId: string, owner: string) => `${emailId}~${owner}`
@@ -130,8 +120,9 @@ export type ReceivedEmail = {
 // The email.received webhook payload carries only metadata (from/to/subject) — the body
 // lives on Resend and must be pulled from the receiving endpoint, or the inbox stores blanks.
 export async function fetchReceivedEmail(emailId: string, apiKey: string): Promise<ReceivedEmail | null> {
+  const base = providerBase()
   try {
-    const response = await fetch(`${receivingBase()}/emails/receiving/${encodeURIComponent(emailId)}`, {
+    const response = await fetch(`${base}/emails/receiving/${encodeURIComponent(emailId)}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
     if (!response.ok) return null
@@ -191,8 +182,9 @@ async function rehostAttachments(
 }
 
 async function fetchAttachmentBytes(emailId: string, apiKey: string): Promise<SendAttachment[]> {
+  const base = providerBase()
   try {
-    const response = await fetch(`${receivingBase()}/emails/receiving/${encodeURIComponent(emailId)}/attachments`, {
+    const response = await fetch(`${base}/emails/receiving/${encodeURIComponent(emailId)}/attachments`, {
       headers: { Authorization: `Bearer ${apiKey}` },
     })
     if (!response.ok) return []
@@ -478,7 +470,7 @@ export async function listReceived(apiKey: string, since: Date): Promise<Receive
   for (let page = 0; page < 200; page += 1) {
     const params = new URLSearchParams({ limit: '50' })
     if (after) params.set('after', after)
-    const response = await fetch(`${receivingBase()}/emails/receiving?${params}`, {
+    const response = await fetch(`${providerBase()}/emails/receiving?${params}`, {
       headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     })
     if (!response.ok) throw new Error(`provider list failed (${response.status})`)

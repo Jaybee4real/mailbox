@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { mayReadSent } from '@/lib/sent-access'
 import { getSentAttachments } from '@/lib/mailbox'
+import { providerBase } from '@/lib/provider-base'
 import { getObject, putObject } from '@/lib/r2'
 
 export const runtime = 'nodejs'
@@ -44,7 +45,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) return NextResponse.json({ ok: true, attachments: [] })
 
-  const listing = await fetch(`https://api.resend.com/emails/${encodeURIComponent(id)}/attachments`, {
+  const listing = await fetch(`${providerBase()}/emails/${encodeURIComponent(id)}/attachments`, {
     headers: { authorization: `Bearer ${apiKey}` },
   }).catch(() => null)
   if (!listing?.ok) return NextResponse.json({ ok: true, attachments: [] })
