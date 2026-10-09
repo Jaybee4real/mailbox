@@ -471,6 +471,7 @@ export function ensureMailSchema(): Promise<void> {
       // sit in the batch above, where a fresh database has no such column yet.
       await sqlRaw('ALTER TABLE mail_inbox ADD COLUMN thread_id TEXT').catch(() => {})
       await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_thread_idx ON mail_inbox (lower(owner), thread_id, received_at DESC, id DESC)').catch(() => {})
+      await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_unread_thread_idx ON mail_inbox (thread_id) WHERE read = 0').catch(() => {})
 
       // Snooze. An ISO timestamp in the future means "not now": the message is out of the
       // inbox until then and comes back on its own, because every folder decides from this
@@ -1089,7 +1090,7 @@ export async function listThreads(
   filters: InboxFilter[] = [],
 ): Promise<ThreadPage> {
   await ensureMailSchema()
-  const filterSql = folder === 'priority' ? prioritySql(prioritySenders()) : folder === 'inbox' || folder === 'filtered' ? inboxFiltersSql(filters) : null
+  const filterSql = folder === 'priority' ? prioritySql(prioritySenders(), ownerRaw === null ? null : 't.owner') : folder === 'inbox' || folder === 'filtered' ? inboxFiltersSql(filters) : null
   if ((folder === 'filtered' || folder === 'priority') && !filterSql) return { rows: [], nextCursor: null }
   const filterClause = filterSql ? (folder === 'inbox' ? `NOT ${filterSql.sql}` : filterSql.sql) : ''
   const filterArgs = filterSql?.args ?? []

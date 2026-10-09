@@ -41,7 +41,9 @@ function senderAddress(raw: string): string {
   return (angled ? angled[1] : raw).trim().toLowerCase()
 }
 
-const ADDRESS_SQL = "lower(trim(rtrim(CASE WHEN instr(value, '<') > 0 THEN substr(value, instr(value, '<') + 1) ELSE value END, '> ')))"
+const addressOf = (column: string) =>
+  `lower(trim(rtrim(CASE WHEN instr(${column}, '<') > 0 THEN substr(${column}, instr(${column}, '<') + 1) ELSE ${column} END, '> ')))`
+const ADDRESS_SQL = addressOf('value')
 const SNIPPET_SQL = "ltrim(coalesce(t.snippet, ''), ' ' || char(9, 10, 13))"
 
 /**
@@ -87,14 +89,23 @@ export function prioritySenders(raw = process.env.MAIL_PRIORITY_SENDERS ?? ''): 
   return [...new Set(raw.split(',').map(entry => entry.trim().toLowerCase()).filter(Boolean))]
 }
 
-/** A conversation is priority when any of its senders is listed: an address, or an `@domain` and its subdomains. */
-export function prioritySql(senders: string[]): { sql: string; args: string[] } | null {
+/**
+ * A conversation is priority while it holds an unread inbox message from a listed sender: an
+ * address, or an `@domain` and its subdomains. One old message from that sender somewhere in a
+ * long client thread does not count. `ownerColumn` scopes the match when rows are per owner.
+ */
+export function prioritySql(senders: string[], ownerColumn: string | null = null): { sql: string; args: string[] } | null {
   if (!senders.length) return null
+  const from = addressOf('m.from_addr')
   const rules = senders.map(sender =>
-    sender.startsWith('@') ? `${ADDRESS_SQL} LIKE ? ESCAPE '\\' OR ${ADDRESS_SQL} LIKE ? ESCAPE '\\'` : `${ADDRESS_SQL} = ?`)
+    sender.startsWith('@') ? `${from} LIKE ? ESCAPE '\\' OR ${from} LIKE ? ESCAPE '\\'` : `${from} = ?`)
   const args = senders.flatMap(sender =>
     sender.startsWith('@') ? [`%${likeEscape(sender)}`, `%.${likeEscape(sender.slice(1))}`] : [sender])
-  return { sql: `EXISTS (SELECT 1 FROM json_each(coalesce(t.senders, '[]')) WHERE ${rules.join(' OR ')})`, args }
+  const owner = ownerColumn ? ` AND lower(m.owner) = ${ownerColumn}` : ''
+  return {
+    sql: `EXISTS (SELECT 1 FROM mail_inbox m WHERE m.thread_id = t.thread_id${owner} AND m.read = 0 AND m.archived = 0 AND m.trashed = 0 AND m.spam = 0 AND (${rules.join(' OR ')}))`,
+    args,
+  }
 }
 
 /** The same rules for one message, for the paths that never reach SQL — a push, say. */
