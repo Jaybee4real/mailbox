@@ -5,7 +5,7 @@ import { extractUrls, inspectUrl, type LinkVerdict } from '@/lib/link-safety'
 import AttachmentLightbox, { attachmentKind, formatSize, inlineUrl, type PreviewItem } from './AttachmentLightbox'
 import AccessCheck from './AccessCheck'
 import { parseQuery, matchesQuery, serverSearchParams, splitForServer } from './search'
-import { useConfirm, usePrompt } from './ConfirmDialog'
+import { useChoose, useConfirm, usePrompt } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
 import { InstallGuide } from './InstallGuide'
 import RichEditor from './RichEditor'
@@ -881,7 +881,7 @@ const readerTheme = (spacing: number, dark: boolean, ownDark: boolean) => `<styl
   /* Transparent so the framed document takes the app's themed surface from the
      iframe element behind it. Theme variables do not cross the document boundary,
      so anything set here would be a colour frozen against one theme. */
-  html { background: transparent; }
+  html { background: transparent; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body { margin: 0; background: transparent; padding: 0 0 12px; }
   .nc-paper {
     max-width: 860px;
@@ -1116,7 +1116,7 @@ function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SP
   // navigation, which reads as a broken button rather than a blocked one. Scripts are still
   // not allowed, so nothing here can open a tab on its own — only a real click can.
   const ownDark = theme !== 'light' && designsForDark(html)
-  return `<!doctype html><html><head><meta charset="utf-8">${csp}${readerTheme(spacing, dark, ownDark)}<base target="_blank"></head><body><div class="nc-paper">${ownLinkTargets(stripOwnPixel(pinColorScheme(html, theme !== 'light')))}</div></body>`
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${csp}${readerTheme(spacing, dark, ownDark)}<base target="_blank"></head><body><div class="nc-paper">${ownLinkTargets(stripOwnPixel(pinColorScheme(html, theme !== 'light')))}</div></body>`
 }
 
 function headerValue(email: InboundEmail, key: string): string {
@@ -1533,6 +1533,7 @@ const FOLDER_ICONS: Record<Folder, React.ReactNode> = {
 
 export default function DevMailPage() {
   const confirm = useConfirm()
+  const choose = useChoose()
   const promptFor = usePrompt()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -4939,6 +4940,27 @@ export default function DevMailPage() {
     return new Date(Date.now() + Number(compose.delayKey) * 1000).toISOString()
   }
 
+  /**
+   * An account that opens every mailbox is asked which one a message goes out from, defaulting
+   * to the mailbox the message being answered arrived in. Null means the question was dismissed.
+   */
+  const pickSendAs = async (preferred?: string | null): Promise<{ address: string; name: string } | null | undefined> => {
+    if (!mailboxAll || mailboxes.length < 2) return undefined
+    const own = (account?.address ?? '').toLowerCase()
+    const listed = mailboxes.map(entry => ({ value: entry.address.toLowerCase(), label: entry.name, hint: entry.address }))
+    const wanted = preferred?.toLowerCase() || (mailbox !== 'all' ? mailbox.toLowerCase() : own)
+    const initial = listed.some(option => option.value === wanted) ? wanted : own
+    const options = [...listed.filter(option => option.value === initial), ...listed.filter(option => option.value !== initial)]
+    const picked = await choose({
+      title: 'Send from which mailbox?',
+      body: 'It goes out from the mailbox you pick and is filed in that mailbox\'s Sent folder.',
+      confirmLabel: 'Send',
+      choices: { options, initial },
+    })
+    if (!picked) return null
+    return { address: picked, name: picked === own ? '' : mailboxes.find(entry => entry.address.toLowerCase() === picked)?.name ?? '' }
+  }
+
   const sendEmail = async () => {
     setComposeError('')
     const badAddress = [...compose.to, ...compose.cc, ...compose.bcc].find(addr => !EMAIL_RE.test(addr))
@@ -4994,6 +5016,8 @@ export default function DevMailPage() {
       writingSettings,
     )
     if (!(await confirmIssues(issues))) return
+    const sendAs = await pickSendAs(selectedInbound?.owner)
+    if (sendAs === null) return
 
     if (settings.confirmSend && !scheduledAt) {
       const recipientList = [...compose.to, ...compose.cc, ...compose.bcc].join(', ')
@@ -5015,14 +5039,14 @@ export default function DevMailPage() {
           cc: compose.cc,
           bcc: compose.bcc,
           replyTo: compose.replyTo || undefined,
-          fromName: compose.fromName,
+          fromName: sendAs?.name || compose.fromName,
           subject: compose.subject,
           html,
           text,
           scheduledAt: scheduledAt ?? undefined,
           inReplyTo: compose.inReplyTo || undefined,
           track: compose.track,
-          actAs: actingAs ?? undefined,
+          actAs: sendAs?.address ?? actingAs ?? undefined,
           attachments: attachable.map(({ filename, url, key }) => (key ? { filename, key } : { filename, path: url })),
         }),
       })
@@ -5331,6 +5355,8 @@ export default function DevMailPage() {
       { ...writingSettings, checkEmptyBody: writingSettings.checkEmptyBody && replyBar !== 'forward' },
     )
     if (!(await confirmIssues(issues))) return
+    const sendAs = await pickSendAs(entry.owner)
+    if (sendAs === null) return
     setQuickSending(true)
     setReplyError('')
     try {
@@ -5348,13 +5374,13 @@ export default function DevMailPage() {
           to: draft.to,
           cc: draft.cc,
           bcc: draft.bcc,
-          fromName: draft.fromName,
+          fromName: sendAs?.name || draft.fromName,
           subject: draft.subject,
           html: buildEmailHtml(draft, signatureHtml, fontCss, defaultFont) + linkBlock,
           text: buildEmailText(draft, signatureText),
           attachments: attachable.map(({ filename, url, key }) => (key ? { filename, key } : { filename, path: url })),
           inReplyTo: draft.inReplyTo || undefined,
-          actAs: actingAs ?? undefined,
+          actAs: sendAs?.address ?? actingAs ?? undefined,
         }),
       })
       const data = await response.json().catch(() => null)

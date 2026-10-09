@@ -13,6 +13,8 @@ export type ConfirmRequest = {
   danger?: boolean
   /** Asks for a value as well, replacing window.prompt. */
   field?: { label: string; type?: 'text' | 'password'; placeholder?: string; initial?: string }
+  /** Asks to pick one option; `initial` is the value picked when the dialog opens. */
+  choices?: { options: Array<{ value: string; label: string; hint?: string }>; initial?: string }
 }
 
 type Settled = { ok: boolean; value: string }
@@ -24,6 +26,18 @@ const ConfirmContext = createContext<(request: ConfirmRequest) => Promise<Settle
 export function useConfirm() {
   const ask = useContext(ConfirmContext)
   return useCallback(async (request: ConfirmRequest) => (await ask(request)).ok, [ask])
+}
+
+/** Asks to pick one of several options. Resolves to the value, or null when dismissed. */
+export function useChoose() {
+  const ask = useContext(ConfirmContext)
+  return useCallback(
+    async (request: ConfirmRequest & { choices: NonNullable<ConfirmRequest['choices']> }) => {
+      const settled = await ask(request)
+      return settled.ok && settled.value ? settled.value : null
+    },
+    [ask],
+  )
 }
 
 /** Replaces window.prompt. Resolves to null when dismissed, so a blank answer stays meaningful. */
@@ -47,7 +61,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   const confirm = useCallback(
     (request: ConfirmRequest) => new Promise<Settled>(resolve => {
-      setDraft(request.field?.initial ?? '')
+      setDraft(request.field?.initial ?? request.choices?.initial ?? request.choices?.options[0]?.value ?? '')
       setReveal(false)
       setPending({ ...request, resolve })
     }),
@@ -91,6 +105,25 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           >
             <p className={styles.confirmTitle}>{pending.title}</p>
             {pending.body && <div className={styles.confirmBody}>{pending.body}</div>}
+            {pending.choices && (
+              <div className={styles.confirmChoices} role="radiogroup" aria-label={pending.title}>
+                {pending.choices.options.map(option => (
+                  <label key={option.value} className={`${styles.confirmChoice} ${draft === option.value ? styles.confirmChoiceOn : ''}`}>
+                    <input
+                      type="radio"
+                      name="confirm-choice"
+                      value={option.value}
+                      checked={draft === option.value}
+                      onChange={() => setDraft(option.value)}
+                    />
+                    <span className={styles.confirmChoiceText}>
+                      <strong>{option.label}</strong>
+                      {option.hint && <span>{option.hint}</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
             {pending.field && (
               <label className={styles.confirmField}>
                 <span>{pending.field.label}</span>

@@ -8154,3 +8154,37 @@
     padding-top: env(safe-area-inset-top, 0px);
   }
 }
+
+.confirmChoices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 14px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.confirmChoice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.confirmChoice input { accent-color: var(--nc-violet-500); }
+.confirmChoiceOn {
+  border-color: var(--nc-violet-500);
+  background: color-mix(in srgb, var(--nc-violet-500) 8%, transparent);
+}
+.confirmChoiceText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font: 400 12px/1.4 var(--nc-font-sans);
+  color: var(--nc-fg-3);
+}
+.confirmChoiceText strong {
+  font: 600 13.5px/1.4 var(--nc-font-sans);
+  color: var(--nc-fg-1);
+}

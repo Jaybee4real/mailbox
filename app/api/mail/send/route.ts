@@ -4,12 +4,13 @@ import { NextResponse } from 'next/server'
 import { providerConfigProblem, sendMail } from '@/lib/mail-provider'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { presign } from '@/lib/r2'
-import { recordContact, recordPixel, recordSentMeta, recordSentMessage, recordSentOrigin } from '@/lib/mailbox'
+import { listAccounts, recordContact, recordPixel, recordSentMeta, recordSentMessage, recordSentOrigin } from '@/lib/mailbox'
 import { originHeaders, visitorContext } from '@/lib/client-context'
 import { scheduleSend } from '@/lib/scheduled'
 import { outgoingBody } from '@/lib/email-html'
 import { adaptiveEmail } from '@/lib/color-scheme'
 import { publicOrigin } from '@/lib/public-url'
+import { readsAllInboxes } from '@/lib/scope'
 import { BlockedRecipientsError, blockedAmong } from '@/lib/blocked'
 
 export const runtime = 'nodejs'
@@ -56,19 +57,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: configProblem }, { status: 500 })
   }
 
-  // Send from the accessor's personal address so replies route back to their mailbox.
-  //
-  // Mail goes out as the account that is signed in. Sending as somebody else went with
-  // browsing their mailbox, which no longer happens; the claim is refused here rather
-  // than trusted, because the client can ask to send as anyone.
-  const actingAddress: string | null = null
-  const requestedActAs = body.actAs?.trim().toLowerCase()
+  // Mail goes out as the signed-in account, or, for the account that opens every inbox, as
+  // one of those mailboxes. Any other claim is refused: the client can ask to send as anyone.
+  const requestedActAs = body.actAs?.trim().toLowerCase() || null
+  let actingAddress: string | null = null
   if (requestedActAs && requestedActAs !== account.address?.toLowerCase()) {
-    return NextResponse.json(
-      { ok: false, error: 'You can only send from your own address.' },
-      { status: 403 },
-    )
+    const openable = readsAllInboxes(account)
+      ? (await listAccounts()).filter(entry => entry.status === 'active' && entry.address).map(entry => entry.address!.toLowerCase())
+      : []
+    if (!openable.includes(requestedActAs)) {
+      return NextResponse.json(
+        { ok: false, error: 'You can only send from your own address, or from a mailbox you can open.' },
+        { status: 403 },
+      )
+    }
+    actingAddress = requestedActAs
   }
+  const owner = actingAddress ?? account.address
 
   const fromAddress =
     actingAddress ?? account.address ?? process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail
@@ -148,7 +153,7 @@ export async function POST(req: Request) {
   const from = body.fromName?.trim()
     ? `${body.fromName.trim().replace(/[<>"]/g, '')} <${bareAddress.replace(/^.*<|>$/g, '')}>`
     : bareAddress
-  const replyTo = body.replyTo?.trim() || account.address || undefined
+  const replyTo = body.replyTo?.trim() || owner || undefined
 
   // Open-tracking pixel: a 1x1 image whose load hits our endpoint, so we can tell
   // an HTML email was opened independently of Resend's own tracking.
@@ -175,8 +180,8 @@ export async function POST(req: Request) {
   if (dueAt && !Number.isNaN(dueAt.getTime()) && dueAt.getTime() > Date.now() + 5_000) {
     // Held here, not handed over: SES has no scheduling and drops the instruction without
     // a word, so "in an hour" arrived at once. The dispatcher sends it when it is due.
-    const scheduledId = await scheduleSend(account.address ?? fromEmail, dueAt.toISOString(), {
-      owner: account.address ?? fromEmail,
+    const scheduledId = await scheduleSend(owner ?? fromEmail, dueAt.toISOString(), {
+      owner: owner ?? fromEmail,
       pixelId: outgoingHtml ? pixelId : null,
       subject: body.subject.trim(),
       from,
@@ -199,7 +204,7 @@ export async function POST(req: Request) {
         headers,
       },
     })
-    await recordSentOrigin(scheduledId, account.address ?? fromEmail, sender).catch(() => {})
+    await recordSentOrigin(scheduledId, owner ?? fromEmail, sender).catch(() => {})
     return NextResponse.json({ ok: true, id: scheduledId, scheduled: true, scheduledAt: dueAt.toISOString() })
   }
 
@@ -233,8 +238,8 @@ export async function POST(req: Request) {
     outgoingHtml && pixelId && data?.id
       ? recordPixel(pixelId, data.id, recipients[0] ?? '', body.subject.trim()).catch(() => {})
       : Promise.resolve(),
-    data?.id ? recordSentMeta(data.id, account.address, false, body.inReplyTo ?? null).catch(() => {}) : Promise.resolve(),
-    data?.id ? recordSentOrigin(data.id, account.address ?? fromEmail, sender).catch(() => {}) : Promise.resolve(),
+    data?.id ? recordSentMeta(data.id, owner, false, body.inReplyTo ?? null).catch(() => {}) : Promise.resolve(),
+    data?.id ? recordSentOrigin(data.id, owner ?? fromEmail, sender).catch(() => {}) : Promise.resolve(),
     data?.id
       ? recordSentMessage({
           id: data.id,
