@@ -4,7 +4,7 @@ import { mailAuthGuard, isLocalOrigin, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
 import { blockAddress } from '@/lib/blocked'
 import { searchInbox, appendEvent, appendInbound, recordContact, setInboundFlags, setInboundSpam, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, trustSenderOf, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
-import { addressedToUs, attributeOwner, forwardToAccounts, ingestReceived, parseSender } from '@/lib/receive'
+import { addressedToUs, forwardToAccounts, ingestReceived, parseSender, attributeOwners, copyId } from '@/lib/receive'
 import { isBrevoInbound, normalizeBrevoInbound } from '@/lib/mail-provider'
 import { mayReadInbound } from '@/lib/sent-access'
 
@@ -211,27 +211,30 @@ export async function POST(req: Request) {
         // must not forward a second copy of mail already handled.
         deliveryId = `brevo:${message.id}`
         if ((await claimWebhookEvent(deliveryId)) !== 'claimed') continue
-        const owner = await attributeOwner([...message.to, ...message.cc, ...message.bcc])
-        await appendInbound({ ...message, read: false, owner })
+        const owners = await attributeOwners([...message.to, ...message.cc, ...message.bcc])
         const sender = parseSender(message.from)
         await recordContact(sender.email, sender.name).catch(() => {})
-        await forwardToAccounts(
-          message.id,
-          {
-            html: message.html,
-            text: message.text,
-            from: message.from,
-            to: message.to,
-            cc: message.cc,
-            bcc: message.bcc,
-            replyTo: message.replyTo,
-            subject: message.subject,
-            headers: message.headers,
-            createdAt: message.receivedAt,
-            attachments: message.attachments,
-          },
-          owner,
-        )
+        for (const [index, owner] of owners.entries()) {
+          const id = index === 0 ? message.id : copyId(message.id, owner)
+          await appendInbound({ ...message, id, read: false, owner })
+          await forwardToAccounts(
+            id,
+            {
+              html: message.html,
+              text: message.text,
+              from: message.from,
+              to: message.to,
+              cc: message.cc,
+              bcc: message.bcc,
+              replyTo: message.replyTo,
+              subject: message.subject,
+              headers: message.headers,
+              createdAt: message.receivedAt,
+              attachments: message.attachments,
+            },
+            owner,
+          )
+        }
         await completeWebhookEvent(deliveryId)
         stored++
       } catch (err) {

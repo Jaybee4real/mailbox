@@ -2,7 +2,7 @@ import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { sendPush } from '@/lib/push'
 import { stripOwnPixel } from '@/lib/email-html'
 import { FORWARDING_ENABLED, FORWARD_RECIPIENTS, MAIL_DOMAIN } from '@/lib/dev-auth'
-import { ADDRESS_ALIASES, appendInbound, classifyAddressed, isDmarcAggregateReport, judgeMessage, noteSender, senderStanding, senderDomainOf, getAccountByAddress, inboundExists, inboxFiltersFor, recordContact, recordSentMessage, recordSentMeta, repairInbound } from '@/lib/mailbox'
+import { ADDRESS_ALIASES, appendInbound, classifyAddressed, isDmarcAggregateReport, judgeMessage, noteSender, senderStanding, senderDomainOf, getAccountByAddress, inboundExists, inboxFiltersFor, getInboundSource, recordContact, recordSentMessage, recordSentMeta, repairInbound } from '@/lib/mailbox'
 import { matchesInboxFilters } from '@/lib/inbox-filters'
 import { archiveAddress, sendMail } from '@/lib/mail-provider'
 import { MAIL_FROM, SHARED_INBOX } from '@/lib/scope'
@@ -18,19 +18,29 @@ function receivingBase(): string {
   return configured || 'https://api.resend.com'
 }
 
-/** Attribute an inbound email to the accessor it was delivered to, else the shared inbox. */
-export async function attributeOwner(recipients: string[]): Promise<string> {
+/** The row id of a further mailbox's copy of one delivery. */
+export const copyId = (emailId: string, owner: string) => `${emailId}~${owner}`
+
+/** The provider's own id for a stored row, whichever mailbox's copy it is. */
+export const providerEmailId = (rowId: string) => rowId.split('~')[0]
+
+/** Every accessor an inbound email was delivered to, in order, else the shared inbox. */
+export async function attributeOwners(recipients: string[]): Promise<string[]> {
+  const owners: string[] = []
   for (const raw of recipients) {
     const match = raw.match(/<([^>]+)>/)
     const addr = (match ? match[1] : raw).trim().toLowerCase()
     if (!addr.includes('@')) continue
     const account = await getAccountByAddress(addr)
-    if (account?.address) {
-      const owner = account.address.toLowerCase()
-      return ADDRESS_ALIASES[owner] ?? owner
-    }
+    if (!account?.address) continue
+    const owner = ADDRESS_ALIASES[account.address.toLowerCase()] ?? account.address.toLowerCase()
+    if (!owners.includes(owner)) owners.push(owner)
   }
-  return SHARED_INBOX
+  return owners.length ? owners : [SHARED_INBOX]
+}
+
+export async function attributeOwner(recipients: string[]): Promise<string> {
+  return (await attributeOwners(recipients))[0]
 }
 
 /**
@@ -276,7 +286,7 @@ export async function ingestReceived(
    * stored without, and stop there. The owner was notified and the copy forwarded when it
    * first arrived, so doing either again would be a second delivery of old mail.
    */
-  mode: 'store' | 'repair' = 'store',
+  mode: 'store' | 'repair' | 'backfill' = 'store',
 ): Promise<{ owner: string; subject: string; from: string }> {
   const apiKey = process.env.RESEND_API_KEY
   // The webhook payload has no body — pull the full email (html/text/attachments) from Resend.
@@ -291,9 +301,6 @@ export async function ingestReceived(
   ).toLowerCase()
   const fromHeader = (mech: string): string | null => authHeader.match(new RegExp(`${mech}=(\\w+)`))?.[1] ?? null
 
-  // Who this is for has to be settled before the message can be judged: standing is what
-  // this mailbox has done with this sender, and a different mailbox may have done the
-  // opposite. Resolved once here and reused below.
   const recipients = [
     ...(Array.isArray(full?.to) ? full!.to : []),
     ...(Array.isArray(data.to) ? (data.to as string[]) : [String(data.to ?? '')]),
@@ -302,62 +309,15 @@ export async function ingestReceived(
     ...(Array.isArray(full?.bcc) ? full!.bcc : []),
     ...(Array.isArray(data.bcc) ? (data.bcc as string[]) : []),
   ].filter(Boolean)
-  const owner = await attributeOwner(recipients)
+  // One delivery can be for several people here. The webhook's `to` is who the provider
+  // actually delivered to; the headers can name people a separate delivery covers, and
+  // filing by them would give those people the message twice.
+  const delivered = (Array.isArray(data.to) ? (data.to as string[]) : []).filter(Boolean)
+  const owners = await attributeOwners(delivered.length ? delivered : recipients)
   const toHeader = (full?.headers as Record<string, unknown> | undefined)?.to
   const fromAddress = full?.from || String(data.from ?? '')
   const senderDomain = senderDomainOf(fromAddress)
-  const standing = await senderStanding(owner, senderDomain)
 
-  const verdicts = judgeMessage({
-    spam: data.spam == null ? null : String(data.spam),
-    virus: data.virus == null ? null : String(data.virus),
-    // Where no provider hands us a verdict — a deployment reading its mail through Resend,
-    // say — the receiving server's own Authentication-Results header carries the same answer.
-    spf: data.spf == null ? fromHeader('spf') : String(data.spf),
-    dkim: data.dkim == null ? fromHeader('dkim') : String(data.dkim),
-    dmarc: data.dmarc == null ? fromHeader('dmarc') : String(data.dmarc),
-    from: full?.from || String(data.from ?? ''),
-    replyTo: full?.replyTo ?? (Array.isArray(data.reply_to) ? (data.reply_to as string[]) : []),
-    subject: full?.subject || String(data.subject ?? ''),
-    text: full?.text ?? (data.text ? String(data.text) : null),
-    receivedAt: full?.createdAt || String(data.created_at ?? new Date().toISOString()),
-  }, standing)
-  if (verdicts.risk !== 'clean') {
-    console.warn(`[mail] ${verdicts.risk} inbound ${emailId}:`, verdicts.reasons.join('; '))
-  }
-
-  const inbound = {
-    id: emailId,
-    risk: verdicts.risk,
-    riskReasons: verdicts.reasons,
-    // Held out of the inbox, not merely labelled, once the weight passes the threshold.
-    spam: verdicts.quarantine,
-    from: full?.from || String(data.from ?? ''),
-    to: toHeader !== undefined || Object.keys(full?.headers ?? {}).length
-      ? headerAddresses(toHeader)
-      : full?.to ?? (Array.isArray(data.to) ? (data.to as string[]) : [String(data.to ?? '')]),
-    cc: full?.cc ?? (Array.isArray(data.cc) ? (data.cc as string[]) : []),
-    bcc: full?.bcc ?? (Array.isArray(data.bcc) ? (data.bcc as string[]) : []),
-    replyTo: full?.replyTo ?? (Array.isArray(data.reply_to) ? (data.reply_to as string[]) : []),
-    subject: full?.subject || String(data.subject ?? '(no subject)'),
-    html: full?.html ?? (data.html ? String(data.html) : null),
-    text: full?.text ?? (data.text ? String(data.text) : null),
-    headers: full?.headers ?? {},
-    receivedAt: full?.createdAt || String(data.created_at ?? new Date().toISOString()),
-    read: false,
-    attachments:
-      full?.attachments ??
-      payloadAttachments
-        .map(entry => ({
-          filename: String(entry.filename ?? entry.name ?? 'attachment'),
-          contentType: entry.content_type ? String(entry.content_type) : undefined,
-        }))
-        .filter(entry => entry.filename),
-    // Attribute (and therefore forward) to the accessor actually addressed — to, cc, OR bcc.
-    // Anything not matching a member's personal address stays in the shared (admin) inbox,
-    // so a member never receives mail they aren't a party to.
-    owner,
-  }
   // Refuse mail that was never addressed to this mailbox, before a copy is stored, pushed
   // or forwarded. Without this, every message the provider account receives for any tenant
   // lands in whichever deployment holds the webhook, filed to its shared inbox because no
@@ -366,66 +326,130 @@ export async function ingestReceived(
     throw new Error(`refusing ${emailId}: addressed to ${recipients.join(', ') || 'nobody'}, which is not a domain this mailbox hosts`)
   }
 
-  // Pull the bytes once: they become our stored copy and the forward's attachments.
+  // Pull the bytes once: they become every copy's stored files and the forward's attachments.
   const files = apiKey ? await fetchAttachmentBytes(emailId, apiKey) : []
-  if (files.length) inbound.attachments = await rehostAttachments(emailId, files)
+  const attachments = files.length
+    ? await rehostAttachments(emailId, files)
+    : full?.attachments ??
+      payloadAttachments
+        .map(entry => ({
+          filename: String(entry.filename ?? entry.name ?? 'attachment'),
+          contentType: entry.content_type ? String(entry.content_type) : undefined,
+        }))
+        .filter(entry => entry.filename)
   const forwardable = files.filter(file => file.content)
+  const stored = (await getInboundSource(emailId).catch(() => null))?.owner?.toLowerCase() ?? null
+  let holder = stored
 
-  if (mode === 'repair') {
-    if (!full) throw new Error('provider returned no body; nothing to repair with')
-    const filled = await repairInbound(inbound)
-    if (!filled) throw new Error('no such message in this mailbox')
-    return { owner: inbound.owner, subject: inbound.subject, from: inbound.from }
-  }
+  let first: { owner: string; subject: string; from: string } | null = null
+  for (const owner of owners) {
+    // The first copy keeps the provider's id; each further mailbox gets its own row.
+    const id = !holder || holder === owner ? emailId : copyId(emailId, owner)
+    holder ??= owner
+    if (mode === 'backfill' && (stored === owner || (id !== emailId && (await getInboundSource(id).catch(() => null))))) continue
+    const standing = await senderStanding(owner, senderDomain)
+    const verdicts = judgeMessage({
+      spam: data.spam == null ? null : String(data.spam),
+      virus: data.virus == null ? null : String(data.virus),
+      // Where no provider hands us a verdict — a deployment reading its mail through Resend,
+      // say — the receiving server's own Authentication-Results header carries the same answer.
+      spf: data.spf == null ? fromHeader('spf') : String(data.spf),
+      dkim: data.dkim == null ? fromHeader('dkim') : String(data.dkim),
+      dmarc: data.dmarc == null ? fromHeader('dmarc') : String(data.dmarc),
+      from: full?.from || String(data.from ?? ''),
+      replyTo: full?.replyTo ?? (Array.isArray(data.reply_to) ? (data.reply_to as string[]) : []),
+      subject: full?.subject || String(data.subject ?? ''),
+      text: full?.text ?? (data.text ? String(data.text) : null),
+      receivedAt: full?.createdAt || String(data.created_at ?? new Date().toISOString()),
+    }, standing)
+    if (verdicts.risk !== 'clean') {
+      console.warn(`[mail] ${verdicts.risk} inbound ${id}:`, verdicts.reasons.join('; '))
+    }
 
-  if (isArchiveCopy(inbound.owner, inbound.to, inbound.cc)) {
-    await recordSentMessage({
-      id: emailId,
-      from: inbound.from,
-      to: inbound.to,
-      cc: inbound.cc,
-      bcc: inbound.bcc,
-      replyTo: inbound.replyTo,
-      subject: inbound.subject,
-      html: inbound.html,
-      text: inbound.text,
-      createdAt: inbound.receivedAt,
-      attachments: inbound.attachments,
-    })
-    await recordSentMeta(emailId, inbound.owner, true)
-    return { owner: inbound.owner, subject: inbound.subject, from: inbound.from }
-  }
+    const inbound = {
+      id,
+      risk: verdicts.risk,
+      riskReasons: verdicts.reasons,
+      // Held out of the inbox, not merely labelled, once the weight passes the threshold.
+      spam: verdicts.quarantine,
+      from: full?.from || String(data.from ?? ''),
+      to: toHeader !== undefined || Object.keys(full?.headers ?? {}).length
+        ? headerAddresses(toHeader)
+        : full?.to ?? (Array.isArray(data.to) ? (data.to as string[]) : [String(data.to ?? '')]),
+      cc: full?.cc ?? (Array.isArray(data.cc) ? (data.cc as string[]) : []),
+      bcc: full?.bcc ?? (Array.isArray(data.bcc) ? (data.bcc as string[]) : []),
+      replyTo: full?.replyTo ?? (Array.isArray(data.reply_to) ? (data.reply_to as string[]) : []),
+      subject: full?.subject || String(data.subject ?? '(no subject)'),
+      html: full?.html ?? (data.html ? String(data.html) : null),
+      text: full?.text ?? (data.text ? String(data.text) : null),
+      headers: full?.headers ?? {},
+      receivedAt: full?.createdAt || String(data.created_at ?? new Date().toISOString()),
+      read: false,
+      attachments,
+      // Each member gets only the mail they were a party to; anything not matching a member's
+      // personal address stays in the shared (admin) inbox.
+      owner,
+    }
+    first ??= { owner: inbound.owner, subject: inbound.subject, from: inbound.from }
 
-  await appendInbound(inbound)
-  await noteSender(owner, senderDomain, 'received').catch(() => {})
-  const sender = parseSender(inbound.from)
-  await recordContact(sender.email, sender.name)
-  if (!isDmarcAggregateReport(inbound.subject) && !(await filteredOut(inbound))) {
-    await sendPush(inbound.owner, {
-      title: sender.name || sender.email || 'New mail',
-      body: inbound.subject,
-      tag: emailId,
-    }).catch(() => {})
+    if (mode === 'repair') {
+      if (!full) throw new Error('provider returned no body; nothing to repair with')
+      const filled = await repairInbound(inbound)
+      if (!filled) throw new Error('no such message in this mailbox')
+      return first
+    }
+
+    if (isArchiveCopy(inbound.owner, inbound.to, inbound.cc)) {
+      await recordSentMessage({
+        id,
+        from: inbound.from,
+        to: inbound.to,
+        cc: inbound.cc,
+        bcc: inbound.bcc,
+        replyTo: inbound.replyTo,
+        subject: inbound.subject,
+        html: inbound.html,
+        text: inbound.text,
+        createdAt: inbound.receivedAt,
+        attachments: inbound.attachments,
+      })
+      await recordSentMeta(id, inbound.owner, true)
+      continue
+    }
+
+    await appendInbound(inbound)
+    await noteSender(owner, senderDomain, 'received').catch(() => {})
+    const sender = parseSender(inbound.from)
+    await recordContact(sender.email, sender.name)
+    // A backfilled copy is old mail: it is filed, but nobody is buzzed or sent it again.
+    if (mode === 'backfill') continue
+    if (!isDmarcAggregateReport(inbound.subject) && !(await filteredOut(inbound))) {
+      await sendPush(inbound.owner, {
+        title: sender.name || sender.email || 'New mail',
+        body: inbound.subject,
+        tag: id,
+      }).catch(() => {})
+    }
+    await forwardToAccounts(
+      id,
+      full ?? {
+        html: inbound.html,
+        text: inbound.text,
+        from: inbound.from,
+        to: inbound.to,
+        cc: inbound.cc,
+        bcc: inbound.bcc,
+        replyTo: inbound.replyTo,
+        subject: inbound.subject,
+        headers: inbound.headers,
+        createdAt: inbound.receivedAt,
+        attachments: inbound.attachments,
+      },
+      inbound.owner,
+      forwardable,
+    )
   }
-  await forwardToAccounts(
-    emailId,
-    full ?? {
-      html: inbound.html,
-      text: inbound.text,
-      from: inbound.from,
-      to: inbound.to,
-      cc: inbound.cc,
-      bcc: inbound.bcc,
-      replyTo: inbound.replyTo,
-      subject: inbound.subject,
-      headers: inbound.headers,
-      createdAt: inbound.receivedAt,
-      attachments: inbound.attachments,
-    },
-    inbound.owner,
-    forwardable,
-  )
-  return { owner: inbound.owner, subject: inbound.subject, from: inbound.from }
+  return first ?? { owner: owners[0], subject: full?.subject || String(data.subject ?? ''), from: fromAddress }
 }
 
 async function filteredOut(inbound: { owner: string | null; from: string; subject: string; text: string | null }): Promise<boolean> {

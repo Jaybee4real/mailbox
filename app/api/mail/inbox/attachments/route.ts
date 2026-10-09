@@ -3,6 +3,7 @@ import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { getInboundAttachments, resolveInboundBody, setInboundAttachments } from '@/lib/mailbox'
 import { isEmbedded, referencedCids } from '@/lib/attachments'
 import { mayReadInbound } from '@/lib/sent-access'
+import { providerEmailId } from '@/lib/receive'
 
 export const runtime = 'nodejs'
 
@@ -55,7 +56,7 @@ export async function GET(req: Request) {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) return NextResponse.json({ ok: true, attachments: [] })
 
-  const response = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(id)}/attachments`, {
+  const response = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(providerEmailId(id))}/attachments`, {
     headers: { authorization: `Bearer ${apiKey}` },
   })
   if (!response.ok) return NextResponse.json({ ok: true, attachments: [] })

@@ -2857,7 +2857,7 @@ export async function backfillAttachments(limit: number, countRemaining = false)
       const id = String(row.id)
       try {
         const base = (process.env.RESEND_BASE_URL ?? '').trim().replace(/\/+$/, '') || 'https://api.resend.com'
-        const listing = await fetch(`${base}/emails/receiving/${encodeURIComponent(id)}/attachments`, {
+        const listing = await fetch(`${base}/emails/receiving/${encodeURIComponent(id.split('~')[0])}/attachments`, {
           headers: { authorization: `Bearer ${apiKey}` },
         })
         if (!listing.ok) {

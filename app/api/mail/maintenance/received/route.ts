@@ -46,6 +46,18 @@ export async function POST(req: Request) {
   // Repair works on messages already stored, so the delivery claim is deliberately not
   // consulted: it says "handled", which is exactly the state being corrected.
   const repair = url.searchParams.get('repair') === '1'
+  // Files one stored delivery into the mailboxes it reached but was never filed for. The
+  // provider's message API gives the headers, not who it delivered to, so that comes as `to`.
+  if (one && url.searchParams.get('backfill') === '1') {
+    const delivered = url.searchParams.getAll('to').map(address => address.trim()).filter(Boolean)
+    if (!delivered.length) return NextResponse.json({ ok: false, error: 'Name who it was delivered to with ?to=' }, { status: 400 })
+    try {
+      const result = await ingestReceived(one, { to: delivered }, 'backfill')
+      return NextResponse.json({ ok: true, backfilled: one, owner: result.owner })
+    } catch (err) {
+      return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+    }
+  }
   const targets = one ? [one] : (await findMissingReceived(apiKey, sinceFrom(req))).map(item => item.id)
 
   const taken: Array<{ id: string; owner: string; subject: string }> = []
