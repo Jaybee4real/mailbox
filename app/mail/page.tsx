@@ -9,6 +9,7 @@ import { useConfirm, usePrompt } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
 import { InstallGuide } from './InstallGuide'
 import RichEditor from './RichEditor'
+import type { Editor } from '@tiptap/react'
 import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel, healGooglePrivateImages } from '@/lib/email-html'
 import { designsForDark, pinColorScheme } from '@/lib/color-scheme'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
@@ -1493,6 +1494,7 @@ const ICONS = {
   bellOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13.7 21a2 2 0 0 1-3.4 0"/><path d="M18.6 13A16.7 16.7 0 0 1 18 8a6 6 0 0 0-9.3-5"/><path d="M6.3 6.3A6 6 0 0 0 6 8c0 7-3 9-3 9h14"/><path d="m2 2 20 20"/></svg>,
   eye: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>,
   eyeOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9.9 4.2A10.4 10.4 0 0 1 12 4c6.5 0 10 8 10 8a17.6 17.6 0 0 1-2.2 3.2"/><path d="M6.6 6.6C3.9 8.4 2 12 2 12s3.5 8 10 8c1.9 0 3.6-.6 5-1.5"/><path d="M14.1 14.1a3 3 0 0 1-4.2-4.2"/><path d="m2 2 20 20"/></svg>,
+  expand: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg>,
   users: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
   install: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 7v7"/><path d="m9 11 3 3 3-3"/></svg>,
   play: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 4.5v15l13-7.5-13-7.5z"/></svg>,
@@ -1580,6 +1582,7 @@ export default function DevMailPage() {
   const [serverCounts, setServerCounts] = useState<(FolderTally & { conversations: FolderTally | null; filtered?: { total: number; unread: number } }) | null>(null)
   const [countsLoading, setCountsLoading] = useState(false)
   const [composeExpanded, setComposeExpanded] = useState(true)
+  const [composeFull, setComposeFull] = useState(false)
   const pwSectionRef = useRef<HTMLDivElement | null>(null)
   const [pwHighlight, setPwHighlight] = useState(false)
   // A counter, not a boolean: asking twice in a row should scroll and flash again.
@@ -1781,6 +1784,16 @@ export default function DevMailPage() {
   const [composeOpen, setComposeOpen] = useState(false)
   const [compose, setCompose] = useState<ComposeData>(EMPTY_COMPOSE)
   const [showCcBcc, setShowCcBcc] = useState(false)
+  const [ccAuto, setCcAuto] = useState(false)
+  const ccRowsRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!showCcBcc || !ccAuto) return
+    const timer = window.setTimeout(() => {
+      setCcAuto(false)
+      if (!ccRowsRef.current?.contains(document.activeElement)) setShowCcBcc(false)
+    }, 3000)
+    return () => window.clearTimeout(timer)
+  }, [showCcBcc, ccAuto])
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [attachmentsLoading, setAttachmentsLoading] = useState(false)
   const [linkEdit, setLinkEdit] = useState<LinkEdit | null>(null)
@@ -1823,6 +1836,12 @@ export default function DevMailPage() {
   const [replyRecipsEdited, setReplyRecipsEdited] = useState(false)
   const [replyBar, setReplyBar] = useState<null | 'reply' | 'all' | 'forward'>(null)
   const quickReplyRef = useRef<HTMLTextAreaElement>(null)
+  const [replyRich, setReplyRich] = useState('')
+  const [phoneRecipsOpen, setPhoneRecipsOpen] = useState(false)
+  const phoneEditorRef = useRef<Editor | null>(null)
+  const keepPhoneEditor = useCallback((editor: Editor | null) => {
+    phoneEditorRef.current = editor
+  }, [])
   useEffect(() => {
     if (!replyBar) return
     const focus = () => quickReplyRef.current?.focus({ preventScroll: true })
@@ -1835,6 +1854,8 @@ export default function DevMailPage() {
   }, [replyBar])
   useEffect(() => {
     setQuickReply('')
+    setReplyRich('')
+    setPhoneRecipsOpen(false)
     setReplyMode('write')
     setReplySig(true)
     setReplyHtml('')
@@ -4598,11 +4619,13 @@ export default function DevMailPage() {
     setComposeExpanded(!selectedId)
     // The sender name is whoever is signed in — their profile name, else the account
     // name, else the local part of their address — not a fixed company name.
+    setComposeFull(false)
     setCompose({ ...EMPTY_COMPOSE, fromName: identityName, ...data })
     // A reply handed over from the dock brings its files with it; everything else starts clean.
     if (!options?.keepAttachments) setAttachments([])
     setComposeError('')
     setShowCcBcc(Boolean(data?.cc?.length || data?.bcc?.length))
+    setCcAuto(Boolean(data?.cc?.length || data?.bcc?.length))
     setDraftId(existingDraftId ?? null)
     setComposeOpen(true)
   }
@@ -5196,6 +5219,21 @@ export default function DevMailPage() {
 
   // Reply as a full ComposeData so it reuses the composer's html/text builders + Brand/Sig toggles.
   // Recipients come from the (collapsible) To/Cc/Bcc fields; an untouched To falls back to the sender.
+  const richReply = () => (htmlToPlainText(replyRich).trim() ? replyRich : '')
+
+  const fillReplyRecips = (entry: InboundEmail) => {
+    if (replyBar === 'forward' || replyRecipsEdited || replyToList.length) return
+    const sender = defaultReplyRecipient(entry)
+    const { to, cc } = settings.replyAllDefault ? replyAllRecipients(entry) : { to: [], cc: [] }
+    setReplyToList(to.length ? to : sender ? [sender] : [])
+    if (cc.length) setReplyCc(cc)
+  }
+
+  const openPhoneRecips = (entry: InboundEmail) => {
+    fillReplyRecips(entry)
+    setPhoneRecipsOpen(true)
+  }
+
   const buildReplyDraft = (entry: InboundEmail): ComposeData => {
     const target = quickReplyTarget(entry)
     if (replyBar === 'forward') {
@@ -5206,6 +5244,7 @@ export default function DevMailPage() {
         bcc: replyBcc,
         subject: target.subject.startsWith('Fwd:') ? target.subject : `Fwd: ${target.subject}`,
         markdown: quickReply,
+        bodyHtml: richReply(),
         htmlSource: replyHtml,
         htmlDirty: replyHtmlDirty,
         useSignature: replySig,
@@ -5229,6 +5268,7 @@ export default function DevMailPage() {
       bcc: replyBcc,
       subject: target.subject.startsWith('Re:') ? target.subject : `Re: ${target.subject}`,
       markdown: quickReply,
+      bodyHtml: richReply(),
       htmlSource: replyHtml,
       htmlDirty: replyHtmlDirty,
       useSignature: replySig,
@@ -5272,16 +5312,18 @@ export default function DevMailPage() {
 
 
   const sendQuickReply = async (entry: InboundEmail) => {
-    const body = quickReply.trim() || (replyHtmlDirty ? replyHtml.trim() : '')
+    const richText = htmlToPlainText(replyRich).trim()
+    const body = quickReply.trim() || richText || (replyHtmlDirty ? replyHtml.trim() : '')
     if ((!body && replyBar !== 'forward') || quickSending) return
     const draft = buildReplyDraft(entry)
     if (!draft.to.length) {
-      openReplySettings(entry)
+      if (isPhone) openPhoneRecips(entry)
+      else openReplySettings(entry)
       return
     }
     const issues = sendIssues(
       {
-        body: quickReply.trim() ? quickReply : htmlToPlainText(replyHtml),
+        body: quickReply.trim() ? quickReply : richText || htmlToPlainText(replyHtml),
         recipients: [...draft.to, ...draft.cc, ...draft.bcc].map(address => ({ email: address })),
         attachmentCount: attachments.length,
         ownDomains: LOGIN_DOMAINS,
@@ -5326,6 +5368,8 @@ export default function DevMailPage() {
       }
       setAttachments([])
       setQuickReply('')
+      setReplyRich('')
+      setPhoneRecipsOpen(false)
       setReplyHtml('')
       setReplyHtmlDirty(false)
       setReplyMode('write')
@@ -5370,7 +5414,7 @@ export default function DevMailPage() {
     const draft = buildReplyDraft(entry)
     const target = quickReplyTarget(entry)
     const typed = quickReply.trim()
-    const bodyHtml = draft.htmlDirty && draft.htmlSource.trim() ? draft.htmlSource : typed ? markdownToHtml(typed) : ''
+    const bodyHtml = draft.htmlDirty && draft.htmlSource.trim() ? draft.htmlSource : draft.bodyHtml || (typed ? markdownToHtml(typed) : '')
     openCompose(
       {
         to: draft.to,
@@ -5386,7 +5430,10 @@ export default function DevMailPage() {
       { keepAttachments: true },
     )
     setComposeExpanded(true)
+    setComposeFull(isPhone)
     setQuickReply('')
+    setReplyRich('')
+    setPhoneRecipsOpen(false)
     setReplyHtml('')
     setReplyHtmlDirty(false)
     setReplyMode('write')
@@ -5545,7 +5592,13 @@ export default function DevMailPage() {
   }
 
   const startReply = (entry: InboundEmail, kind: 'reply' | 'all' | 'forward') => {
-    if (!isPhone && settings.replyStyle === 'mini') return openReplyBar(entry, kind)
+    if (isPhone) {
+      openReplyBar(entry, kind)
+      if (kind === 'forward') setPhoneRecipsOpen(true)
+      else phoneEditorRef.current?.commands.focus('end')
+      return
+    }
+    if (settings.replyStyle === 'mini') return openReplyBar(entry, kind)
     if (kind === 'reply') replyTo(entry)
     else if (kind === 'all') replyAllTo(entry)
     else forwardEmail(entry.subject, entry.html, entry.text, entry.id)
@@ -7442,22 +7495,133 @@ export default function DevMailPage() {
           )}
           {folder !== 'trash' && (() => {
             if (isPhone) {
+              const phoneDraft = buildReplyDraft(inbound)
+              const named = phoneDraft.to.map(address => parseAddress(address).split('@')[0])
+              const phoneSummary = [
+                `${replyBar === 'forward' ? 'Forward to' : 'To'} ${named.length ? named.join(', ') : 'choose recipients'}`,
+                phoneDraft.cc.length ? `Cc ${phoneDraft.cc.length}` : null,
+                phoneDraft.bcc.length ? `Bcc ${phoneDraft.bcc.length}` : null,
+              ].filter(Boolean).join('  ·  ')
+              const phoneCanSend = (Boolean(htmlToPlainText(replyRich).trim() || quickReply.trim()) || replyBar === 'forward') && !quickSending
+              const dropRecipient = (address: string) => {
+                const keep = (chip: string) => parseAddress(chip).toLowerCase() !== address
+                setReplyRecipsEdited(true)
+                setReplyToList(list => list.filter(keep))
+                setReplyCc(list => list.filter(keep))
+                setReplyBcc(list => list.filter(keep))
+              }
               return (
-                <div className={styles.replyLaunch}>
-                  <button type="button" className={styles.replyLaunchBtn} onClick={() => openReplyPage(inbound)}>
-                    {ICONS.reply}
-                    <span>{quickReply.trim() ? quickReply.trim().slice(0, 60) : `Reply${settings.replyAllDefault ? ' to everyone' : ''}…`}</span>
-                  </button>
-                  {!settings.replyAllDefault && (
+                <div className={styles.phoneReply}>
+                  {replyError && <p className={styles.replyError} role="alert">{replyError}</p>}
+                  {!composeOpen && attachments.length > 0 && (
+                    <div className={styles.replyAttachRow}>
+                      {attachments.map((attachment, index) => renderAttachChip(attachment, index, false))}
+                    </div>
+                  )}
+                  <BlockedNote recipients={[...phoneDraft.to, ...phoneDraft.cc, ...phoneDraft.bcc]} blocked={blockedMap} onRemove={dropRecipient} />
+                  <div className={styles.phoneReplyHead}>
+                    <button type="button" className={styles.phoneReplyTo} onClick={() => openPhoneRecips(inbound)}>
+                      {phoneSummary}
+                    </button>
                     <button
                       type="button"
-                      className={styles.replyLaunchAll}
-                      title="Reply all"
-                      aria-label="Reply all"
-                      onClick={() => { replyAllTo(inbound); setComposeExpanded(true) }}
+                      className={styles.phoneReplyIcon}
+                      title="Write the reply full screen"
+                      aria-label="Write the reply full screen"
+                      onClick={() => openReplyPage(inbound)}
                     >
-                      {ICONS.replyAll}
+                      {ICONS.expand}
                     </button>
+                  </div>
+                  <div className={styles.phoneReplyRow}>
+                    <button
+                      type="button"
+                      className={styles.phoneReplyIcon}
+                      title="Attach a file"
+                      aria-label="Attach a file"
+                      onClick={() => replyFileRef.current?.click()}
+                    >
+                      {ICONS.attach}
+                    </button>
+                    <input
+                      ref={replyFileRef}
+                      type="file"
+                      multiple
+                      hidden
+                      onChange={event => {
+                        void onPickFiles(event.target.files)
+                        event.target.value = ''
+                      }}
+                    />
+                    <div className={styles.phoneReplyEditor}>
+                      <RichEditor
+                        compact
+                        html={replyRich}
+                        onChange={setReplyRich}
+                        placeholder={replyBar === 'forward' ? 'Add a note…' : `Reply to ${named[0] || 'sender'}…`}
+                        uploadImage={uploadInlineImage}
+                        fontFaceCss={fontCss}
+                        baseFont={defaultFont}
+                        writing={writingSettings}
+                        onWritingChange={saveWriting}
+                        templates={templates}
+                        onSaveTemplate={saveTemplate}
+                        onDeleteTemplate={deleteTemplate}
+                        templateContext={{
+                          firstName: firstNameFromAddress(phoneDraft.to[0]),
+                          email: phoneDraft.to[0],
+                          senderName: settings.senderName || account?.name || undefined,
+                        }}
+                        companyWords={companyWords}
+                        onCompanyWords={isAdmin ? saveCompanyWords : undefined}
+                        isAdmin={isAdmin}
+                        onSubmit={() => void sendQuickReply(inbound)}
+                        requestHeaders={apiHeaders}
+                        onEditor={keepPhoneEditor}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.phoneReplyIcon}
+                      title="Recipients, Cc and Bcc"
+                      aria-label="Recipients, Cc and Bcc"
+                      onClick={() => openPhoneRecips(inbound)}
+                    >
+                      {ICONS.users}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.quickReplySend}
+                      title="Send reply"
+                      aria-label="Send reply"
+                      disabled={!phoneCanSend}
+                      onClick={() => void sendQuickReply(inbound)}
+                    >
+                      {ICONS.send}
+                    </button>
+                  </div>
+                  {phoneRecipsOpen && (
+                    <div className={styles.phoneSheetScrim} onClick={() => setPhoneRecipsOpen(false)}>
+                      <div className={styles.phoneSheet} role="dialog" aria-label="Recipients" onClick={event => event.stopPropagation()}>
+                        <div className={styles.phoneSheetHead}>
+                          <strong>{replyBar === 'forward' ? 'Forward to' : 'Who gets this reply'}</strong>
+                          <button type="button" className={styles.phoneSheetDone} onClick={() => setPhoneRecipsOpen(false)}>Done</button>
+                        </div>
+                        <div className={styles.replyRecipRow}>
+                          <span className={styles.replyRecipLabel}>To</span>
+                          <ChipField chips={replyToList} onChange={next => { setReplyRecipsEdited(true); setReplyToList(next) }} placeholder="someone@example.com" suggest={suggestContacts} blocked={blockedMap} />
+                        </div>
+                        <div className={styles.replyRecipRow}>
+                          <span className={styles.replyRecipLabel}>Cc</span>
+                          <ChipField chips={replyCc} onChange={next => { setReplyRecipsEdited(true); setReplyCc(next) }} placeholder="cc@example.com" suggest={suggestContacts} blocked={blockedMap} />
+                        </div>
+                        <div className={styles.replyRecipRow}>
+                          <span className={styles.replyRecipLabel}>Bcc</span>
+                          <ChipField chips={replyBcc} onChange={next => { setReplyRecipsEdited(true); setReplyBcc(next) }} placeholder="bcc@example.com" suggest={suggestContacts} blocked={blockedMap} />
+                        </div>
+                        <BlockedNote recipients={[...replyToList, ...replyCc, ...replyBcc]} blocked={blockedMap} onRemove={dropRecipient} />
+                      </div>
+                    </div>
                   )}
                 </div>
               )
@@ -8891,7 +9055,7 @@ export default function DevMailPage() {
               able to move out to the rest of the page. Shrunk, it floats and behaves as one. */}
           {!composeExpanded && <div className={styles.composeScrim} onClick={closeCompose} />}
           <div
-            className={`${styles.compose} ${composeExpanded ? styles.composeExpanded : ''}`}
+            className={`${styles.compose} ${composeExpanded ? styles.composeExpanded : ''} ${composeFull ? styles.composeFull : ''}`}
             role={composeExpanded ? 'region' : 'dialog'}
             aria-modal={composeExpanded ? undefined : true}
             aria-label="Compose email"
@@ -8969,14 +9133,21 @@ export default function DevMailPage() {
                 <ChipField chips={compose.to} onChange={next => setCompose(data => ({ ...data, to: next }))} placeholder="someone@example.com" suggest={suggestContacts} blocked={blockedMap} />
                 <button
                   className={`${styles.ccToggle} ${showCcBcc ? styles.ccToggleOn : ''}`}
-                  onClick={() => setShowCcBcc(open => !open)}
+                  onClick={() => {
+                    setCcAuto(false)
+                    setShowCcBcc(open => !open)
+                  }}
+                  aria-expanded={showCcBcc}
                   type="button"
                 >
                   Cc/Bcc
+                  {!showCcBcc && compose.cc.length + compose.bcc.length > 0 && (
+                    <span className={styles.ccToggleCount}>{compose.cc.length + compose.bcc.length}</span>
+                  )}
                 </button>
               </div>
-              {showCcBcc && (
-                <>
+              <div ref={ccRowsRef} className={`${styles.ccRows} ${showCcBcc ? styles.ccRowsOpen : ''}`} inert={!showCcBcc}>
+                <div className={styles.ccRowsInner}>
                   <div className={styles.fieldRow}>
                     <span className={styles.fieldLabel}>Cc</span>
                     <ChipField chips={compose.cc} onChange={next => setCompose(data => ({ ...data, cc: next }))} placeholder="cc@example.com" suggest={suggestContacts} blocked={blockedMap} />
@@ -8993,8 +9164,8 @@ export default function DevMailPage() {
                       placeholder="reply-to@example.com (optional)"
                     />
                   </div>
-                </>
-              )}
+                </div>
+              </div>
               <BlockedNote
                 recipients={[...compose.to, ...compose.cc, ...compose.bcc]}
                 blocked={blockedMap}
@@ -9114,7 +9285,13 @@ export default function DevMailPage() {
               {!compose.campaign.kind && (
                 <RichEditor
                   html={compose.bodyHtml}
-                  onChange={html => setCompose(data => ({ ...data, bodyHtml: html, htmlDirty: false }))}
+                  onChange={html => {
+                    setCompose(data => ({ ...data, bodyHtml: html, htmlDirty: false }))
+                    if (showCcBcc) {
+                      setCcAuto(false)
+                      setShowCcBcc(false)
+                    }
+                  }}
                   placeholder="Write your message"
                   uploadImage={uploadInlineImage}
                   fonts={(settings.fonts ?? []).map(font => font.name)}

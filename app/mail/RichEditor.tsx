@@ -1006,6 +1006,8 @@ export default function RichEditor({
   isAdmin = false,
   onSubmit,
   requestHeaders,
+  compact = false,
+  onEditor,
 }: {
   html: string
   onChange: (html: string) => void
@@ -1026,6 +1028,10 @@ export default function RichEditor({
   isAdmin?: boolean
   onSubmit?: () => void
   requestHeaders?: () => HeadersInit
+  /** One growing line with the writing tools beside it and no toolbar: the phone's reply bar. */
+  compact?: boolean
+  /** Hands the editor out, so a tap elsewhere can focus it inside the same gesture and raise the keyboard. */
+  onEditor?: (editor: Editor | null) => void
 }) {
   const tools = Boolean(writing)
   const settings = writing ?? WRITING_DEFAULTS
@@ -1188,6 +1194,15 @@ export default function RichEditor({
     onTransaction: () => setTick(tick => tick + 1),
   })
 
+  const onEditorRef = useRef(onEditor)
+  useEffect(() => {
+    onEditorRef.current = onEditor
+  })
+  useEffect(() => {
+    onEditorRef.current?.(editor)
+    return () => onEditorRef.current?.(null)
+  }, [editor])
+
   // Only push content in when it changed elsewhere — writing on every keystroke would
   // reset the cursor to the start of the document.
   useEffect(() => {
@@ -1239,7 +1254,7 @@ export default function RichEditor({
     editor.view.dispatch(editor.state.tr.setMeta(findKey, { query: finding ? findQuery : '', index: 0 }).setMeta('addToHistory', false))
   }, [editor, tools, finding, findQuery])
 
-  if (!editor) return <div className={styles.rteLoading} />
+  if (!editor) return <div className={compact ? styles.rteCompactLoading : styles.rteLoading} />
 
   const matches = tools && finding ? findMatches(editor.state.doc, findQuery) : []
   const findIndex = matches.length ? ((findState(editor.state).index % matches.length) + matches.length) % matches.length : 0
@@ -1298,11 +1313,11 @@ export default function RichEditor({
 
   return (
     <div
-      className={styles.rte}
+      className={`${styles.rte} ${compact ? styles.rteCompact : ''}`}
       style={{ '--rte-font': fontStack(baseFont?.family ?? ''), '--rte-size': baseFont?.size || '15px', '--rte-lead': String(lineSpacingOf(baseFont)), '--rte-gap': paragraphGap(lineSpacingOf(baseFont)) } as React.CSSProperties}
     >
       {fontFaceCss && <style>{fontFaceCss}</style>}
-      <Toolbar editor={editor} uploadImage={uploadImage} fonts={fonts} baseFont={baseFont} />
+      {!compact && <Toolbar editor={editor} uploadImage={uploadImage} fonts={fonts} baseFont={baseFont} />}
       {tools && finding && (
         <div className={styles.rteFindBar} role="search">
           <input
@@ -1352,7 +1367,7 @@ export default function RichEditor({
           </div>
         )}
         <EditorContent editor={editor} className={styles.rteContent} />
-        {tools && settings.wordCount && <div className={styles.rteWordCount}>{wordCount} {wordCount === 1 ? 'word' : 'words'}</div>}
+        {tools && settings.wordCount && !compact && <div className={styles.rteWordCount}>{wordCount} {wordCount === 1 ? 'word' : 'words'}</div>}
         {tools && panel && writing && onWritingChange && (
           <WritingPanel
             settings={writing}
