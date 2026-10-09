@@ -10,6 +10,7 @@
 import { randomBytes } from 'node:crypto'
 import { sesConfigured, sesSendRaw } from './ses-send'
 import { BlockedRecipientsError, blockedAmong } from './blocked'
+import { providerBase } from './provider-base'
 
 export type MailProvider = 'resend' | 'brevo' | 'ses'
 
@@ -83,7 +84,7 @@ async function sendViaResend(payload: SendPayload): Promise<SendResult> {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) throw new Error('RESEND_API_KEY is not configured')
   const { Resend } = await import('resend')
-  const resend = new Resend(apiKey)
+  const resend = new Resend(apiKey, { baseUrl: providerBase() })
   const from = payload.fromName ? `${payload.fromName} <${payload.from}>` : payload.from
   const { data, error } = await resend.emails.send({
     from,

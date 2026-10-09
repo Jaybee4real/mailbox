@@ -3,12 +3,13 @@ import { Resend } from 'resend'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { mayReadSent } from '@/lib/sent-access'
 import { getSentAttachments, readSentMessage } from '@/lib/mailbox'
+import { providerBase } from '@/lib/provider-base'
 
 export const runtime = 'nodejs'
 
 function getResend(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY
-  return apiKey ? new Resend(apiKey) : null
+  return apiKey ? new Resend(apiKey, { baseUrl: providerBase() }) : null
 }
 
 /**
