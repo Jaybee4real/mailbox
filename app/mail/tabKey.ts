@@ -1,7 +1,7 @@
 import type { KeyboardEvent } from 'react'
 
 /** Two presses closer together than this leave the field instead of indenting twice. */
-export const DOUBLE_TAB_MS = 400
+export const DOUBLE_TAB_MS = 200
 
 /** Four no-break spaces: a tab character collapses to a single space in most mail clients. */
 export const TAB_TEXT = '    '

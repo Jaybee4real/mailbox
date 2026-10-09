@@ -41,7 +41,7 @@ export const WRITING_DEFAULTS: WritingSettings = {
   personalWords: [],
   grammar: false,
   tabIndent: true,
-  doubleTabMs: 400,
+  doubleTabMs: 200,
   templateShortcuts: true,
   cleanPaste: true,
   amountFormat: false,
