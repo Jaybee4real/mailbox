@@ -3,23 +3,21 @@ import { hashPassword, passwordProblem } from '@/lib/password'
 import { resetPasswordWithToken, resetTokenEmail } from '@/lib/mailbox'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession, passwordFingerprint } from '@/lib/session'
+import { signInBody } from '@/lib/signin'
 
 export const runtime = 'nodejs'
 
 export async function POST(req: Request) {
+  const { body, refused } = await signInBody(req)
+  if (refused) return refused
   // A reset token is a bearer credential, so guessing one needs a ceiling like login has.
   const limited = rateLimit(clientKey(req, 'reset'), 10, 15 * 60 * 1000)
   if (limited) return limited
 
-  let body: { token?: string; password?: string }
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
-  }
+  if (!body) return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
 
-  const token = (body.token ?? '').trim()
-  const password = body.password ?? ''
+  const token = String(body.token ?? '').trim()
+  const password = String(body.password ?? '')
   if (!token) {
     return NextResponse.json({ ok: false, error: 'Missing reset token' }, { status: 400 })
   }

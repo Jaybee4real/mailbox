@@ -4,7 +4,7 @@ import { describeLocation } from '@/lib/client-context'
 import { BRAND } from '@/lib/brand'
 import { mailAuthGuard, resolveAccount, verifyMailAuth } from '@/lib/dev-auth'
 import {
-  activateTotp, countChallengeAttempt, createLoginChallenge, deleteLoginChallenge, disableTotp, getLoginChallenge, listSignins,
+  activateTotp, createLoginChallenge, deleteLoginChallenge, disableTotp, getLoginChallenge, listSignins, reserveChallengeAttempt,
   setEmailCodes, setTotpPending, totpSecretFor, twoFactorState,
 } from '@/lib/mailbox'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
@@ -93,10 +93,10 @@ export async function POST(req: Request) {
     if (!challenge || challenge.purpose !== 'enroll-email' || challenge.email !== email.toLowerCase()) {
       return fail('That code has expired. Send a new one.')
     }
+    const used = await reserveChallengeAttempt(challenge.id, MAX_CODE_ATTEMPTS)
     const fresh = challenge.codeSentAt && Date.now() - Date.parse(challenge.codeSentAt) < EMAIL_CODE_TTL_MS
-    if (!fresh || challenge.codeHash !== hashEmailCode(challenge.id, String(body.code ?? ''))) {
-      if (challenge.attempts + 1 >= MAX_CODE_ATTEMPTS) await deleteLoginChallenge(challenge.id)
-      else await countChallengeAttempt(challenge.id)
+    if (used === null || !fresh || challenge.codeHash !== hashEmailCode(challenge.id, String(body.code ?? ''))) {
+      if (used === null || used >= MAX_CODE_ATTEMPTS) await deleteLoginChallenge(challenge.id)
       return fail('That code is not right. Check it and try again.')
     }
     await deleteLoginChallenge(challenge.id)

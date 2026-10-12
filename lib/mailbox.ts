@@ -411,7 +411,7 @@ export function ensureMailSchema(): Promise<void> {
       // Whether the mailbox was actually written to, or only copied. Stored rather than
       // worked out per query: matching an address inside the cc JSON means a scan, and a
       // mailbox here holds six figures of mail.
-      for (const column of ['country', 'region', 'city', 'timezone']) {
+      for (const column of ['country', 'region', 'city', 'timezone', 'client']) {
         await sqlRaw(`ALTER TABLE mail_signins ADD COLUMN ${column} TEXT`).catch(() => {})
       }
       for (const column of [
@@ -2429,8 +2429,10 @@ export async function setChallengeCode(id: string, codeHash: string): Promise<vo
   await db()`UPDATE mail_login_challenges SET code_hash = ${codeHash}, code_sent_at = ${nowIso()} WHERE id = ${id}`
 }
 
-export async function countChallengeAttempt(id: string): Promise<void> {
-  await db()`UPDATE mail_login_challenges SET attempts = attempts + 1 WHERE id = ${id}`
+/** Takes one of the challenge's code attempts and returns how many are now used, or null once all are spent. */
+export async function reserveChallengeAttempt(id: string, maxAttempts: number): Promise<number | null> {
+  const rows = await db()`UPDATE mail_login_challenges SET attempts = attempts + 1 WHERE id = ${id} AND attempts < ${maxAttempts} RETURNING attempts`
+  return rows.length > 0 ? Number(rows[0].attempts) : null
 }
 
 export async function deleteLoginChallenge(id: string): Promise<void> {
@@ -2447,20 +2449,21 @@ export type SigninRecord = {
   region?: string | null
   city?: string | null
   timezone?: string | null
+  client?: string | null
 }
 
 export async function recordSignin(email: string, entry: Omit<SigninRecord, 'at'>): Promise<void> {
   await ensureMailSchema()
   await db()`
-    INSERT INTO mail_signins (email, at, ip, user_agent, method, outcome, country, region, city, timezone)
+    INSERT INTO mail_signins (email, at, ip, user_agent, method, outcome, country, region, city, timezone, client)
     VALUES (${email.toLowerCase()}, ${nowIso()}, ${entry.ip}, ${entry.userAgent?.slice(0, 300) ?? null}, ${entry.method}, ${entry.outcome},
-      ${entry.country ?? null}, ${entry.region ?? null}, ${entry.city ?? null}, ${entry.timezone ?? null})`
+      ${entry.country ?? null}, ${entry.region ?? null}, ${entry.city ?? null}, ${entry.timezone ?? null}, ${entry.client ?? null})`
 }
 
 export async function listSignins(email: string, limit = 30): Promise<SigninRecord[]> {
   await ensureMailSchema()
   const rows = await db()`
-    SELECT at, ip, user_agent, method, outcome, country, region, city, timezone FROM mail_signins
+    SELECT at, ip, user_agent, method, outcome, country, region, city, timezone, client FROM mail_signins
     WHERE email = ${email.toLowerCase()} ORDER BY at DESC LIMIT ${limit}`
   return rows.map(row => ({
     at: String(row.at),
@@ -2472,6 +2475,7 @@ export async function listSignins(email: string, limit = 30): Promise<SigninReco
     region: row.region == null ? null : String(row.region),
     city: row.city == null ? null : String(row.city),
     timezone: row.timezone == null ? null : String(row.timezone),
+    client: row.client == null ? null : String(row.client),
   }))
 }
 

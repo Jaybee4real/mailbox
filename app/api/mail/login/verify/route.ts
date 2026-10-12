@@ -1,55 +1,82 @@
 import { NextResponse } from 'next/server'
 import { currentFingerprint } from '@/lib/dev-auth'
-import { countChallengeAttempt, deleteLoginChallenge, getLoginChallenge, recordSignin, totpSecretFor, twoFactorState } from '@/lib/mailbox'
-import { clientKey, rateLimit } from '@/lib/rate-limit'
+import { deleteLoginChallenge, getLoginChallenge, recordSignin, reserveChallengeAttempt, totpSecretFor, twoFactorState } from '@/lib/mailbox'
+import { clientKey, peekRateLimit, rateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession } from '@/lib/session'
 import { issueMobileSession } from '@/lib/mobile-session'
-import { requestContext } from '@/lib/signin'
-import { EMAIL_CODE_TTL_MS, MAX_CODE_ATTEMPTS, hashEmailCode, verifyTotp, type SecondFactor } from '@/lib/two-factor'
+import { requestContext, signInBody } from '@/lib/signin'
+import { nativeClient } from '@/lib/turnstile'
+import { EMAIL_CODE_TTL_MS, MAX_CODE_ATTEMPTS, hashEmailCode, isChallengeId, verifyTotp, type SecondFactor } from '@/lib/two-factor'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+const WINDOW_MS = 15 * 60 * 1000
+const HOUR_MS = 60 * 60 * 1000
+const WRONG_CODES_PER_IP = 20
+const WRONG_CODES_PER_ACCOUNT = 20
+
+const expired = (error = 'That sign-in has expired. Enter your password again.') =>
+  NextResponse.json({ ok: false, error, expired: true }, { status: 401 })
+
 export async function POST(req: Request) {
-  const limited = rateLimit(clientKey(req, 'login-code'), 20, 15 * 60 * 1000)
+  const { body, refused } = await signInBody(req)
+  if (refused) return refused
+  const ipKey = clientKey(req, 'login-code')
+  const flooded = peekRateLimit(ipKey, WRONG_CODES_PER_IP)
+  if (flooded) return flooded
+  if (!body) return NextResponse.json({ ok: false, error: 'Invalid request.' }, { status: 400 })
+
+  const challengeId = body.challenge
+  if (!isChallengeId(challengeId)) {
+    rateLimit(ipKey, WRONG_CODES_PER_IP, WINDOW_MS)
+    return expired()
+  }
+  const limited = rateLimit(`${ipKey}:${challengeId}`, 20, WINDOW_MS)
   if (limited) return limited
 
-  let body: { challenge?: string; method?: SecondFactor; code?: string }
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ ok: false, error: 'Invalid request.' }, { status: 400 })
-  }
-  const challenge = await getLoginChallenge(String(body.challenge ?? ''))
+  const challenge = await getLoginChallenge(challengeId)
   if (!challenge || challenge.purpose !== 'signin') {
-    return NextResponse.json({ ok: false, error: 'That sign-in has expired. Enter your password again.', expired: true }, { status: 401 })
+    rateLimit(ipKey, WRONG_CODES_PER_IP, WINDOW_MS)
+    return expired()
+  }
+  const accountKey = `login-code-account:${challenge.email}`
+  const accountLimited = peekRateLimit(accountKey, WRONG_CODES_PER_ACCOUNT)
+  if (accountLimited) return accountLimited
+
+  const used = await reserveChallengeAttempt(challenge.id, MAX_CODE_ATTEMPTS)
+  if (used === null) {
+    await deleteLoginChallenge(challenge.id)
+    return expired('Too many wrong codes. Enter your password again.')
   }
 
   const code = String(body.code ?? '').replace(/\s+/g, '')
   const factors = await twoFactorState(challenge.email)
   let passed = false
-  if (body.method === 'authenticator' && factors.authenticator) {
+  const method: SecondFactor | null = body.method === 'authenticator' || body.method === 'email' ? body.method : null
+  if (method === 'authenticator' && factors.authenticator) {
     passed = verifyTotp((await totpSecretFor(challenge.email, 'active')) ?? '', code)
-  } else if (body.method === 'email' && factors.email && challenge.codeHash && challenge.codeSentAt) {
+  } else if (method === 'email' && factors.email && challenge.codeHash && challenge.codeSentAt) {
     const fresh = Date.now() - Date.parse(challenge.codeSentAt) < EMAIL_CODE_TTL_MS
     passed = fresh && challenge.codeHash === hashEmailCode(challenge.id, code)
   }
 
   const context = requestContext(req)
   if (!passed) {
-    await countChallengeAttempt(challenge.id)
-    await recordSignin(challenge.email, { ...context, method: body.method ?? null, outcome: 'wrong-code' }).catch(() => {})
-    if (challenge.attempts + 1 >= MAX_CODE_ATTEMPTS) {
+    rateLimit(ipKey, WRONG_CODES_PER_IP, WINDOW_MS)
+    rateLimit(accountKey, WRONG_CODES_PER_ACCOUNT, HOUR_MS)
+    await recordSignin(challenge.email, { ...context, method, outcome: 'wrong-code' }).catch(() => {})
+    if (used >= MAX_CODE_ATTEMPTS) {
       await deleteLoginChallenge(challenge.id)
-      return NextResponse.json({ ok: false, error: 'Too many wrong codes. Enter your password again.', expired: true }, { status: 401 })
+      return expired('Too many wrong codes. Enter your password again.')
     }
     return NextResponse.json({ ok: false, error: 'That code is not right. Check it and try again.' }, { status: 401 })
   }
 
   await deleteLoginChallenge(challenge.id)
-  await recordSignin(challenge.email, { ...context, method: body.method ?? null, outcome: 'signed-in' }).catch(() => {})
+  await recordSignin(challenge.email, { ...context, method, outcome: 'signed-in' }).catch(() => {})
   const token = issueSession(challenge.email, await currentFingerprint(challenge.email))
   return attachSession(NextResponse.json({ ok: true, email: challenge.email, session: Boolean(token),
-    ...(req.headers.get('x-mail-client') === 'vela-native' ? { token: await issueMobileSession(challenge.email, await currentFingerprint(challenge.email), req.headers.get('x-mail-device') ?? 'Vela Mail') } : {}),
+    ...(nativeClient(req) ? { token: await issueMobileSession(challenge.email, await currentFingerprint(challenge.email), req.headers.get('x-mail-device') ?? 'Vela Mail') } : {}),
   }, { headers: { 'Cache-Control': 'no-store' } }), token)
 }

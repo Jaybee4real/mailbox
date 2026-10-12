@@ -4,8 +4,8 @@ import { createLoginChallenge, recordSignin, twoFactorState } from '@/lib/mailbo
 import { clientKey, rateLimit, clearRateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession } from '@/lib/session'
 import { issueMobileSession } from '@/lib/mobile-session'
-import { requestContext } from '@/lib/signin'
-import { humanCheck, turnstileSiteKey } from '@/lib/turnstile'
+import { requestContext, signInBody } from '@/lib/signin'
+import { chargeNative, clearNativeAddress, humanCheck, nativeClient, turnstileSiteKey } from '@/lib/turnstile'
 import { CHALLENGE_TTL_MS, maskEmail, newChallengeId } from '@/lib/two-factor'
 
 export const runtime = 'nodejs'
@@ -13,6 +13,9 @@ export const dynamic = 'force-dynamic'
 
 /** Ten attempts per address per fifteen minutes: generous for a typo, useless for a list. */
 const MAX_ATTEMPTS = 10
+const NATIVE_PER_IP = 20
+const MAX_EMAIL_LENGTH = 254
+const MAX_PASSWORD_LENGTH = 1024
 const WINDOW_MS = 15 * 60 * 1000
 
 export function GET() {
@@ -20,37 +23,43 @@ export function GET() {
 }
 
 export async function POST(req: Request) {
-  const email = (req.headers.get('x-dev-email') ?? '').trim().toLowerCase()
-  const password = req.headers.get('x-dev-password') ?? ''
+  const { body, refused } = await signInBody(req)
+  if (refused) return refused
+  const email = (typeof body?.email === 'string' ? body.email : req.headers.get('x-dev-email') ?? '').trim().toLowerCase()
+  const password = typeof body?.password === 'string' ? body.password : req.headers.get('x-dev-password') ?? ''
+  const turnstile = typeof body?.turnstile === 'string' ? body.turnstile : req.headers.get('x-turnstile')
 
-  // Keyed on address as well as caller, so one shared office IP cannot lock
-  // everybody out, and a rotating-IP attacker still meets a per-account ceiling.
-  const key = `${clientKey(req, 'login')}:${email}`
-  const limited = rateLimit(key, MAX_ATTEMPTS, WINDOW_MS)
-  if (limited) return limited
-
-  if (!email || !password) {
+  if (!email || !password || email.length > MAX_EMAIL_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
     return NextResponse.json({ ok: false, error: 'Enter your email and password.' }, { status: 400 })
   }
 
-  const human = await humanCheck(req, req.headers.get('x-turnstile'))
+  const seat = await resolveSeat(email).catch(() => null)
+  const seatKey = seat?.email ?? email
+  // Keyed on address as well as caller, so one shared office IP cannot lock
+  // everybody out, and a rotating-IP attacker still meets a per-account ceiling.
+  const key = `${clientKey(req, 'login')}:${seatKey}`
+  const limited = rateLimit(key, MAX_ATTEMPTS, WINDOW_MS)
+  if (limited) return limited
+
+  const native = { scope: 'login', email: seatKey, perIp: NATIVE_PER_IP, perAddress: MAX_ATTEMPTS, windowMs: WINDOW_MS }
+  const human = await humanCheck(req, turnstile, native)
   if (human) {
-    const seat = await resolveSeat(email).catch(() => null)
-    if (seat) await recordSignin(seat.email, { ...requestContext(req), method: 'password', outcome: 'human-check-failed' }).catch(() => {})
+    if (seat && human.status === 403) void recordSignin(seat.email, { ...requestContext(req), method: 'password', outcome: 'human-check-failed' }).catch(() => {})
     return human
   }
 
   const result = await verifyMailAuth(email, password)
   const context = requestContext(req)
   if (!result.ok) {
-    const seat = await resolveSeat(email).catch(() => null)
-    if (seat) await recordSignin(seat.email, { ...context, method: 'password', outcome: 'wrong-password' }).catch(() => {})
+    chargeNative(req, native)
+    if (seat) void recordSignin(seat.email, { ...context, method: 'password', outcome: 'wrong-password' }).catch(() => {})
     // Deliberately the same message whether the address exists or not, so the
     // response cannot be used to enumerate who has a mailbox here.
     return NextResponse.json({ ok: false, error: 'Email or password is incorrect.' }, { status: 401 })
   }
 
   clearRateLimit(key)
+  clearNativeAddress(native)
   const identity = result.email ?? email
 
   const factors = await twoFactorState(identity)
@@ -70,6 +79,6 @@ export async function POST(req: Request) {
   await recordSignin(identity, { ...context, method: 'password', outcome: 'signed-in' }).catch(() => {})
   const token = issueSession(identity, await currentFingerprint(identity))
   return attachSession(NextResponse.json({ ok: true, email: identity, session: Boolean(token),
-    ...(req.headers.get('x-mail-client') === 'vela-native' ? { token: await issueMobileSession(identity, await currentFingerprint(identity), req.headers.get('x-mail-device') ?? 'Vela Mail') } : {}),
+    ...(nativeClient(req) ? { token: await issueMobileSession(identity, await currentFingerprint(identity), req.headers.get('x-mail-device') ?? 'Vela Mail') } : {}),
   }, { headers: { 'Cache-Control': 'no-store' } }), token)
 }

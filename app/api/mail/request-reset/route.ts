@@ -2,17 +2,19 @@ import { BlockedRecipientsError } from '@/lib/blocked'
 import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { isMailAccount } from '@/lib/dev-auth'
+import { isMailAccount, resolveSeat } from '@/lib/dev-auth'
 import { createResetToken, getAccount, recordSentMeta } from '@/lib/mailbox'
 import { sendMail } from '@/lib/mail-provider'
 import { renderActionEmail } from '@/lib/emails'
 import { publicOrigin } from '@/lib/public-url'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
-import { humanCheck } from '@/lib/turnstile'
+import { signInBody } from '@/lib/signin'
+import { chargeNative, humanCheck } from '@/lib/turnstile'
 
 export const runtime = 'nodejs'
 
 const RESET_TTL_MS = 30 * 60 * 1000
+const HOUR_MS = 60 * 60 * 1000
 
 /** j••••@outlook.com — enough to recognise the inbox, not enough to learn it. */
 function mask(address: string): string {
@@ -27,24 +29,26 @@ const isOurOwn = (address: string) => ADDRESS_DOMAINS.includes(address.split('@'
 const ASK_ADMIN = 'No confirmed recovery address is set for that mailbox. Ask an administrator on your company mailbox to reset it for you.'
 
 export async function POST(req: Request) {
-  const limited = rateLimit(clientKey(req, 'request-reset'), 5, 60 * 60 * 1000)
-  if (limited) return limited
-
-  let body: { email?: string; turnstile?: string }
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
-  }
-
-  const human = await humanCheck(req, body.turnstile)
-  if (human) return human
+  const { body, refused } = await signInBody(req)
+  if (refused) return refused
+  const flood = rateLimit(clientKey(req, 'request-reset'), 20, HOUR_MS)
+  if (flood) return flood
+  if (!body) return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
 
   const email = String(body.email ?? '').trim().toLowerCase()
+  if (!email || email.length > 254) return NextResponse.json({ ok: false, error: 'Enter your email address.' }, { status: 400 })
+  const seatKey = (await resolveSeat(email).catch(() => null))?.email ?? email
+
+  const limited = rateLimit(`${clientKey(req, 'request-reset')}:${seatKey}`, 5, HOUR_MS)
+  if (limited) return limited
+
+  const native = { scope: 'request-reset', email: seatKey, perIp: 5, perAddress: 5, windowMs: HOUR_MS }
+  const human = (await humanCheck(req, body.turnstile, native)) ?? chargeNative(req, native)
+  if (human) return human
 
   // Also capped per address, so a rotating-IP caller cannot bury someone in reset mail.
-  const perAddress = rateLimit(`request-reset-address:${email}`, 5, 60 * 60 * 1000)
-  if (perAddress) return NextResponse.json({ ok: true })
+  const perAddress = rateLimit(`request-reset-address:${seatKey}`, 5, HOUR_MS)
+  if (perAddress) return perAddress
   // An unknown address gets the same answer as a known one with nowhere to send, so the
   // reply still cannot be used to learn who has a mailbox here.
   if (!(await isMailAccount(email))) {

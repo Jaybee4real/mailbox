@@ -78,6 +78,8 @@ export const hashEmailCode = (challengeId: string, code: string) =>
 
 export const newChallengeId = () => randomBytes(24).toString('base64url')
 
+export const isChallengeId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{32}$/.test(value)
+
 /** k•••@gmail.com — enough to recognise, not enough to learn the address from. */
 export function maskEmail(address: string): string {
   const [local, domain] = address.split('@')

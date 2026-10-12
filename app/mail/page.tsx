@@ -2208,12 +2208,8 @@ export default function DevMailPage() {
       try {
         const response = await fetch('/api/mail/login', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-dev-email': candidateEmail,
-            'x-dev-password': candidatePassword,
-            'x-turnstile': humanToken,
-          },
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: candidateEmail, password: candidatePassword, turnstile: humanToken }),
         })
         setHumanRound(round => round + 1)
         setHumanToken('')
@@ -6151,6 +6147,10 @@ export default function DevMailPage() {
       setHumanRound(round => round + 1)
       setHumanToken('')
       const data = await response.json().catch(() => ({}))
+      if (!response.ok || data.ok === false) {
+        setLoginError(typeof data.error === 'string' ? data.error : 'The reset link could not be sent. Try again.')
+        return
+      }
       setResetMessage(typeof data.message === 'string' ? data.message : '')
       setResetSent(true)
     } catch {

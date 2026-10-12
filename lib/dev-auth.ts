@@ -7,7 +7,7 @@ import { BRAND } from './brand'
  * whose SHA-256 hashes match DEV_ADMIN_EMAIL_HASH / DEV_ADMIN_PASSWORD_HASH.
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { getAccount, getAccountByAddress, getAccountPasswordHash, setAccountPassword, MAIL_SEATS, type MailRole } from '@/lib/mailbox'
 import { hashPassword, verifyPassword, isLegacyHash } from '@/lib/password'
@@ -113,6 +113,14 @@ export function devAuthGuard(req: Request): NextResponse | null {
   return null
 }
 
+let decoyHash: Promise<string> | null = null
+
+/** Spends the same scrypt time as a real check, so an unknown address answers no faster. */
+async function decoyPasswordCheck(password: string): Promise<void> {
+  decoyHash ??= hashPassword(randomBytes(16).toString('hex'))
+  await verifyPassword(password, await decoyHash)
+}
+
 /**
  * Auth for the mail client. Accepts, in order: localhost, the legacy single-admin
  * env hashes, and the two named mail accounts (custom password from Blob, else the
@@ -141,6 +149,7 @@ export async function verifyMailAuth(
   const account = await resolveSeat(normalized)
   const legacy = isLegacyDefaultAccount(normalized)
   if (!account && !legacy) {
+    await decoyPasswordCheck(password)
     return { ok: false, error: 'Invalid credentials' }
   }
 
@@ -161,6 +170,7 @@ export async function verifyMailAuth(
     return { ok: false, error: 'Invalid credentials' }
   }
 
+  await decoyPasswordCheck(password)
   return { ok: false, error: 'Invalid credentials' }
 }
 

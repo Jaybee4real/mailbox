@@ -1,3 +1,4 @@
+import { NextResponse } from 'next/server'
 import { BRAND } from '@/lib/brand'
 import { renderActionEmail } from '@/lib/emails'
 import { sendMail } from '@/lib/mail-provider'
@@ -5,10 +6,33 @@ import { recordSentMeta, setChallengeCode } from '@/lib/mailbox'
 import { publicOrigin } from '@/lib/public-url'
 import { hashEmailCode, newEmailCode } from '@/lib/two-factor'
 import { visitorContext } from '@/lib/client-context'
+import { NATIVE_CLIENT, nativeClient } from '@/lib/turnstile'
 
 export function requestContext(req: Request) {
   const { ip, userAgent, country, region, city, timezone } = visitorContext(req)
-  return { ip, userAgent, country, region, city, timezone }
+  return { ip, userAgent, country, region, city, timezone, client: nativeClient(req) ? NATIVE_CLIENT : null }
+}
+
+type SignInBody = { body: Record<string, unknown> | null; refused: NextResponse | null }
+
+// A cross-site form can post text/plain with no preflight, and these routes hand a session to
+// whoever's credentials arrive, so without this a page signs its visitor into its own account.
+export async function signInBody(req: Request): Promise<SignInBody> {
+  const site = req.headers.get('sec-fetch-site')
+  if (site && site !== 'same-origin' && site !== 'none') {
+    return { body: null, refused: NextResponse.json({ ok: false, error: 'Cross-site request refused.' }, { status: 403 }) }
+  }
+  const text = await req.text().catch(() => '')
+  if (!text) return { body: null, refused: null }
+  if (!/^application\/json\b/i.test(req.headers.get('content-type') ?? '')) {
+    return { body: null, refused: NextResponse.json({ ok: false, error: 'Send the request as JSON.' }, { status: 415 }) }
+  }
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return { body: parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null, refused: null }
+  } catch {
+    return { body: null, refused: null }
+  }
 }
 
 /** Sends a fresh six-digit code for a challenge; the code itself is never stored. */
