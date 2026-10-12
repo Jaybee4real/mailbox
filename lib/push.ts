@@ -39,8 +39,8 @@ export async function sendPush(owner: string, payload: PushPayload): Promise<num
   return delivered + nativeCount
 }
 
-async function sendNativePush(owner: string, payload: PushPayload): Promise<number> {
-  const devices = await mobilePushRecipients(owner)
+export async function sendNativePush(owner: string, payload: PushPayload, only?: string): Promise<number> {
+  const devices = (await mobilePushRecipients(owner)).filter(device => !only || String(device.id) === only)
   if (!devices.length) return 0
   let delivered = 0
   for (let offset = 0; offset < devices.length; offset += 10) {
@@ -48,7 +48,7 @@ async function sendNativePush(owner: string, payload: PushPayload): Promise<numb
       const result = await sendFcm(String(device.push_token), {
         title: device.previews ? payload.title : `${BRAND.name} Mail`,
         body: device.previews ? payload.body : 'You have new mail.',
-      }, { domain: BRAND.domain, email: owner, url: payload.url ?? '/mail' }).catch(() => 'failed')
+      }, { domain: BRAND.domain, email: owner, url: payload.url ?? '/mail', id: payload.tag ?? '' }).catch(() => 'failed')
       if (result === 'sent') delivered += 1
       if (result === 'unregistered') await setMobilePush(owner, String(device.id), null)
     }))
