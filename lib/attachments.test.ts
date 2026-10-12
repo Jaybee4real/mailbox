@@ -25,3 +25,10 @@ assert.equal(quoted['content-disposition'], 'inline; filename="abc.pdf"', 'quote
 assert.equal(quoted['x-content-type-options'], 'nosniff')
 
 console.log('attachments: ok')
+
+const curly = attachmentHeaders('Driver\u2019s License \u2013 SHERIFF .pdf', true)
+assert.doesNotThrow(() => new Headers(curly), 'a curly apostrophe or dash cannot make the response fail')
+assert.equal(curly['content-disposition'], "inline; filename=\"Driver's License - SHERIFF .pdf\"; filename*=UTF-8''Driver%E2%80%99s%20License%20%E2%80%93%20SHERIFF%20.pdf")
+assert.doesNotThrow(() => new Headers(attachmentHeaders('\u0639\u0642\u062f \ud83d\ude97.pdf', false)), 'any script or emoji is safe')
+assert.equal(attachmentHeaders('plain.pdf', false)['content-disposition'], 'attachment; filename="plain.pdf"', 'a plain name stays plain')
+console.log('attachments: header filenames are always valid')

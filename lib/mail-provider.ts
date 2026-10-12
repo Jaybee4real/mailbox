@@ -10,6 +10,7 @@
 import { randomBytes } from 'node:crypto'
 import { sesConfigured, sesSendRaw } from './ses-send'
 import { BlockedRecipientsError, blockedAmong } from './blocked'
+import { filenameParams } from './attachments'
 import { providerBase } from './provider-base'
 
 export type MailProvider = 'resend' | 'brevo' | 'ses'
@@ -149,12 +150,6 @@ const CONTENT_TYPES: Record<string, string> = {
 
 const wrap76 = (base64: string) => base64.replace(/.{1,76}/g, line => `${line}\r\n`)
 
-/** A filename a client can show whatever its script: ASCII for the old ones, RFC 2231 for the rest. */
-function filenameParams(name: string): string {
-  const ascii = name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_')
-  if (ascii === name) return `filename="${name}"`
-  return `filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`
-}
 
 function attachmentPart(file: SendAttachment): string[] {
   const extension = file.filename.split('.').pop()?.toLowerCase() ?? ''

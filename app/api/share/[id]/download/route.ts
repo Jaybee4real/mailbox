@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { signedInAs } from '@/lib/dev-auth'
 import { getShare } from '@/lib/mailbox'
+import { filenameParams } from '@/lib/attachments'
 import { getObject, objectExists } from '@/lib/r2'
 import { viewableType } from '@/lib/share-policy'
 import { shareTicketMode } from '@/lib/share-ticket'
@@ -37,8 +38,7 @@ async function resolve(req: Request, id: string, ticket: string | null) {
 }
 
 function disposition(filename: string, inline: boolean): string {
-  const plain = filename.replace(/["\\]/g, '')
-  return `${inline ? 'inline' : 'attachment'}; filename="${plain}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+  return `${inline ? 'inline' : 'attachment'}; ${filenameParams(filename)}`
 }
 
 /** Lets the page check the file is reachable before it sends the reader away from it. */

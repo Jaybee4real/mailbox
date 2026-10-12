@@ -85,12 +85,26 @@ const INLINE_TYPES: Record<string, string> = {
  * The sender chose the stored type, so it is never echoed back: served from this origin,
  * `text/html` or `image/svg+xml` would run the sender's script as the reader.
  */
+/**
+ * A filename for a header. Headers carry Latin-1 at most, and one curly apostrophe made the
+ * whole response fail, so the plain name is ASCII and the real one rides in `filename*`.
+ */
+export function filenameParams(name: string): string {
+  const plain = name.replace(/["\\]/g, '')
+  const ascii = plain
+    .replace(/[\u2018\u2019\u201B\u2032]/g, "'")
+    .replace(/[\u2013\u2014\u2212]/g, '-')
+    .replace(/[^\x20-\x7E]/g, '_')
+  if (ascii === plain) return `filename="${plain}"`
+  return `filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name).replace(/['()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)}`
+}
+
 export function attachmentHeaders(filename: string, inline: boolean): Record<string, string> {
   const extension = filename.includes('.') ? filename.split('.').pop()!.toLowerCase() : ''
   const safeType = INLINE_TYPES[extension]
   return {
     'content-type': safeType ?? 'application/octet-stream',
-    'content-disposition': `${inline && safeType ? 'inline' : 'attachment'}; filename="${filename.replace(/["\\]/g, '')}"`,
+    'content-disposition': `${inline && safeType ? 'inline' : 'attachment'}; ${filenameParams(filename)}`,
     'x-content-type-options': 'nosniff',
   }
 }
