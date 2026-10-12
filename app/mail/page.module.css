@@ -5974,6 +5974,11 @@
   word-break: break-word;
 }
 
+.bodyFiles {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .bodyFileImage {
   display: block;
   max-width: 100%;

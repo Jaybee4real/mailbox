@@ -6704,38 +6704,41 @@ export default function DevMailPage() {
   }
 
 /**
-   * A message whose whole content is its attachment — a scan, a statement, a DMARC report —
-   * used to read as "(no content)". Show the file itself where the body would have been,
+   * A message whose whole content is its attachments — scans, photos, a statement, a DMARC
+   * report — used to read as "(no content)". Show every file where the body would have been,
    * for the types a browser can actually render; the rest get named rather than hidden.
    */
   const renderBodylessAttachment = (list: DownloadAttachment[]) => {
-    const file = list.find(entry => entry.downloadUrl && !entry.shareId)
-    if (!file) return null
-    const kind = attachmentKind(file.filename, file.contentType)
-    const source = inlineUrl(file.downloadUrl)
-
-    if (kind === 'image') {
-      return (
+    const files = list.filter(entry => entry.downloadUrl && !entry.shareId)
+    if (!files.length) return null
+    const renderFile = (file: DownloadAttachment) => {
+      const kind = attachmentKind(file.filename, file.contentType)
+      const source = inlineUrl(file.downloadUrl)
+      if (kind === 'image') {
         // eslint-disable-next-line @next/next/no-img-element
-        <img className={styles.bodyFileImage} src={source} alt={file.filename} />
+        return <img className={styles.bodyFileImage} src={source} alt={file.filename} loading="lazy" />
+      }
+      if (kind === 'pdf') return <iframe className={styles.bodyFileFrame} src={source} title={file.filename} />
+      if (kind === 'video') return <video className={styles.bodyFileImage} src={source} controls preload="metadata" />
+      if (kind === 'audio') return <audio className={styles.bodyFileAudio} src={source} controls preload="metadata" />
+      // Office documents and archives have no native viewer; naming the file and offering it
+      // beats a blank panel, and beats pretending a preview exists.
+      return (
+        <a className={styles.bodyFileCard} href={file.downloadUrl} target="_blank" rel="noopener noreferrer">
+          <span className={styles.bodyFileGlyph}>{ICONS.file}</span>
+          <span>
+            <strong>{file.filename}</strong>
+            <small>{formatSize(file.size)} · opens in a new tab</small>
+          </span>
+        </a>
       )
     }
-    if (kind === 'pdf') {
-      return <iframe className={styles.bodyFileFrame} src={source} title={file.filename} />
-    }
-    if (kind === 'video') return <video className={styles.bodyFileImage} src={source} controls preload="metadata" />
-    if (kind === 'audio') return <audio className={styles.bodyFileAudio} src={source} controls preload="metadata" />
-
-    // Office documents and archives have no native viewer; naming the file and offering it
-    // beats a blank panel, and beats pretending a preview exists.
     return (
-      <a className={styles.bodyFileCard} href={file.downloadUrl} target="_blank" rel="noopener noreferrer">
-        <span className={styles.bodyFileGlyph}>{ICONS.file}</span>
-        <span>
-          <strong>{file.filename}</strong>
-          <small>{formatSize(file.size)} · opens in a new tab</small>
-        </span>
-      </a>
+      <div className={styles.bodyFiles}>
+        {files.map((file, index) => (
+          <Fragment key={`${file.downloadUrl}-${index}`}>{renderFile(file)}</Fragment>
+        ))}
+      </div>
     )
   }
 
