@@ -1580,20 +1580,26 @@ export type InboundAttachmentRow = {
   from: string
   receivedAt: string
   attachments: Array<Record<string, unknown>>
+  /** Only where a part has a Content-ID: what tells an inline image from an attachment. */
+  html: string | null
 }
 
 /** Every message that holds a stored attachment copy, newest first. */
 export async function listInboundWithAttachments(owner: string | null): Promise<InboundAttachmentRow[]> {
   await ensureMailSchema()
   const sql = db()
+  // Files live under `key` in our bucket now; `url` is only on the oldest rows. The body is
+  // read only where a part has a Content-ID, so inline images can be told from attachments.
   const rows = owner
     ? await sql`
-        SELECT id, subject, from_addr, received_at, attachments FROM mail_inbox
-        WHERE lower(owner) = ${owner.toLowerCase()} AND attachments LIKE '%"url"%' AND trashed = 0
+        SELECT id, subject, from_addr, received_at, attachments,
+          CASE WHEN attachments LIKE '%"contentId"%' THEN html END AS html FROM mail_inbox
+        WHERE lower(owner) = ${owner.toLowerCase()} AND (attachments LIKE '%"key"%' OR attachments LIKE '%"url"%') AND trashed = 0
         ORDER BY received_at DESC LIMIT 500`
     : await sql`
-        SELECT id, subject, from_addr, received_at, attachments FROM mail_inbox
-        WHERE attachments LIKE '%"url"%' AND trashed = 0
+        SELECT id, subject, from_addr, received_at, attachments,
+          CASE WHEN attachments LIKE '%"contentId"%' THEN html END AS html FROM mail_inbox
+        WHERE (attachments LIKE '%"key"%' OR attachments LIKE '%"url"%') AND trashed = 0
         ORDER BY received_at DESC LIMIT 500`
   return rows.map(row => {
     const parsed = parseJson<unknown>(row.attachments, [])
@@ -1603,6 +1609,7 @@ export async function listInboundWithAttachments(owner: string | null): Promise<
       from: String(row.from_addr ?? ''),
       receivedAt: String(row.received_at ?? ''),
       attachments: Array.isArray(parsed) ? (parsed as Array<Record<string, unknown>>) : [],
+      html: row.html == null ? null : String(row.html),
     }
   })
 }
@@ -2624,11 +2631,13 @@ export async function claimShare(id: string, mode: 'view' | 'download'): Promise
   return rows.length > 0
 }
 
-export async function listShares(owner: string): Promise<ShareRecord[]> {
+/** One person's links, or every link when `owner` is null. */
+export async function listShares(owner: string | null): Promise<ShareRecord[]> {
   await ensureMailSchema()
   const sql = db()
-  const rows = await sql`
-    SELECT * FROM mail_shares WHERE owner = ${owner.toLowerCase()} ORDER BY created_at DESC LIMIT 100`
+  const rows = owner
+    ? await sql`SELECT * FROM mail_shares WHERE owner = ${owner.toLowerCase()} ORDER BY created_at DESC LIMIT 100`
+    : await sql`SELECT * FROM mail_shares ORDER BY created_at DESC LIMIT 200`
   return rows.map(mapShare)
 }
 

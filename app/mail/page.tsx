@@ -5902,7 +5902,7 @@ export default function DevMailPage() {
   const loadShares = useCallback(async () => {
     setSharesLoading(true)
     try {
-      const response = await fetch('/api/mail/share', { headers: apiHeaders() })
+      const response = await fetch(`/api/mail/share${mailboxQuery}`, { headers: apiHeaders() })
       const data = await response.json()
       if (data.ok) setShares(data.shares)
     } catch {
@@ -5910,13 +5910,13 @@ export default function DevMailPage() {
     } finally {
       setSharesLoading(false)
     }
-  }, [apiHeaders])
+  }, [apiHeaders, mailboxQuery])
 
   const [libraryInbox, setLibraryInbox] = useState<LibraryFile[]>([])
   const loadLibrary = useCallback(async () => {
     setLibraryLoading(true)
     try {
-      const response = await fetch('/api/mail/attachments', { headers: apiHeaders() })
+      const response = await fetch(`/api/mail/attachments${mailboxQuery}`, { headers: apiHeaders() })
       const data = await response.json()
       if (data.ok) setLibraryInbox(data.files)
     } catch {
@@ -5924,7 +5924,7 @@ export default function DevMailPage() {
     } finally {
       setLibraryLoading(false)
     }
-  }, [apiHeaders])
+  }, [apiHeaders, mailboxQuery])
 
   useEffect(() => {
     if (!filesOpen) {

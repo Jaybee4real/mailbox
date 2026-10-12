@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
-import { createShare, getShare, listShares, revokeShare, setSharePassword, updateShareSettings } from '@/lib/mailbox'
+import { createShare, getShare, listAccounts, listShares, revokeShare, setSharePassword, updateShareSettings } from '@/lib/mailbox'
+import { readsAllInboxes, scopeFor } from '@/lib/scope'
 import { hashPassword } from '@/lib/password'
 import { parseShareSettings } from '@/lib/share-policy'
 import { deleteObject, presign } from '@/lib/r2'
@@ -23,7 +24,17 @@ export async function GET(req: Request) {
   if (guard) return guard
   const account = await resolveAccount(req)
   if (!account.email) return NextResponse.json({ ok: false, error: 'Not signed in.' }, { status: 401 })
-  return NextResponse.json({ ok: true, shares: await listShares(account.email) })
+  if (!readsAllInboxes(account)) return NextResponse.json({ ok: true, shares: await listShares(account.email) })
+  // Links are owned by the login that made them; the mailbox picker names an address.
+  const mailbox = scopeFor(account, new URL(req.url).searchParams.get('mailbox'))
+  const login = mailbox ? (await listAccounts()).find(entry => entry.address?.toLowerCase() === mailbox)?.email ?? mailbox : null
+  return NextResponse.json({ ok: true, shares: await listShares(login) })
+}
+
+/** Whose link this is to act on: the account that opens every inbox may manage anyone's. */
+async function actingOwner(account: { email: string | null; role?: string; address?: string | null }, id: string): Promise<string> {
+  if (!readsAllInboxes(account as Parameters<typeof readsAllInboxes>[0])) return account.email ?? ''
+  return (await getShare(id))?.owner || account.email || ''
 }
 
 /**
@@ -106,14 +117,14 @@ export async function PATCH(req: Request) {
     if (!share) return NextResponse.json({ ok: false, error: 'That link is not here.' }, { status: 404 })
     const parsed = parseShareSettings(body.settings, share.filename)
     if (!parsed.settings) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 })
-    if (!(await updateShareSettings(id, account.email, parsed.settings))) {
+    if (!(await updateShareSettings(id, await actingOwner(account, id), parsed.settings))) {
       return NextResponse.json({ ok: false, error: 'That link is not here.' }, { status: 404 })
     }
   }
   if (body.password === undefined) return NextResponse.json({ ok: true })
 
   const password = String(body.password ?? '').trim()
-  const updated = await setSharePassword(id, account.email, password ? await hashPassword(password) : null)
+  const updated = await setSharePassword(id, await actingOwner(account, id), password ? await hashPassword(password) : null)
   return NextResponse.json({ ok: updated }, { status: updated ? 200 : 404 })
 }
 
@@ -128,7 +139,7 @@ export async function DELETE(req: Request) {
   // Flag first so the link dies even if storage is unreachable; then drop the bytes,
   // because a revoked file that still sits in the bucket is not revoked.
   const share = await getShare(id)
-  const revoked = await revokeShare(id, account.email)
+  const revoked = await revokeShare(id, await actingOwner(account, id))
   if (revoked && share?.objectKey) await deleteObject(share.objectKey).catch(() => false)
   return NextResponse.json({ ok: revoked }, { status: revoked ? 200 : 404 })
 }
