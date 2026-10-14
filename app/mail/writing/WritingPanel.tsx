@@ -117,7 +117,7 @@ export default function WritingPanel({
             )}
             <Toggle
               label="Check grammar"
-              hint={grammarAvailable ? 'Checked on this company’s own server' : 'Not set up on this mailbox yet'}
+              hint={grammarAvailable ? 'Checked on this workspace’s own server' : 'Not set up on this workspace yet'}
               checked={settings.grammar && grammarAvailable}
               onChange={value => set('grammar', value)}
             />
@@ -213,8 +213,8 @@ export default function WritingPanel({
                 </span>
               ))}
             </div>
-            <span className={styles.wpLabel}>Company words</span>
-            <span className={styles.wpHint}>{isAdmin ? 'Everyone in the company gets these' : 'Kept by an administrator'}</span>
+            <span className={styles.wpLabel}>Workspace words</span>
+            <span className={styles.wpHint}>{isAdmin ? 'Everyone in this workspace gets these' : 'Kept by an administrator'}</span>
             <div className={styles.wpChips}>
               {companyWords.length === 0 && <span className={styles.wpHint}>None yet</span>}
               {companyWords.map(word => (

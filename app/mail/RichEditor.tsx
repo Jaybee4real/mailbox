@@ -542,7 +542,7 @@ function ImageView({ node, updateAttributes, selected, editor }: NodeViewProps) 
                 }}
               />
               <Btn
-                title="Use the company website"
+                title="Use the workspace website"
                 onClick={() => {
                   setHref(CLIENT_BRAND.websiteUrl)
                   updateAttributes({ href: CLIENT_BRAND.websiteUrl })
@@ -1419,7 +1419,7 @@ export default function RichEditor({
                         setSuggestion(null)
                       }}
                     >
-                      Add for the company
+                      Add for the workspace
                     </button>
                   )}
                 </div>

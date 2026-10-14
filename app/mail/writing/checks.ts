@@ -51,7 +51,7 @@ export function sendIssues(input: SendCheckInput, settings: WritingSettings): Se
     const own = new Set(input.ownDomains.map(domain => domain.toLowerCase()))
     const outside = input.recipients.filter(recipient => !own.has(domainOf(recipient.email)))
     if (outside.length >= settings.externalThreshold) {
-      issues.push({ kind: 'external', message: `It goes to ${outside.length} people outside the company.` })
+      issues.push({ kind: 'external', message: `It goes to ${outside.length} people outside the workspace.` })
     }
   }
   return issues

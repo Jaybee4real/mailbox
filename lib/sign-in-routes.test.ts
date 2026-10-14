@@ -250,7 +250,7 @@ test('request-reset gives a message to show, flags needsAdmin, and does not tell
   assert.deepEqual(knownBody, {
     ok: true,
     needsAdmin: true,
-    message: 'No confirmed recovery address is set for that mailbox. Ask an administrator on your company mailbox to reset it for you.',
+    message: 'No confirmed recovery address is set for that mailbox. Ask an administrator of your workspace to reset it for you.',
   })
   assert.deepEqual(await unknown.json(), knownBody)
 

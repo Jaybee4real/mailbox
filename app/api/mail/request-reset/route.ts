@@ -26,7 +26,7 @@ function mask(address: string): string {
 /** Nothing can be mailed to an address this deployment itself hosts and has locked. */
 const isOurOwn = (address: string) => ADDRESS_DOMAINS.includes(address.split('@')[1] ?? '')
 
-const ASK_ADMIN = 'No confirmed recovery address is set for that mailbox. Ask an administrator on your company mailbox to reset it for you.'
+const ASK_ADMIN = 'No confirmed recovery address is set for that mailbox. Ask an administrator of your workspace to reset it for you.'
 
 export async function POST(req: Request) {
   const { body, refused } = await signInBody(req)

@@ -473,7 +473,7 @@ type LibraryFile = {
 }
 
 const SETTINGS_TABS: Array<{ key: SettingsTab; label: string; hint: string; adminOnly?: boolean }> = [
-  { key: 'profile', label: 'Account', hint: 'Your address, name and number' },
+  { key: 'profile', label: 'Mailbox', hint: 'Your address, name and number' },
   { key: 'security', label: 'Security', hint: 'Password, two-step sign-in and sign-ins' },
   { key: 'signature', label: 'Signature', hint: 'What goes at the end of your mail' },
   { key: 'mail', label: 'Writing & reading', hint: 'Fonts, replies and images' },
@@ -3334,13 +3334,13 @@ export default function DevMailPage() {
     fetchStash('template', headers).then(items =>
       setTemplates(items.map(item => ({ ...(item.data as MailTemplate), id: item.id })).filter(template => typeof template.html === 'string')),
     )
-    fetch('/api/mail/company-dictionary', { headers })
+    fetch('/api/mail/workspace-dictionary', { headers })
       .then(response => response.json())
       .then(data => {
         if (data.ok && Array.isArray(data.words)) setCompanyWords(data.words)
       })
       .catch(() => {})
-    fetch('/api/mail/company-signature', { headers })
+    fetch('/api/mail/workspace-signature', { headers })
       .then(response => response.json())
       .then(data => {
         if (data.ok && typeof data.signature === 'string') setCompanySignature(data.signature)
@@ -4443,7 +4443,7 @@ export default function DevMailPage() {
   const saveCompanyWords = useCallback(
     (words: string[]) => {
       setCompanyWords(words)
-      fetch('/api/mail/company-dictionary', { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ words }) }).catch(() => {})
+      fetch('/api/mail/workspace-dictionary', { method: 'PUT', headers: apiHeaders(), body: JSON.stringify({ words }) }).catch(() => {})
     },
     [apiHeaders],
   )
@@ -4466,9 +4466,9 @@ export default function DevMailPage() {
 
   const resetSignature = useCallback(async () => {
     const agreed = await confirm({
-      title: 'Use the company signature?',
-      body: <>Your own wording is replaced by the signature the firm maintains, which then follows any change to its details.</>,
-      confirmLabel: 'Use the company one',
+      title: 'Use the workspace signature?',
+      body: <>Your own wording is replaced by the workspace signature, which then follows any change to its details.</>,
+      confirmLabel: 'Use the workspace one',
       danger: true,
     })
     if (!agreed) return
@@ -4478,7 +4478,7 @@ export default function DevMailPage() {
   const closeSettings = useCallback(() => {
     saveSettings(settings)
     if (companySignatureEdited) {
-      void fetch('/api/mail/company-signature', {
+      void fetch('/api/mail/workspace-signature', {
         method: 'PUT',
         headers: apiHeaders(),
         body: JSON.stringify({ signature: companySignature, logo: companyLogo }),
@@ -9559,7 +9559,7 @@ export default function DevMailPage() {
               {SETTINGS_TABS.find(tab => tab.key === settingsTab)?.label}
               {settingsTab === 'signature' && isAdmin && (
                 <>
-                  {' '}<span aria-hidden>›</span> {signatureTab === 'company' ? 'Company' : 'Personal'}
+                  {' '}<span aria-hidden>›</span> {signatureTab === 'company' ? 'Workspace' : 'Personal'}
                 </>
               )}
             </p>
@@ -9849,7 +9849,7 @@ export default function DevMailPage() {
             <div className={`${styles.settingsField} ${styles.securitySection}`}>
               <span>Alternate email</span>
               <p className={styles.settingsProse}>
-                Where password resets and sign-in codes are sent. It has to be an address outside this mailbox, and it
+                Where password resets and sign-in codes are sent. It has to be an address outside this workspace, and it
                 only counts once you confirm it. Without it, a locked account has to be reset by an administrator.
               </p>
               <div className={styles.pwWrap}>
@@ -10097,7 +10097,7 @@ export default function DevMailPage() {
             {settingsTab === 'signature' && (<>
             {isAdmin && (
               <div className={styles.sigTabRow} role="tablist" aria-label="Whose signature">
-                {([['personal', 'Personal'], ['company', 'Company']] as Array<['personal' | 'company', string]>).map(([key, label]) => (
+                {([['personal', 'Personal'], ['company', 'Workspace']] as Array<['personal' | 'company', string]>).map(([key, label]) => (
                   <button
                     key={key}
                     type="button"
@@ -10116,11 +10116,11 @@ export default function DevMailPage() {
               <span>Signature</span>
               <div className={styles.sigState}>
                 <span className={styles.sigStateText}>
-                  {ownSignature ? 'Your own signature' : 'The company signature, until you change it'}
+                  {ownSignature ? 'Your own signature' : 'The workspace signature, until you change it'}
                 </span>
                 {ownSignature && (
                   <button type="button" className={styles.sigReset} onClick={resetSignature}>
-                    Use the company signature
+                    Use the workspace signature
                   </button>
                 )}
               </div>
@@ -10228,7 +10228,7 @@ export default function DevMailPage() {
                     <span className={styles.sigLogoLabel}>Logo above the signature</span>
                     {companyLogo && (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img className={styles.sigLogoThumb} src={companyLogo} alt="Company signature logo" />
+                      <img className={styles.sigLogoThumb} src={companyLogo} alt="Workspace signature logo" />
                     )}
                     <label className={styles.sigLogoPick}>
                       {logoBusy ? 'Uploading…' : companyLogo ? 'Replace' : 'Upload image'}
@@ -10823,7 +10823,7 @@ export default function DevMailPage() {
             {shareDraft ? (
               <div className={styles.shareForm}>
                 <div className={styles.settingsField}>
-                  <span>Share outside the company</span>
+                  <span>Share outside the workspace</span>
                   <p className={styles.settingsNote}>{shareDraft.filename} · {formatSize(shareDraft.size)}</p>
                 </div>
                 {shareResult ? (

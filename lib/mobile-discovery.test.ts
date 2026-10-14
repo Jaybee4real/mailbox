@@ -26,6 +26,10 @@ test('mobile discovery uses tenant server branding and includes alternate addres
   assert.deepEqual(new Set(identity.domains), new Set([
     'workspace.test', 'contact.workspace.test', 'support.workspace.test', 'public.workspace.test',
   ]))
+  assert.deepEqual(identity.workspace, {
+    name: identity.name, domain: identity.domain, domains: identity.domains,
+    baseUrl: identity.baseUrl, accent: identity.accent, logo: identity.logo,
+  })
   assert.ok(identity.capabilities.includes('bearer-session'))
   assert.equal(identity.seats, undefined)
   assert.equal(identity.addresses, undefined)
