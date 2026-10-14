@@ -23,7 +23,7 @@ test('a PIN verifies only with the same digits and the same server secret', asyn
 test('five wrong PINs lock the account until a sign-in clears it', async () => {
   const { createAccount, pinState, savePin, recordPinAttempt, clearPinLock } = await import('./mailbox.ts')
   const { hashPin } = await import('./pin.ts')
-  await createAccount({ email: 'pin@example.com', password: 'a-long-password-1', role: 'member', address: 'pin@example.com' })
+  await createAccount({ email: 'pin@example.com', role: 'member', address: 'pin@example.com' })
   await savePin('pin@example.com', hashPin('123456'))
   assert.deepEqual((await pinState('pin@example.com')).set, true)
   for (let attempt = 1; attempt <= 4; attempt++) {
