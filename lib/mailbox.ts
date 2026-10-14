@@ -15,7 +15,7 @@ import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
 import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
 import { inboxFiltersSql, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters'
-import { judgeMessage, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
+import { impersonationReasons, judgeMessage, raiseRisk, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
 import type { ShareAccess, ShareSettings } from './share-policy'
 import { providerBase } from './provider-base'
 
@@ -775,9 +775,9 @@ export async function searchInbox(options: {
     total = Number((counted[0]?.n as number) ?? 0)
   }
 
-  const mapped = rows.map(row => ({
+  const mapped = await withSenderWarnings(rows.map(row => ({
     ...mapInbound({ ...row, body_text: stripCidPlaceholders(String(row.snippet ?? '')), html: null }),
-  }))
+  })))
   const last = rows[rows.length - 1]
   const nextCursor =
     rows.length === limit && last
@@ -940,7 +940,55 @@ export async function readInbox(filter?: { owner?: string }): Promise<InboundEma
     : await sql`
         SELECT id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, headers, received_at, read, attachments, starred, archived, trashed, labels, owner, thread_id, addressed, risk, risk_reasons, spam
         FROM mail_inbox ORDER BY received_at DESC LIMIT ${MAX_INBOX}`
-  return rows.map(mapInbound)
+  return withSenderWarnings(rows.map(mapInbound))
+}
+
+const trustKey = (owner: string | null, domain: string) => `${(owner ?? '').toLowerCase()}\u0000${domain.toLowerCase()}`
+
+async function trustedSenders(pairs: Array<{ owner: string | null; domain: string }>): Promise<Set<string>> {
+  const domains = [...new Set(pairs.map(pair => pair.domain.toLowerCase()).filter(Boolean))]
+  if (!domains.length) return new Set()
+  const rows = await tagged(db(),
+    `SELECT owner, domain FROM mail_sender_reputation WHERE trusted = 1 AND marked_spam = 0 AND domain IN (${domains.map(() => '?').join(', ')})`,
+    domains)
+  const trusted = new Set<string>()
+  for (const row of rows) {
+    trusted.add(trustKey(String(row.owner), String(row.domain)))
+    trusted.add(trustKey(null, String(row.domain)))
+  }
+  return trusted
+}
+
+function memoizedWarnings(): (from: string, replyTo?: string[]) => string[] {
+  const cache = new Map<string, string[]>()
+  return (from, replyTo = []) => {
+    const key = `${from}\u0000${replyTo.join('\u0000')}`
+    let warnings = cache.get(key)
+    if (!warnings) {
+      warnings = impersonationReasons({ from, replyTo })
+      cache.set(key, warnings)
+    }
+    return warnings
+  }
+}
+
+async function withSenderWarnings(rows: InboundEmail[]): Promise<InboundEmail[]> {
+  const warningsFor = memoizedWarnings()
+  const pending = rows.flatMap(row => {
+    if (row.risk === 'virus') return []
+    const warnings = warningsFor(row.from, row.replyTo)
+    return warnings.some(warning => !(row.riskReasons ?? []).includes(warning)) ? [{ row, warnings }] : []
+  })
+  if (!pending.length) return rows
+  const trusted = await trustedSenders(pending.map(({ row }) => ({ owner: row.owner, domain: senderDomainOf(row.from) })))
+    .catch(() => new Set<string>())
+  for (const { row, warnings } of pending) {
+    if (trusted.has(trustKey(row.owner, senderDomainOf(row.from)))) continue
+    const raised = raiseRisk(row.risk ?? 'clean', row.riskReasons ?? [], warnings)
+    row.risk = raised.risk
+    row.riskReasons = raised.reasons
+  }
+  return rows
 }
 
 
@@ -1165,6 +1213,16 @@ export async function listThreads(
     addressed: (['direct', 'copied', 'other'].includes(String(row.addressed)) ? String(row.addressed) : 'direct') as Addressed,
     risk: (['clean', 'suspicious', 'spam', 'virus'].includes(String(row.risk)) ? String(row.risk) : 'clean') as Risk,
   }))
+  const warningsFor = memoizedWarnings()
+  const flagged = mapped.flatMap(thread =>
+    thread.risk === 'clean' ? thread.senders.filter(sender => warningsFor(sender).length).map(sender => ({ thread, sender })) : [])
+  if (flagged.length) {
+    const trusted = await trustedSenders(flagged.map(({ sender }) => ({ owner, domain: senderDomainOf(sender) })))
+      .catch(() => new Set<string>())
+    for (const { thread, sender } of flagged) {
+      if (!trusted.has(trustKey(owner, senderDomainOf(sender)))) thread.risk = 'suspicious'
+    }
+  }
   return { rows: mapped, nextCursor }
 }
 

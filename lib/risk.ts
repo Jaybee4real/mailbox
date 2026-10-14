@@ -1,4 +1,6 @@
 import { ADDRESS_DOMAINS } from './brand.ts'
+import { CLIENT_BRAND } from './brand.client.ts'
+import { mixedScriptWord, similarity, skeleton, unicodeHost } from './lookalike.ts'
 
 export type SenderStanding = {
   received: number
@@ -80,12 +82,14 @@ const domainOf = (address: string): string => {
   return bare.split('@').pop() ?? ''
 }
 
+const suffixLength = (parts: string[]): number =>
+  parts.length > 2 && /^(co|com|org|net|gov|ac|edu|ltd|plc)\.[a-z]{2}$/.test(parts.slice(-2).join('.')) ? 2 : 1
+
 /** example.co.uk and example.com both reduce to the name somebody actually registered. */
 const registrable = (host: string): string => {
   const parts = host.split('.').filter(Boolean)
   if (parts.length <= 2) return parts.join('.')
-  const twoLevel = /^(co|com|org|net|gov|ac|edu|ltd|plc)\.[a-z]{2}$/.test(parts.slice(-2).join('.'))
-  return parts.slice(twoLevel ? -3 : -2).join('.')
+  return parts.slice(-(suffixLength(parts) + 1)).join('.')
 }
 
 const failed = (verdict: string | null | undefined): boolean =>
@@ -128,6 +132,12 @@ export type RiskJudgement = { risk: Risk; reasons: string[]; score: number; quar
  * every one of their lists can be changed per deployment without a release.
  */
 export function judgeMessage(signals: RiskSignals, standing: SenderStanding): RiskJudgement {
+  const judgement = judgeStanding(signals, standing)
+  if (judgement.risk === 'virus' || (standing.trusted && standing.markedSpam === 0)) return judgement
+  return { ...judgement, ...raiseRisk(judgement.risk, judgement.reasons, impersonationReasons(signals)) }
+}
+
+function judgeStanding(signals: RiskSignals, standing: SenderStanding): RiskJudgement {
   const reasons: string[] = []
   let score = 0
   // A finding is "telling" when it is hard to trip by accident. Failing an authentication
@@ -215,4 +225,105 @@ export function judgeMessage(signals: RiskSignals, standing: SenderStanding): Ri
 
   const quarantine = score >= limit && telling > 0
   return { risk: quarantine ? 'spam' : 'suspicious', reasons, score, quarantine }
+}
+
+const COMMON_DOMAINS = [
+  'google.com', 'youtube.com', 'microsoft.com', 'office.com', 'office365.com', 'microsoftonline.com',
+  'apple.com', 'amazon.com', 'amazonaws.com', 'aws.com', 'facebook.com', 'facebookmail.com', 'meta.com',
+  'instagram.com', 'whatsapp.com', 'linkedin.com', 'twitter.com', 'x.com', 'github.com', 'gitlab.com',
+  'paypal.com', 'stripe.com', 'paystack.com', 'flutterwave.com', 'slack.com', 'zoom.us', 'dropbox.com',
+  'docusign.net', 'docusign.com', 'notion.so', 'figma.com', 'atlassian.net', 'atlassian.com', 'cloudflare.com',
+  'vercel.com', 'expo.dev', 'firebase.com', 'shopify.com', 'canva.com', 'adobe.com', 'calendly.com',
+  'hubspot.com', 'intuit.com', 'quickbooks.com', 'xero.com', 'zendesk.com', 'freshdesk.com', 'trello.com',
+]
+
+const lookalikeExempt = () => new Set([
+  ...FREE_MAIL_DEFAULT, ...SHARED_PROVIDERS, ...BULK_SENDERS_DEFAULT, ...COMMON_DOMAINS,
+  ...listFrom(process.env.MAIL_LOOKALIKE_ALLOWED, []),
+])
+
+export const workspaceDomains = (): string[] => [...new Set([...ADDRESS_DOMAINS, ...CLIENT_BRAND.addressDomains])]
+
+const LOOKALIKE_SIMILARITY = 0.7
+const LOOKALIKE_PHRASE = ' looks like your own '
+
+export const isLookalikeReason = (reason: string): boolean => reason.includes(LOOKALIKE_PHRASE)
+
+const nameOf = (root: string): string => {
+  const parts = root.split('.')
+  return parts.slice(0, parts.length - suffixLength(parts)).join('.')
+}
+
+const withoutSharedEnding = (left: string[], right: string[]): [string, string] => {
+  let shared = 0
+  while (shared < left.length - 1 && shared < right.length - 1 && left[left.length - 1 - shared] === right[right.length - 1 - shared]) shared += 1
+  return [left.slice(0, left.length - shared).join('.'), right.slice(0, right.length - shared).join('.')]
+}
+
+const ownRoots = (ownDomains: string[]): string[] =>
+  [...new Set(ownDomains.map(domain => registrable(unicodeHost(domain.trim().toLowerCase()))).filter(root => root.includes('.')))]
+
+export function lookalikeOf(host: string, ownDomains: string[] = workspaceDomains()): string | null {
+  const readable = unicodeHost(host.trim().toLowerCase())
+  const senderRoot = registrable(readable)
+  if (!senderRoot.includes('.')) return null
+  const owned = ownRoots(ownDomains)
+  if (owned.includes(senderRoot) || lookalikeExempt().has(senderRoot)) return null
+  const senderLabels = readable.split('.').filter(Boolean)
+  const senderName = skeleton(nameOf(senderRoot))
+  const subdomainLabels = senderLabels.slice(0, senderLabels.length - senderRoot.split('.').length)
+  for (const own of owned) {
+    const ownName = skeleton(nameOf(own))
+    const [senderRest, ownRest] = withoutSharedEnding(senderLabels, own.split('.'))
+    const scores = [
+      similarity(senderName, ownName),
+      similarity(skeleton(senderRest), skeleton(ownRest)),
+      ...subdomainLabels.map(label => similarity(skeleton(label), ownName)),
+    ]
+    if (Math.max(...scores) >= LOOKALIKE_SIMILARITY) return own
+  }
+  return null
+}
+
+const displayNameOf = (address: string): string => {
+  const angled = address.match(/^(.*?)<[^>]*>/)
+  return (angled ? angled[1] : '').trim().replace(/^"(.*)"$/, '$1')
+}
+
+export function impersonationReasons(
+  signals: Pick<RiskSignals, 'from' | 'replyTo'>,
+  ownDomains: string[] = workspaceDomains(),
+): string[] {
+  const from = signals.from ?? ''
+  const fromHost = domainOf(from)
+  if (fromHost && ownRoots(ownDomains).includes(registrable(unicodeHost(fromHost)))) return []
+  const reasons: string[] = []
+  const hosts = [
+    { host: fromHost, lookalikeRole: 'sender\u2019s domain', scriptRole: 'sender\u2019s address' },
+    ...(signals.replyTo ?? []).map(entry => ({ host: domainOf(entry), lookalikeRole: 'reply-to domain', scriptRole: 'reply-to address' })),
+  ]
+  const checked = new Set<string>()
+  for (const { host, lookalikeRole, scriptRole } of hosts) {
+    if (!host || checked.has(host)) continue
+    checked.add(host)
+    const readable = unicodeHost(host)
+    const imitated = lookalikeOf(host, ownDomains)
+    if (imitated) reasons.push(`The ${lookalikeRole} ${readable}${LOOKALIKE_PHRASE}${imitated}`)
+    const mixed = mixedScriptWord(readable)
+    if (mixed) {
+      const written = readable === host ? readable : `${readable}, written ${host}`
+      reasons.push(`The ${scriptRole} mixes English letters with ${mixed.script} letters (${written}), a common phishing trick`)
+    }
+  }
+  const mixedName = mixedScriptWord(displayNameOf(from))
+  if (mixedName) {
+    reasons.push(`The sender\u2019s name mixes English letters with ${mixedName.script} letters (${mixedName.word}), a common phishing trick`)
+  }
+  return reasons
+}
+
+export function raiseRisk(risk: Risk, reasons: string[], warnings: string[]): { risk: Risk; reasons: string[] } {
+  const missing = warnings.filter(warning => !reasons.includes(warning))
+  if (!missing.length) return { risk, reasons }
+  return { risk: risk === 'clean' ? 'suspicious' : risk, reasons: [...missing, ...reasons] }
 }

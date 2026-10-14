@@ -60,7 +60,7 @@ import { splitQuotedTail, splitQuotedText } from './quoted'
 import { isEmbedded, referencedCids } from '@/lib/attachments'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { matchesInboxFilters, normalizeInboxFilters, type InboxFilter } from '@/lib/inbox-filters'
-import { FIRST_MESSAGE_REASON } from '@/lib/risk'
+import { FIRST_MESSAGE_REASON, isLookalikeReason } from '@/lib/risk'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
 import HumanCheck from './HumanCheck'
@@ -7244,7 +7244,7 @@ export default function DevMailPage() {
                   <span className={styles.riskBannerWhy}>
                     Treat links and attachments here with care, and do not enter passwords or payment details.
                   </span>
-                  {inbound.risk === 'suspicious' && (inbound.riskReasons ?? []).includes(FIRST_MESSAGE_REASON) && (
+                  {inbound.risk === 'suspicious' && (inbound.riskReasons ?? []).some(reason => reason === FIRST_MESSAGE_REASON || isLookalikeReason(reason)) && (
                     <button
                       type="button"
                       className={styles.riskBannerTrust}
