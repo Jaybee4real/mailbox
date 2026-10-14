@@ -7,7 +7,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: `${CLIENT_BRAND.name} Mail`,
     short_name: CLIENT_BRAND.name,
-    description: `The ${CLIENT_BRAND.name} team mailbox`,
+    description: `The ${CLIENT_BRAND.name} team workspace`,
     start_url: '/mail',
     scope: '/',
     display: 'standalone',

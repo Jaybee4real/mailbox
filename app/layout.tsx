@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 
 export const generateMetadata = (): Metadata => ({
   title: `${BRAND.name} Mail`,
-  description: `${BRAND.name} team mailbox`,
+  description: `${BRAND.name} team workspace`,
   robots: { index: false, follow: false, nocache: true, googleBot: { index: false, follow: false } },
   manifest: '/manifest.webmanifest',
   ...(BRAND.iconUrl
