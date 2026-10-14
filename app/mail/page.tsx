@@ -1590,6 +1590,7 @@ export default function DevMailPage() {
   const [pwFocusRequest, setPwFocusRequest] = useState(0)
   const listRef = useRef<HTMLDivElement | null>(null)
   const [events, setEvents] = useState<MailEvent[]>([])
+  const [sentHistory, setSentHistory] = useState<Record<string, MailEvent[]>>({})
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -3882,6 +3883,17 @@ export default function DevMailPage() {
         ?? sentSearchResults?.find(entry => entry.id === selectedId)
         ?? null
       : null
+
+  const selectedSentId = selectedSent?.id ?? null
+  useEffect(() => {
+    if (!selectedSentId || sentHistory[selectedSentId]) return
+    fetch(`/api/mail/events?id=${encodeURIComponent(selectedSentId)}`, { headers: apiHeaders() })
+      .then(response => response.json())
+      .then(data => {
+        if (data?.ok && Array.isArray(data.events)) setSentHistory(current => ({ ...current, [selectedSentId]: data.events }))
+      })
+      .catch(() => {})
+  }, [selectedSentId, sentHistory, apiHeaders])
   const selectedDetail = selectedSent ? detailCache[selectedSent.id] ?? null : null
   const selectedIsThread = selectedInbound ? unifiedThread(selectedInbound.id).length > 1 : false
 
@@ -8071,7 +8083,10 @@ export default function DevMailPage() {
             const opened: MailEvent[] = selectedSent.openedAt
               ? [{ emailId: selectedSent.id, type: 'email.opened', at: selectedSent.openedAt, meta: selectedSent.openCount > 1 ? { count: String(selectedSent.openCount) } : undefined }]
               : []
-            const ordered = [...(eventsByEmail[selectedSent.id] ?? []), ...opened].sort(
+            const recent = eventsByEmail[selectedSent.id] ?? []
+            const history = sentHistory[selectedSent.id] ?? []
+            const seen = new Set(history.map(event => `${event.type}|${event.at}|${event.meta?.to ?? ''}`))
+            const ordered = [...history, ...recent.filter(event => !seen.has(`${event.type}|${event.at}|${event.meta?.to ?? ''}`)), ...opened].sort(
               (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
             )
             // One event arrives per recipient, so a message to nine people that reached

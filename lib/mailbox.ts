@@ -527,7 +527,9 @@ const domainMatch = (domain: string) => {
 // The counters began long after the history they sit beside, so years of imported mail would
 // read as a stranger's first message. The stored mail itself says when a domain first wrote.
 async function earliestFrom(domain: string): Promise<string | null> {
-  const match = domainMatch(domain)
+  const match = domain.includes('@')
+    ? { sql: '(lower(from_addr) = ? OR lower(from_addr) LIKE ?)', args: [domain.toLowerCase(), `%<${domain.toLowerCase()}>`] }
+    : domainMatch(domain)
   const rows = await tagged(db(), `SELECT MIN(received_at) AS first FROM mail_inbox WHERE ${match.sql}`, match.args)
   return rows[0]?.first == null ? null : String(rows[0].first)
 }
@@ -1906,6 +1908,18 @@ export async function listPushSubscriptions(owner: string): Promise<PushSubscrip
 }
 
 // ── Events ─────────────────────────────────────────────────────
+/** Every event one message has had, oldest first: the recent-events feed only reaches back a day or so. */
+export async function readEventsFor(emailId: string): Promise<MailEvent[]> {
+  await ensureMailSchema()
+  const rows = await db()`SELECT email_id, type, at, meta FROM mail_events WHERE email_id = ${emailId} ORDER BY at ASC LIMIT 200`
+  return rows.map(row => ({
+    emailId: String(row.email_id ?? ''),
+    type: String(row.type ?? ''),
+    at: isoOrNull(row.at) ?? new Date(0).toISOString(),
+    meta: parseJson<Record<string, string> | null>(row.meta, null) ?? undefined,
+  }))
+}
+
 export async function readEvents(): Promise<MailEvent[]> {
   await ensureMailSchema()
   const sql = db()

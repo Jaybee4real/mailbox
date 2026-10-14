@@ -56,8 +56,23 @@ const SCAM_PHRASES_DEFAULT = [
   'transfer to your account immediately', 'strictly confidential and urgent',
 ]
 
-/** The registrable domain behind an address, for reputation to be keyed on. */
-export const senderDomainOf = (address: string): string => registrable(domainOf(address))
+const SHARED_PROVIDERS = new Set([
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.uk', 'ymail.com', 'rocketmail.com',
+  'outlook.com', 'hotmail.com', 'hotmail.co.uk', 'live.com', 'msn.com', 'icloud.com', 'me.com',
+  'mac.com', 'aol.com', 'proton.me', 'protonmail.com', 'zoho.com', 'gmx.com', 'mail.com', 'yandex.com',
+])
+
+/**
+ * Who reputation is kept for: the registrable domain of a business, but the address itself at a
+ * free provider, where one domain is millions of unrelated people. Keyed by domain, deleting three
+ * Gmail messages marked every Gmail sender suspicious, colleagues' own accounts included.
+ */
+export const senderDomainOf = (address: string): string => {
+  const domain = registrable(domainOf(address))
+  if (!SHARED_PROVIDERS.has(domain)) return domain
+  const angled = address.match(/<([^>]+)>/)
+  return (angled ? angled[1] : address).trim().toLowerCase()
+}
 
 const domainOf = (address: string): string => {
   const angled = address.match(/<([^>]+)>/)
