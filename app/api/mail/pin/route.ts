@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { mailAuthGuard, resolveAccount, verifyMailAuth } from '@/lib/dev-auth'
 import { pinState, recordPinAttempt, savePin } from '@/lib/mailbox'
 import { PIN_MAX_ATTEMPTS, PIN_PATTERN, hashPin, verifyPin } from '@/lib/pin'
 import { readMobileSession, revokeMobileDevice } from '@/lib/mobile-session'
@@ -24,7 +24,7 @@ async function signOutDevice(req: Request, email: string) {
   if (session) await revokeMobileDevice(email, session.id).catch(() => {})
 }
 
-async function body(req: Request): Promise<{ pin?: string; currentPin?: string } | null> {
+async function body(req: Request): Promise<{ pin?: string; currentPin?: string; password?: string } | null> {
   try {
     return await req.json()
   } catch {
@@ -66,6 +66,12 @@ export async function PUT(req: Request) {
   const pin = String(input?.pin ?? '')
   if (!PIN_PATTERN.test(pin)) return fail('The PIN must be 6 digits.')
   const state = await pinState(who.email)
+  if (input?.password) {
+    const confirmed = await verifyMailAuth(who.email, String(input.password))
+    if (!confirmed.ok) return fail('Your password is wrong.', 401)
+    await savePin(who.email, hashPin(pin))
+    return NextResponse.json({ ok: true })
+  }
   if (state.locked) return fail('Too many wrong PINs. Sign in again with your password.', 423, { locked: true })
   if (state.set) {
     const ok = verifyPin(String(input?.currentPin ?? ''), state.hash)
