@@ -456,6 +456,9 @@ export function ensureMailSchema(): Promise<void> {
       await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN totp_secret TEXT').catch(() => {})
       await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN totp_pending TEXT').catch(() => {})
       await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN email_code_enabled INTEGER NOT NULL DEFAULT 0').catch(() => {})
+      await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN pin_hash TEXT').catch(() => {})
+      await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN pin_failed INTEGER NOT NULL DEFAULT 0').catch(() => {})
+      await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN pin_locked INTEGER NOT NULL DEFAULT 0').catch(() => {})
       // A link mailed to an unproven address must not be able to set a password.
       await sqlRaw("ALTER TABLE mail_reset_tokens ADD COLUMN purpose TEXT NOT NULL DEFAULT 'reset'").catch(() => {})
       await sqlRaw("ALTER TABLE mail_webhook_events ADD COLUMN status TEXT NOT NULL DEFAULT 'working'")
@@ -2042,6 +2045,48 @@ export async function deleteAccount(email: string): Promise<void> {
 }
 
 /** Record a recovery address as claimed but unproven. Re-saving the same one re-arms it. */
+export type PinState = { set: boolean; locked: boolean; failed: number; hash: string | null }
+
+export async function pinState(email: string): Promise<PinState> {
+  await ensureMailSchema()
+  const sql = db()
+  const rows = (await sql`
+    SELECT pin_hash, pin_failed, pin_locked FROM mail_accounts WHERE email = ${email.trim().toLowerCase()}`) as Array<Record<string, unknown>>
+  const row = rows[0]
+  const hash = row?.pin_hash ? String(row.pin_hash) : null
+  return { set: Boolean(hash), locked: Boolean(Number(row?.pin_locked ?? 0)), failed: Number(row?.pin_failed ?? 0), hash }
+}
+
+export async function savePin(email: string, hash: string | null): Promise<void> {
+  await ensureMailSchema()
+  const sql = db()
+  await sql`
+    UPDATE mail_accounts SET pin_hash = ${hash}, pin_failed = 0, pin_locked = 0
+    WHERE email = ${email.trim().toLowerCase()}`
+}
+
+export async function recordPinAttempt(email: string, ok: boolean, maxAttempts: number): Promise<{ failed: number; locked: boolean }> {
+  await ensureMailSchema()
+  const sql = db()
+  const key = email.trim().toLowerCase()
+  if (ok) {
+    await sql`UPDATE mail_accounts SET pin_failed = 0 WHERE email = ${key}`
+    return { failed: 0, locked: false }
+  }
+  await sql`
+    UPDATE mail_accounts SET pin_failed = pin_failed + 1,
+      pin_locked = CASE WHEN pin_failed + 1 >= ${maxAttempts} THEN 1 ELSE pin_locked END
+    WHERE email = ${key}`
+  const state = await pinState(key)
+  return { failed: state.failed, locked: state.locked }
+}
+
+export async function clearPinLock(email: string): Promise<void> {
+  await ensureMailSchema()
+  const sql = db()
+  await sql`UPDATE mail_accounts SET pin_failed = 0, pin_locked = 0 WHERE email = ${email.trim().toLowerCase()}`
+}
+
 export async function setRecoveryEmail(email: string, recovery: string | null): Promise<void> {
   await ensureMailSchema()
   const sql = db()

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { currentFingerprint } from '@/lib/dev-auth'
-import { deleteLoginChallenge, getLoginChallenge, recordSignin, reserveChallengeAttempt, totpSecretFor, twoFactorState } from '@/lib/mailbox'
+import { deleteLoginChallenge, getLoginChallenge, recordSignin, reserveChallengeAttempt, totpSecretFor, twoFactorState, clearPinLock } from '@/lib/mailbox'
 import { clientKey, peekRateLimit, rateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession } from '@/lib/session'
 import { issueMobileSession } from '@/lib/mobile-session'
@@ -75,6 +75,7 @@ export async function POST(req: Request) {
 
   await deleteLoginChallenge(challenge.id)
   await recordSignin(challenge.email, { ...context, method, outcome: 'signed-in' }).catch(() => {})
+  await clearPinLock(challenge.email).catch(() => {})
   const token = issueSession(challenge.email, await currentFingerprint(challenge.email))
   return attachSession(NextResponse.json({ ok: true, email: challenge.email, session: Boolean(token),
     ...(nativeClient(req) ? { token: await issueMobileSession(challenge.email, await currentFingerprint(challenge.email), req.headers.get('x-mail-device') ?? 'Vela Mail') } : {}),

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { currentFingerprint, resolveSeat, verifyMailAuth } from '@/lib/dev-auth'
-import { createLoginChallenge, recordSignin, twoFactorState } from '@/lib/mailbox'
+import { createLoginChallenge, recordSignin, twoFactorState, clearPinLock } from '@/lib/mailbox'
 import { clientKey, rateLimit, clearRateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession } from '@/lib/session'
 import { issueMobileSession } from '@/lib/mobile-session'
@@ -77,6 +77,8 @@ export async function POST(req: Request) {
   }
 
   await recordSignin(identity, { ...context, method: 'password', outcome: 'signed-in' }).catch(() => {})
+  await clearPinLock(identity).catch(() => {})
+
   const token = issueSession(identity, await currentFingerprint(identity))
   return attachSession(NextResponse.json({ ok: true, email: identity, session: Boolean(token),
     ...(nativeClient(req) ? { token: await issueMobileSession(identity, await currentFingerprint(identity), req.headers.get('x-mail-device') ?? 'Vela Mail') } : {}),
