@@ -49,8 +49,8 @@ from `NEXT_PUBLIC_*` and inlined at build time, so changing anything the
 browser shows means a rebuild.
 
 Seats are JSON in `MAIL_SEATS` and seed on first boot only; after that you
-manage accounts in the app. `MAIL_ADDRESS_ALIASES` redirects delivery for a
-seat whose mail someone else now reads.
+manage accounts in the app. `MAIL_ADDRESS_ALIASES` copies a seat's incoming mail
+to someone else who also reads it; the seat keeps its own copy.
 
 ## Storage
 

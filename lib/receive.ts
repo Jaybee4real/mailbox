@@ -23,8 +23,10 @@ export async function attributeOwners(recipients: string[]): Promise<string[]> {
     if (!addr.includes('@')) continue
     const account = await getAccountByAddress(addr)
     if (!account?.address) continue
-    const owner = ADDRESS_ALIASES[account.address.toLowerCase()] ?? account.address.toLowerCase()
-    if (!owners.includes(owner)) owners.push(owner)
+    const own = account.address.toLowerCase()
+    for (const owner of [own, ADDRESS_ALIASES[own]]) {
+      if (owner && !owners.includes(owner)) owners.push(owner)
+    }
   }
   return owners.length ? owners : [SHARED_INBOX]
 }

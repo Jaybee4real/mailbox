@@ -1951,8 +1951,8 @@ export type { MailRole }
  * address they are known by. info@ owns the shared inbox, which makes it the admin.
  */
 /**
- * Delivery aliases. The aliased seat still exists and can sign in; only mail addressed to
- * it is stored under the target's box, because that is who reads it now.
+ * Delivery aliases. Mail addressed to an aliased seat is filed in its own box and copied
+ * to the target's, so the person covering it reads it too.
  */
 export { ADDRESS_ALIASES, MAIL_SEATS }
 
