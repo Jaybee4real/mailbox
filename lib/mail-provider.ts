@@ -97,7 +97,16 @@ async function sendViaResend(payload: SendPayload): Promise<SendResult> {
     ...(payload.bcc?.length ? { bcc: payload.bcc } : {}),
     ...(payload.replyTo ? { replyTo: payload.replyTo } : {}),
     ...(payload.scheduledAt ? { scheduledAt: payload.scheduledAt } : {}),
-    ...(payload.attachments?.length ? { attachments: payload.attachments.map(a => ({ filename: a.filename, content: a.content })) } : {}),
+    ...(payload.attachments?.length
+      ? {
+          attachments: payload.attachments.map(file => ({
+            filename: file.filename,
+            content: file.content,
+            ...(file.contentType ? { contentType: file.contentType } : {}),
+            ...(file.contentId ? { contentId: file.contentId.replace(/^<|>$/g, '') } : {}),
+          })),
+        }
+      : {}),
     ...(payload.headers ? { headers: payload.headers } : {}),
   })
   if (error) throw new Error(error.message)
@@ -194,15 +203,30 @@ function buildRawMime(payload: SendPayload): string {
   }
 
   const files = payload.attachments?.filter(file => file.content) ?? []
-  if (!files.length) return [...lines, ...body].join('\r\n')
+  const inline = files.filter(file => file.contentId)
+  const attached = files.filter(file => !file.contentId)
+  let content = body
+  if (inline.length) {
+    const related = `nc_${randomBytes(12).toString('hex')}`
+    content = [
+      `Content-Type: multipart/related; boundary="${related}"`,
+      '',
+      `--${related}`,
+      ...body,
+      ...inline.flatMap(file => [`--${related}`, ...attachmentPart(file)]),
+      `--${related}--`,
+      '',
+    ]
+  }
+  if (!attached.length) return [...lines, ...content].join('\r\n')
   const mixed = `nc_${randomBytes(12).toString('hex')}`
   return [
     ...lines,
     `Content-Type: multipart/mixed; boundary="${mixed}"`,
     '',
     `--${mixed}`,
-    ...body,
-    ...files.flatMap(file => [`--${mixed}`, ...attachmentPart(file)]),
+    ...content,
+    ...attached.flatMap(file => [`--${mixed}`, ...attachmentPart(file)]),
     `--${mixed}--`,
     '',
   ].join('\r\n')

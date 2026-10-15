@@ -51,18 +51,23 @@ const INLINE_WINDOW_MS = 12 * 60 * 60 * 1000
  * opaque origin and so never carries the session cookie. The expiry is rounded to a window
  * so the URL stays the same between list refreshes; a new one would reload the frame.
  */
-export function inlineImageTicket(messageId: string, now = Date.now()): string | null {
+export type InlineScope = 'inbound' | 'sent'
+
+const inlinePayload = (scope: InlineScope, messageId: string, expires: string | number) =>
+  `${scope === 'sent' ? 'inline-sent' : 'inline'}:${messageId}:${expires}`
+
+export function inlineImageTicket(messageId: string, now = Date.now(), scope: InlineScope = 'inbound'): string | null {
   const key = secret()
   if (!key) return null
   const expires = (Math.floor(now / INLINE_WINDOW_MS) + 2) * INLINE_WINDOW_MS
-  return `${expires}.${sign(`inline:${messageId}:${expires}`, key)}`
+  return `${expires}.${sign(inlinePayload(scope, messageId, expires), key)}`
 }
 
-export function inlineImageTicketValid(ticket: string | null, messageId: string, now = Date.now()): boolean {
+export function inlineImageTicketValid(ticket: string | null, messageId: string, now = Date.now(), scope: InlineScope = 'inbound'): boolean {
   const key = secret()
   if (!key || !ticket) return false
   const [expires, given] = ticket.split('.')
   if (!given || !(Number(expires) > now)) return false
-  const expected = sign(`inline:${messageId}:${expires}`, key)
+  const expected = sign(inlinePayload(scope, messageId, expires), key)
   return given.length === expected.length && timingSafeEqual(Buffer.from(given), Buffer.from(expected))
 }

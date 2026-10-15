@@ -204,6 +204,7 @@ type SentDetail = SentEmail & {
   html: string | null
   text: string | null
   attachments: DownloadAttachment[]
+  inlineImages?: Record<string, string>
 }
 
 type ConversationRow = {
@@ -320,8 +321,14 @@ type ComposeData = {
   customDate: string
   campaign: Campaign
   quoteHtml?: string
+  /** Where the quote's `cid:` pictures load from while composing. */
+  quoteImages?: Record<string, string>
+  /** The quoted message's own pictures, sent inline so the quote shows them. */
+  inlineParts?: InlinePart[]
   inReplyTo?: string
 }
+
+type InlinePart = { filename: string; key: string; size: number; contentType?: string; contentId: string }
 
 /** The inline quick-reply still has its own views; the composer is now one editor. */
 type ReplyMode = 'write' | 'preview' | 'plain' | 'html' | 'raw'
@@ -563,6 +570,9 @@ const tightenSignature = (html: string): string =>
 // one message can carry a hundred of them. They are part of the body, not files anyone
 // attached, and listing them buries the two or three real documents.
 const EMBEDDED_NAME = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|image\d*)\.(png|gif|jpe?g)$/i
+
+const inlinePayload = (parts: InlinePart[] | undefined) =>
+  (parts ?? []).map(({ filename, key, contentType, contentId }) => ({ filename, key, contentType, contentId }))
 
 function isEmbeddedImage(entry: { filename?: string; contentType?: string; size?: number }): boolean {
   if (!entry.contentType?.startsWith('image/')) return false
@@ -1834,6 +1844,7 @@ export default function DevMailPage() {
   const [replyHtmlDirty, setReplyHtmlDirty] = useState(false)
   const [replyToList, setReplyToList] = useState<string[]>([])
   const [replyCc, setReplyCc] = useState<string[]>([])
+  const [replyInline, setReplyInline] = useState<InlinePart[]>([])
   const [replyBcc, setReplyBcc] = useState<string[]>([])
   const [replyRecipsOpen, setReplyRecipsOpen] = useState(false)
   // Once the recipients have been touched they are the writer's, including when emptied.
@@ -1869,6 +1880,7 @@ export default function DevMailPage() {
     setReplyBcc([])
     setReplyRecipsOpen(false)
     setReplyRecipsEdited(false)
+    setReplyInline([])
     setReplyBar(null)
   }, [selectedId])
   // Grow the reply box to fit its content; the CSS max-height caps it (8 lines) and scrolls past it.
@@ -3935,7 +3947,7 @@ export default function DevMailPage() {
     const observer = new ResizeObserver(measure)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [attachBar, selectedId, readerMode])
+  }, [attachBar, selectedId, readerMode, inboundAttachments, attachmentsComplete])
 
   useEffect(() => {
     setSelectedBulk(new Set())
@@ -5017,7 +5029,7 @@ export default function DevMailPage() {
 
     // Resend can't schedule a send that carries attachments, so those go out
     // immediately — the delay/undo window only applies to attachment-free emails.
-    const scheduledAt = attachable.length ? null : resolveScheduledAt()
+    const scheduledAt = attachable.length || compose.inlineParts?.length ? null : resolveScheduledAt()
 
     const issues = sendIssues(
       {
@@ -5060,7 +5072,10 @@ export default function DevMailPage() {
           inReplyTo: compose.inReplyTo || undefined,
           track: compose.track,
           actAs: sendAs?.address ?? actingAs ?? undefined,
-          attachments: attachable.map(({ filename, url, key }) => (key ? { filename, key } : { filename, path: url })),
+          attachments: [
+            ...attachable.map(({ filename, url, key }) => (key ? { filename, key } : { filename, path: url })),
+            ...inlinePayload(compose.inlineParts),
+          ],
         }),
       })
       const data = await response.json()
@@ -5286,6 +5301,8 @@ export default function DevMailPage() {
         htmlDirty: replyHtmlDirty,
         useSignature: replySig,
         quoteHtml: forwardQuote(target.subject, target.html, target.text),
+        quoteImages: target.inlineImages,
+        inlineParts: replyInline,
       }
     }
     const fallback = defaultReplyRecipient(entry)
@@ -5391,7 +5408,10 @@ export default function DevMailPage() {
           subject: draft.subject,
           html: buildEmailHtml(draft, signatureHtml, fontCss, defaultFont) + linkBlock,
           text: buildEmailText(draft, signatureText),
-          attachments: attachable.map(({ filename, url, key }) => (key ? { filename, key } : { filename, path: url })),
+          attachments: [
+            ...attachable.map(({ filename, url, key }) => (key ? { filename, key } : { filename, path: url })),
+            ...inlinePayload(draft.inlineParts),
+          ],
           inReplyTo: draft.inReplyTo || undefined,
           actAs: sendAs?.address ?? actingAs ?? undefined,
         }),
@@ -5406,6 +5426,7 @@ export default function DevMailPage() {
         return
       }
       setAttachments([])
+      setReplyInline([])
       setQuickReply('')
       setReplyRich('')
       setPhoneRecipsOpen(false)
@@ -5461,7 +5482,9 @@ export default function DevMailPage() {
         bcc: draft.bcc,
         subject: draft.subject,
         bodyHtml,
-        quoteHtml: quoteBlock(target.from, target.receivedAt, target.html, target.text),
+        quoteHtml: draft.quoteHtml ?? quoteBlock(target.from, target.receivedAt, target.html, target.text),
+        quoteImages: draft.quoteImages,
+        inlineParts: draft.inlineParts,
         useSignature: draft.useSignature,
         inReplyTo: draft.inReplyTo,
       },
@@ -5481,10 +5504,11 @@ export default function DevMailPage() {
     setReplyBcc([])
     setReplyRecipsOpen(false)
     setReplyRecipsEdited(false)
+    setReplyInline([])
   }
 
   const openReplySettings = (entry: InboundEmail) => {
-    if (replyBar === 'forward') forwardEmail(entry.subject, entry.html, entry.text, entry.id)
+    if (replyBar === 'forward') forwardEmail(entry.subject, entry.html, entry.text, entry.id, 'inbound', entry.inlineImages)
     else replyAllTo(entry)
     const typed = quickReply.trim()
     if (typed) setCompose(data => ({ ...data, bodyHtml: markdownToHtml(typed) + data.bodyHtml, useSignature: replySig }))
@@ -5496,7 +5520,7 @@ export default function DevMailPage() {
    * send route will not accept — deliberately, so a caller cannot name any object in the
    * bucket — so the server copies them into the outgoing space first.
    */
-  const carryForwardAttachments = async (messageId: string, kind: 'inbound' | 'sent' = 'inbound') => {
+  const carryForwardAttachments = async (messageId: string, kind: 'inbound' | 'sent' = 'inbound', into: 'compose' | 'reply' = 'compose') => {
     setAttachmentsLoading(true)
     try {
       const response = await fetch(
@@ -5511,14 +5535,20 @@ export default function DevMailPage() {
       )
       const data = await response.json().catch(() => null)
       if (!response.ok || !data?.ok || !data.attachments?.length) return
+      const carried = data.attachments as Array<{ filename: string; size: number; key: string; contentType?: string; contentId?: string }>
+      const inline = carried.filter((entry): entry is InlinePart => Boolean(entry.contentId))
+      if (into === 'reply') setReplyInline(inline)
+      else setCompose(current => ({ ...current, inlineParts: inline }))
       setAttachments(
-        (data.attachments as Array<{ filename: string; size: number; key: string }>).map(entry => ({
-          filename: entry.filename,
-          url: '',
-          key: entry.key,
-          size: entry.size,
-          uid: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-        })),
+        carried
+          .filter(entry => !entry.contentId)
+          .map(entry => ({
+            filename: entry.filename,
+            url: '',
+            key: entry.key,
+            size: entry.size,
+            uid: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          })),
       )
     } catch {
       // The message still forwards; the files simply are not carried.
@@ -5542,9 +5572,10 @@ export default function DevMailPage() {
     text: string | null,
     messageId?: string,
     kind: 'inbound' | 'sent' = 'inbound',
+    images?: Record<string, string>,
   ) => {
     const fwSubject = subject.startsWith('Fwd:') ? subject : `Fwd: ${subject}`
-    openCompose({ subject: fwSubject, quoteHtml: forwardQuote(subject, html, text) })
+    openCompose({ subject: fwSubject, quoteHtml: forwardQuote(subject, html, text), quoteImages: images })
     // After openCompose, which clears the list the files are about to go into.
     if (messageId) void carryForwardAttachments(messageId, kind)
   }
@@ -5585,6 +5616,7 @@ export default function DevMailPage() {
       subject: sent.subject,
       bodyHtml: `<p>Sending this again with the ${missing} missing from my earlier email.</p>`,
       quoteHtml: sent.html ?? forwardQuote(sent.subject, null, sent.text),
+      quoteImages: sent.inlineImages,
       useSignature: false,
       inReplyTo: sent.id,
     })
@@ -5627,7 +5659,7 @@ export default function DevMailPage() {
     setReplyToList([])
     setReplyCc([])
     setReplyRecipsEdited(kind === 'forward')
-    if (kind === 'forward') void carryForwardAttachments(entry.id)
+    if (kind === 'forward') void carryForwardAttachments(entry.id, 'inbound', 'reply')
   }
 
   const startReply = (entry: InboundEmail, kind: 'reply' | 'all' | 'forward') => {
@@ -5640,7 +5672,7 @@ export default function DevMailPage() {
     if (settings.replyStyle === 'mini') return openReplyBar(entry, kind)
     if (kind === 'reply') replyTo(entry)
     else if (kind === 'all') replyAllTo(entry)
-    else forwardEmail(entry.subject, entry.html, entry.text, entry.id)
+    else forwardEmail(entry.subject, entry.html, entry.text, entry.id, 'inbound', entry.inlineImages)
   }
 
   const printMessage = (subject: string, from: string, when: string, html: string | null, text: string | null, recipients: { to?: string[]; cc?: string[] } = {}) => {
@@ -5765,7 +5797,7 @@ export default function DevMailPage() {
         if (event.key === 'a') { event.preventDefault(); replyToSent(selectedSent, selectedDetail, true); return }
         if (event.key === 'f') {
           event.preventDefault()
-          forwardEmail(selectedSent.subject, selectedDetail?.html ?? null, selectedDetail?.text ?? null, selectedSent.id, 'sent')
+          forwardEmail(selectedSent.subject, selectedDetail?.html ?? null, selectedDetail?.text ?? null, selectedSent.id, 'sent', selectedDetail?.inlineImages)
           return
         }
       }
@@ -6759,14 +6791,14 @@ export default function DevMailPage() {
     )
   }
 
-  const renderInboundAttachments = (message: InboundEmail) => {
-    if (!visibleAttachments(message).length) return null
+  const inboundFileList = (message: InboundEmail): DownloadAttachment[] => {
+    if (!visibleAttachments(message).length) return []
     // The stored-blob lookup answers with an empty array for anything it does not
     // hold, which is every file sent as a share link. Falling back only on null
     // left the header counting attachments the grid then refused to draw.
     const fetched = inboundAttachments[message.id]
     const inline = inlineAttachmentNames(message)
-    const list: DownloadAttachment[] = (fetched?.length || attachmentsComplete.has(message.id)
+    return (fetched?.length || attachmentsComplete.has(message.id)
       ? fetched ?? []
       : message.attachments.map(entry => ({
           filename: entry.filename,
@@ -6776,6 +6808,10 @@ export default function DevMailPage() {
           contentId: entry.contentId,
         }))
     ).filter(entry => !inline.has(entry.filename))
+  }
+
+  const renderInboundAttachments = (message: InboundEmail) => {
+    const list = inboundFileList(message)
     return list.length ? renderAttachmentTiles(list) : null
   }
 
@@ -6861,7 +6897,7 @@ export default function DevMailPage() {
         <iframe
           className={styles.threadFrame}
           sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
-          srcDoc={frameHtml(healGooglePrivateImages(split.tail ? foldQuote(split.head, split.tail) : detail.html, CLIENT_BRAND.markUrl), true, readerSpacing, resolvedTheme)}
+          srcDoc={frameHtml(resolveInlineImages(healGooglePrivateImages(split.tail ? foldQuote(split.head, split.tail) : detail.html, CLIENT_BRAND.markUrl), detail.inlineImages, window.location.origin), true, readerSpacing, resolvedTheme)}
           title="Sent email"
           onLoad={event => fitFrame(event.currentTarget)}
         />
@@ -7010,7 +7046,7 @@ export default function DevMailPage() {
       recips.bcc.length ? `bcc ${recips.bcc.join(', ')}` : '',
     ].filter(Boolean).join('  ·  ')
     const detailsOpen = msgDetails.has(item.id)
-    const hasAttach = mine ? (detail?.attachments?.length ?? 0) > 0 : visibleAttachments(item.inbound).length > 0
+    const hasAttach = mine ? (detail?.attachments?.length ?? 0) > 0 : inboundFileList(item.inbound).length > 0
     const folds = !messagesAlwaysOpen || layout === 'bubbles'
     const shellClass =
       layout === 'bubbles'
@@ -7494,7 +7530,7 @@ export default function DevMailPage() {
               >
                 {renderInboundBody(inbound, false)}
               </div>
-              {inbound.attachments.length > 0 &&
+              {inboundFileList(inbound).length > 0 &&
                 (attachBar === 'closed' ? (
                   <div className={styles.attachPillWrap} ref={attachBarRef}>
                     <button
@@ -7503,7 +7539,7 @@ export default function DevMailPage() {
                       onClick={() => setAttachBar('open')}
                       title="Show attachments"
                     >
-                      {ICONS.attach} {inbound.attachments.length}
+                      {ICONS.attach} {inboundFileList(inbound).length}
                     </button>
                   </div>
                 ) : (
@@ -7523,7 +7559,7 @@ export default function DevMailPage() {
                           {ICONS.chevron}
                         </span>
                         <span className={styles.attachFloatTitle}>
-                          {inbound.attachments.length} attachment{inbound.attachments.length > 1 ? 's' : ''}
+                          {inboundFileList(inbound).length} attachment{inboundFileList(inbound).length > 1 ? 's' : ''}
                         </span>
                       </button>
                       <button
@@ -8017,7 +8053,7 @@ export default function DevMailPage() {
                 )}
                 <button
                   className={styles.actionBtn}
-                  onClick={() => forwardEmail(selectedSent.subject, selectedDetail?.html ?? null, selectedDetail?.text ?? null, selectedSent.id, 'sent')}
+                  onClick={() => forwardEmail(selectedSent.subject, selectedDetail?.html ?? null, selectedDetail?.text ?? null, selectedSent.id, 'sent', selectedDetail?.inlineImages)}
                 >
                   {ICONS.forward} Forward
                 </button>
@@ -8170,7 +8206,7 @@ export default function DevMailPage() {
             {!selectedDetail ? (
               <BodySkeleton />
             ) : selectedDetail.html ? (
-              <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation" srcDoc={frameHtml(selectedDetail.html, true, readerSpacing, resolvedTheme)} title="Email content" />
+              <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation" srcDoc={frameHtml(resolveInlineImages(selectedDetail.html, selectedDetail.inlineImages, window.location.origin), true, readerSpacing, resolvedTheme)} title="Email content" />
             ) : selectedDetail.text ? (
               <pre className={styles.readerText}>{selectedDetail.text}</pre>
             ) : (
@@ -9370,7 +9406,7 @@ export default function DevMailPage() {
               {compose.quoteHtml && !compose.campaign.kind && (
                 <details className={styles.composeQuote}>
                   <summary className={styles.composeQuoteLabel}>Quoted message</summary>
-                  <iframe className={styles.composeQuoteFrame} sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(compose.quoteHtml, true, readerSpacing, resolvedTheme)} title="Quoted message" />
+                  <iframe className={styles.composeQuoteFrame} sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcDoc={frameHtml(resolveInlineImages(compose.quoteHtml, compose.quoteImages, window.location.origin), true, readerSpacing, resolvedTheme)} title="Quoted message" />
                 </details>
               )}
               {/* The signature is appended on send, so show it here rather than leaving the

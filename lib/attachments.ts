@@ -45,15 +45,45 @@ export function isEmbedded(file: FileMeta, referenced: Set<string>): boolean {
   return referenced.has(contentId)
 }
 
+export const bareContentId = (value: unknown): string =>
+  typeof value === 'string' ? value.replace(/^<|>$/g, '').trim().toLowerCase() : ''
+
 /** Where each `cid:` the body draws can be fetched from, keyed by the bare, lowercased id. */
-export function inlineImageUrls(messageId: string, files: FileMeta[], ticket: string): Record<string, string> {
+export function inlineImageUrls(files: FileMeta[], urlFor: (index: number) => string): Record<string, string> {
   const urls: Record<string, string> = {}
   files.forEach((file, index) => {
-    const contentId = typeof file.contentId === 'string' ? file.contentId.replace(/^<|>$/g, '').trim().toLowerCase() : ''
+    const contentId = bareContentId(file.contentId)
     if (!contentId || typeof file.key !== 'string' || !file.key || urls[contentId]) return
-    urls[contentId] = `/api/mail/inbox/attachments/download?id=${encodeURIComponent(messageId)}&index=${index}&inline=1&t=${encodeURIComponent(ticket)}`
+    urls[contentId] = urlFor(index)
   })
   return urls
+}
+
+/**
+ * The inline parts an outgoing body actually draws, each with a Content-ID SES and every
+ * client will take, and the body rewritten to match. A part the body no longer points at
+ * is dropped rather than sent as a stray attachment.
+ */
+export function outgoingInlineParts<T extends { filename: string; contentId?: string }>(
+  files: T[],
+  html: string | null,
+): { files: T[]; html: string | null } {
+  const referenced = referencedCids(html)
+  let body = html
+  const kept: T[] = []
+  files.forEach((file, index) => {
+    const contentId = bareContentId(file.contentId)
+    if (!contentId) return void kept.push(file)
+    if (!referenced.has(contentId)) return
+    const given = String(file.contentId).replace(/^<|>$/g, '').trim()
+    const usable = /^[\w.@+\-$]{1,78}$/.test(given) ? given : `part${index}@inline`
+    if (body) {
+      const escaped = given.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      body = body.replace(new RegExp(`cid:<?${escaped}>?`, 'gi'), `cid:${usable}`)
+    }
+    kept.push({ ...file, contentId: usable })
+  })
+  return { files: kept, html: body }
 }
 
 /** The body with every `cid:` it can resolve pointed at `urls`; unknown ids are left alone. */

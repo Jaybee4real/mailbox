@@ -4,6 +4,8 @@ import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { mayReadSent } from '@/lib/sent-access'
 import { getSentAttachments, readSentMessage } from '@/lib/mailbox'
 import { providerBase } from '@/lib/provider-base'
+import { inlineImageTicket } from '@/lib/share-ticket'
+import { bareContentId, inlineImageUrls } from '@/lib/attachments'
 
 export const runtime = 'nodejs'
 
@@ -19,11 +21,25 @@ function getResend(): Resend | null {
  */
 /** Served through this domain rather than the provider's host, which does not resolve on some of the networks the office uses. */
 function attachmentList(id: string, entries: Array<Record<string, unknown>>) {
-  return entries.map((entry, index) => ({
-    filename: String(entry.filename ?? 'attachment'),
-    size: Number(entry.size ?? 0),
-    downloadUrl: `/api/mail/emails/${encodeURIComponent(id)}/attachments/download?index=${index}`,
-  }))
+  return entries.flatMap((entry, index) =>
+    entry.key && bareContentId(entry.contentId)
+      ? []
+      : [{
+          filename: String(entry.filename ?? 'attachment'),
+          size: Number(entry.size ?? 0),
+          downloadUrl: `/api/mail/emails/${encodeURIComponent(id)}/attachments/download?index=${index}`,
+        }],
+  )
+}
+
+function sentInlineImages(id: string, entries: Array<Record<string, unknown>>): Record<string, string> {
+  if (!entries.some(entry => entry.key && bareContentId(entry.contentId))) return {}
+  const ticket = inlineImageTicket(id, Date.now(), 'sent')
+  if (!ticket) return {}
+  return inlineImageUrls(
+    entries,
+    index => `/api/mail/emails/${encodeURIComponent(id)}/attachments/download?index=${index}&inline=1&t=${encodeURIComponent(ticket)}`,
+  )
 }
 
 async function fromArchive(id: string) {
@@ -46,6 +62,7 @@ async function fromArchive(id: string) {
       scheduledAt: null,
       lastEvent: stored.lastEvent ?? '',
       attachments: attachmentList(id, files as Array<Record<string, unknown>>),
+      inlineImages: sentInlineImages(id, files as Array<Record<string, unknown>>),
     },
   })
 }
@@ -95,6 +112,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       scheduledAt: item.scheduled_at ? String(item.scheduled_at) : null,
       lastEvent: String(item.last_event ?? ''),
       attachments,
+      inlineImages: sentInlineImages(id, stored as Array<Record<string, unknown>>),
     },
   })
 }

@@ -51,3 +51,32 @@ test('the SES message carries every attachment, byte for byte', async () => {
   assert.deepEqual(decoded('Pi_ce jointe.jpeg'), photo)
   assert.doesNotMatch(rawMimeFor({ from: 'a@b.c', to: ['d@e.f'], subject: 's', text: 't' }), /multipart\/mixed/)
 })
+
+test('inline images ride in multipart/related beside the body, files stay in multipart/mixed', async () => {
+  const { rawMimeFor } = await import('./mail-provider.ts')
+  const logo = Buffer.from('logo-bytes').toString('base64')
+  const raw = rawMimeFor({
+    from: 'info@example.com',
+    to: ['client@example.org'],
+    subject: 'Fwd: Renewal',
+    html: '<p>See below</p><img src="cid:431e9fb0@x">',
+    text: 'See below',
+    attachments: [
+      { filename: 'image.png', content: logo, contentType: 'image/png', contentId: '<431e9fb0@x>' },
+      { filename: 'note.pdf', content: Buffer.from('%PDF').toString('base64') },
+    ],
+  })
+  const mixed = raw.indexOf('multipart/mixed')
+  const related = raw.indexOf('multipart/related')
+  const alternative = raw.indexOf('multipart/alternative')
+  assert.ok(mixed > 0 && related > mixed && alternative > related, 'mixed > related > alternative')
+  assert.match(raw, /Content-Disposition: inline; filename="image.png"\r\nContent-ID: <431e9fb0@x>/)
+  assert.ok(raw.indexOf('Content-ID: <431e9fb0@x>') < raw.indexOf('filename="note.pdf"'), 'the logo sits inside related, before the file')
+
+  const onlyInline = rawMimeFor({
+    from: 'a@b.c', to: ['d@e.f'], subject: 's', html: '<img src="cid:a@b">',
+    attachments: [{ filename: 'a.png', content: logo, contentId: 'a@b' }],
+  })
+  assert.match(onlyInline, /multipart\/related/)
+  assert.doesNotMatch(onlyInline, /multipart\/mixed/, 'no mixed wrapper when nothing is attached')
+})

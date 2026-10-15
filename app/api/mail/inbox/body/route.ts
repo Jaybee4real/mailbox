@@ -15,6 +15,11 @@ export async function GET(req: Request) {
   if (!(await mayReadInbound(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   const body = await resolveInboundBody(id).catch(() => ({ html: null, text: null }))
   const ticket = referencedCids(body.html).size ? inlineImageTicket(id) : null
-  const inlineImages = ticket ? inlineImageUrls(id, await getInboundAttachments(id).catch(() => []), ticket) : {}
+  const inlineImages = ticket
+    ? inlineImageUrls(
+        await getInboundAttachments(id).catch(() => []),
+        index => `/api/mail/inbox/attachments/download?id=${encodeURIComponent(id)}&index=${index}&inline=1&t=${encodeURIComponent(ticket)}`,
+      )
+    : {}
   return NextResponse.json({ ok: true, ...body, inlineImages })
 }

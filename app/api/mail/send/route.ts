@@ -12,6 +12,7 @@ import { adaptiveEmail } from '@/lib/color-scheme'
 import { publicOrigin } from '@/lib/public-url'
 import { readsAllInboxes } from '@/lib/scope'
 import { BlockedRecipientsError, blockedAmong } from '@/lib/blocked'
+import { outgoingInlineParts } from '@/lib/attachments'
 
 export const runtime = 'nodejs'
 
@@ -29,7 +30,7 @@ type SendBody = {
   track?: boolean
   /** Admin only: the mailbox to send on behalf of. */
   actAs?: string
-  attachments?: Array<{ filename: string; content?: string; path?: string; key?: string }>
+  attachments?: Array<{ filename: string; content?: string; path?: string; key?: string; contentId?: string; contentType?: string }>
 }
 
 export async function POST(req: Request) {
@@ -107,7 +108,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Email body is required' }, { status: 400 })
   }
 
-  const rawAttachments = (body.attachments ?? []).filter(entry => entry.filename && (entry.content || entry.path || entry.key))
+  const inline = outgoingInlineParts(
+    (body.attachments ?? []).filter(entry => entry.filename && (entry.content || entry.path || entry.key)),
+    body.html ?? null,
+  )
+  const rawAttachments = inline.files
+  if (inline.html !== null) body.html = inline.html
   if (rawAttachments.length && body.scheduledAt) {
     // The message waits here rather than at a provider, and holding file bytes in the
     // queue for hours is a cost this has not taken on yet.
@@ -119,11 +125,15 @@ export async function POST(req: Request) {
 
   // Embed each attachment as base64 content. Resend fetches `path` URLs unreliably,
   // so we pull the blob server-side (no browser body limit) and hand Resend the bytes.
-  let attachments: Array<{ filename: string; content: string }>
+  let attachments: Array<{ filename: string; content: string; contentType?: string; contentId?: string }>
   try {
     attachments = await Promise.all(
       rawAttachments.map(async entry => {
-        if (entry.content) return { filename: entry.filename, content: entry.content }
+        const part = {
+          ...(entry.contentId ? { contentId: entry.contentId } : {}),
+          ...(entry.contentId && entry.contentType ? { contentType: entry.contentType } : {}),
+        }
+        if (entry.content) return { filename: entry.filename, content: entry.content, ...part }
 
         // Attachments live in the bucket; the key is signed here rather than trusting a
         // URL from the client, so a caller cannot point this at somewhere it should not read.
@@ -142,7 +152,7 @@ export async function POST(req: Request) {
         const response = await fetch(source)
         if (!response.ok) throw new Error(`Could not fetch attachment ${entry.filename}`)
         const buffer = Buffer.from(await response.arrayBuffer())
-        return { filename: entry.filename, content: buffer.toString('base64') }
+        return { filename: entry.filename, content: buffer.toString('base64'), ...part }
       }),
     )
   } catch (fetchError) {
@@ -256,7 +266,7 @@ export async function POST(req: Request) {
           // the provider's, which keeps these only as long as it chooses to.
           attachments: rawAttachments
             .filter(entry => entry.key)
-            .map(entry => ({ filename: entry.filename, key: entry.key })),
+            .map(entry => ({ filename: entry.filename, key: entry.key, ...(entry.contentId ? { contentId: entry.contentId } : {}) })),
         }).catch(() => {})
       : Promise.resolve(),
   ])

@@ -24,7 +24,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
 
   const { id } = await context.params
   if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
-  const copied: Array<{ filename: string; size: number; contentType?: string; key: string }> = []
+  const copied: Array<{ filename: string; size: number; contentType?: string; key: string; contentId?: string }> = []
 
   const mint = (filename: string) =>
     `outgoing/${randomBytes(9).toString('hex')}/${filename.replace(/[^\w.\- ]+/g, '_').slice(0, 120)}`
@@ -37,7 +37,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
     const bytes = Buffer.from(await object.arrayBuffer())
     const key = mint(entry.filename)
     if (!(await putObject(key, bytes, entry.contentType))) continue
-    copied.push({ filename: entry.filename, size: bytes.length, contentType: entry.contentType, key })
+    copied.push({ filename: entry.filename, size: bytes.length, contentType: entry.contentType, key, ...(entry.contentId ? { contentId: entry.contentId } : {}) })
   }
   if (copied.length) return NextResponse.json({ ok: true, attachments: copied })
 

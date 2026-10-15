@@ -2179,7 +2179,7 @@ export type SentMessage = {
   createdAt: string
   lastEvent?: string | null
   /** The bucket keys that went out with it, so a forward has something of ours to copy. */
-  attachments?: Array<{ filename: string; size?: number; contentType?: string; key?: string }>
+  attachments?: Array<{ filename: string; size?: number; contentType?: string; key?: string; contentId?: string }>
   /** How many files the list should raise a paperclip for, counted the way the inbox counts. */
   attachmentCount?: number
   /** Sent by the app itself — an invite, a reset, an auto-reply — rather than by a person. */
@@ -3044,7 +3044,7 @@ export async function backfillAttachments(limit: number, countRemaining = false)
 /** The files recorded against a message we sent, by the bucket keys we uploaded them to. */
 export async function getSentAttachments(
   id: string,
-): Promise<Array<{ filename: string; size?: number; contentType?: string; key?: string }>> {
+): Promise<Array<{ filename: string; size?: number; contentType?: string; key?: string; contentId?: string }>> {
   await ensureMailSchema()
   const rows = await sqlRaw('SELECT attachments FROM mail_sent WHERE id = ?', [id])
   const parsed = parseJson<unknown>(rows[0]?.attachments, [])

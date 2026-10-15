@@ -5,6 +5,7 @@ import { mayReadSent } from '@/lib/sent-access'
 import { getSentAttachments } from '@/lib/mailbox'
 import { providerBase } from '@/lib/provider-base'
 import { getObject } from '@/lib/r2'
+import { inlineImageTicketValid } from '@/lib/share-ticket'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -17,17 +18,20 @@ export const dynamic = 'force-dynamic'
  * reader already reached this origin to load the page.
  */
 export async function GET(req: Request, context: { params: Promise<{ id: string }> }) {
-  const guard = await mailAuthGuard(req)
-  if (guard) return guard
-
   const { id } = await context.params
-  if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   const params = new URL(req.url).searchParams
+  const ticketed = inlineImageTicketValid(params.get('t'), id, Date.now(), 'sent')
+  if (!ticketed) {
+    const guard = await mailAuthGuard(req)
+    if (guard) return guard
+    if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  }
   const index = Number(params.get('index') ?? 0)
   const inline = params.get('inline') === '1'
   const position = Number.isFinite(index) ? index : 0
 
   const stored = (await getSentAttachments(id).catch(() => []))[position]
+  if (ticketed && !(stored?.key && stored.contentId)) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   if (stored?.key) {
     const object = await getObject(stored.key)
     if (object?.body) {

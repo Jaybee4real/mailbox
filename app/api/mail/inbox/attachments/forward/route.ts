@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
-import { getInboundAttachments } from '@/lib/mailbox'
+import { getInboundAttachments, resolveInboundBody } from '@/lib/mailbox'
+import { isEmbedded, referencedCids } from '@/lib/attachments'
 import { getObject, putObject } from '@/lib/r2'
 import { mayReadInbound } from '@/lib/sent-access'
 
@@ -33,7 +34,8 @@ export async function POST(req: Request) {
   if (!(await mayReadInbound(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 
   const held = await getInboundAttachments(id).catch(() => [])
-  const copied: Array<{ filename: string; size: number; contentType?: string; key: string }> = []
+  const referenced = referencedCids((await resolveInboundBody(id).catch(() => ({ html: null }))).html)
+  const copied: Array<{ filename: string; size: number; contentType?: string; key: string; contentId?: string }> = []
 
   for (const entry of held) {
     const sourceKey = typeof entry.key === 'string' ? entry.key : ''
@@ -49,7 +51,8 @@ export async function POST(req: Request) {
     const contentType = typeof entry.contentType === 'string' ? entry.contentType : undefined
     if (!(await putObject(key, bytes, contentType))) continue
 
-    copied.push({ filename, size: bytes.length, contentType, key })
+    const contentId = isEmbedded(entry, referenced) ? String(entry.contentId).replace(/^<|>$/g, '').trim() : undefined
+    copied.push({ filename, size: bytes.length, contentType, key, ...(contentId ? { contentId } : {}) })
   }
 
   return NextResponse.json({ ok: true, attachments: copied })
