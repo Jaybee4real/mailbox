@@ -49,7 +49,10 @@ export async function GET(req: Request) {
       shareId: String(entry.shareId),
       downloadUrl: `/share/${encodeURIComponent(String(entry.shareId))}`,
     }))
-  if (stored.length || shared.length) return NextResponse.json({ ok: true, attachments: [...stored, ...shared] })
+  const accounted = held.length > 0 && held.every(entry => entry.key || entry.shareId || isEmbedded(entry, referenced))
+  if (stored.length || shared.length || accounted) {
+    return NextResponse.json({ ok: true, attachments: [...stored, ...shared], complete: accounted })
+  }
 
   // Nothing of ours yet: this message predates the copy-on-arrival. Pull the bytes from
   // the provider now and keep them, so the next reader is served from here and the file
@@ -99,5 +102,5 @@ export async function GET(req: Request) {
     // worse than none: it looks like the app is broken rather than the file being absent.
     downloadUrl: entry.key ? `/api/mail/inbox/attachments/download?id=${encodeURIComponent(id)}&index=${index}` : '',
   }))
-  return NextResponse.json({ ok: true, attachments })
+  return NextResponse.json({ ok: true, attachments, complete: kept.length > 0 })
 }

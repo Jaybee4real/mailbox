@@ -43,3 +43,26 @@ export function shareTicketMode(ticket: string | null, id: string): TicketMode |
   if (signedId !== id || !(Number(expires) > Date.now())) return null
   return mode === 'view' || mode === 'download' ? mode : null
 }
+
+const INLINE_WINDOW_MS = 12 * 60 * 60 * 1000
+
+/**
+ * Lets a message's own inline images load inside the reader frame, which is sandboxed to an
+ * opaque origin and so never carries the session cookie. The expiry is rounded to a window
+ * so the URL stays the same between list refreshes; a new one would reload the frame.
+ */
+export function inlineImageTicket(messageId: string, now = Date.now()): string | null {
+  const key = secret()
+  if (!key) return null
+  const expires = (Math.floor(now / INLINE_WINDOW_MS) + 2) * INLINE_WINDOW_MS
+  return `${expires}.${sign(`inline:${messageId}:${expires}`, key)}`
+}
+
+export function inlineImageTicketValid(ticket: string | null, messageId: string, now = Date.now()): boolean {
+  const key = secret()
+  if (!key || !ticket) return false
+  const [expires, given] = ticket.split('.')
+  if (!given || !(Number(expires) > now)) return false
+  const expected = sign(`inline:${messageId}:${expires}`, key)
+  return given.length === expected.length && timingSafeEqual(Buffer.from(given), Buffer.from(expected))
+}

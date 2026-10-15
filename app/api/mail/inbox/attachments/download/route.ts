@@ -4,6 +4,7 @@ import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { getInboundAttachments } from '@/lib/mailbox'
 import { getObject } from '@/lib/r2'
 import { mayReadInbound } from '@/lib/sent-access'
+import { inlineImageTicketValid } from '@/lib/share-ticket'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,20 +17,23 @@ export const dynamic = 'force-dynamic'
  * anything served from here is reachable by definition.
  */
 export async function GET(req: Request) {
-  const guard = await mailAuthGuard(req)
-  if (guard) return guard
-
   const params = new URL(req.url).searchParams
   const id = params.get('id')
   const index = Number(params.get('index') ?? 0)
   if (!id) return NextResponse.json({ ok: false, error: 'id is required' }, { status: 400 })
-  if (!(await mayReadInbound(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  const ticketed = inlineImageTicketValid(params.get('t'), id)
+  if (!ticketed) {
+    const guard = await mailAuthGuard(req)
+    if (guard) return guard
+    if (!(await mayReadInbound(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  }
 
   // The key is read from the message rather than taken from the caller, so this cannot
   // be pointed at an arbitrary object in the bucket.
   const attachments = await getInboundAttachments(id).catch(() => [])
   const entry = attachments[Number.isFinite(index) ? index : 0]
   const key = entry && typeof entry.key === 'string' ? entry.key : ''
+  if (ticketed && !entry?.contentId) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   if (!key) return NextResponse.json({ ok: false, error: 'That file is not stored here.' }, { status: 404 })
 
   const object = await getObject(key)

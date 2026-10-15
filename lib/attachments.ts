@@ -45,6 +45,26 @@ export function isEmbedded(file: FileMeta, referenced: Set<string>): boolean {
   return referenced.has(contentId)
 }
 
+/** Where each `cid:` the body draws can be fetched from, keyed by the bare, lowercased id. */
+export function inlineImageUrls(messageId: string, files: FileMeta[], ticket: string): Record<string, string> {
+  const urls: Record<string, string> = {}
+  files.forEach((file, index) => {
+    const contentId = typeof file.contentId === 'string' ? file.contentId.replace(/^<|>$/g, '').trim().toLowerCase() : ''
+    if (!contentId || typeof file.key !== 'string' || !file.key || urls[contentId]) return
+    urls[contentId] = `/api/mail/inbox/attachments/download?id=${encodeURIComponent(messageId)}&index=${index}&inline=1&t=${encodeURIComponent(ticket)}`
+  })
+  return urls
+}
+
+/** The body with every `cid:` it can resolve pointed at `urls`; unknown ids are left alone. */
+export function resolveInlineImages(html: string, urls: Record<string, string> | undefined, origin = ''): string {
+  if (!urls || !Object.keys(urls).length) return html
+  return html.replace(/cid:(<[^"'\s<>]+>|[^"'\s>)\\]+)/gi, (match, raw: string) => {
+    const url = urls[raw.replace(/^<|>$/g, '').trim().toLowerCase()]
+    return url ? `${origin}${url}` : match
+  })
+}
+
 /** The files a reader should be offered, in their original order. */
 export function attachedFiles<T extends FileMeta>(files: T[], html?: string | null): T[] {
   const referenced = referencedCids(html)

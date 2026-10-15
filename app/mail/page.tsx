@@ -57,7 +57,7 @@ import InboxFilters from './InboxFilters'
 import qrcode from 'qrcode-generator'
 import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
 import { splitQuotedTail, splitQuotedText } from './quoted'
-import { isEmbedded, referencedCids } from '@/lib/attachments'
+import { isEmbedded, referencedCids, resolveInlineImages } from '@/lib/attachments'
 import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
 import { matchesInboxFilters, normalizeInboxFilters, type InboxFilter } from '@/lib/inbox-filters'
 import { FIRST_MESSAGE_REASON, isLookalikeReason } from '@/lib/risk'
@@ -254,6 +254,7 @@ type InboundEmail = {
   labels: string[]
   owner?: string | null
   threadId?: string | null
+  inlineImages?: Record<string, string>
 }
 
 type Attachment = {
@@ -1110,7 +1111,7 @@ function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SP
   const dark = theme === 'dark'
   const csp = allowRemote
     ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * data:; style-src 'unsafe-inline' *; font-src * data:; media-src * data:">`
-    : `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${OWN_IMAGE_HOSTS} data:; style-src 'unsafe-inline'; font-src data:">`
+    : `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${window.location.origin} ${OWN_IMAGE_HOSTS} data:; style-src 'unsafe-inline'; font-src data:">`
   // Links open in a new tab, which a sandboxed frame may only do with allow-popups. Without
   // it every link in every message was dead: the click was swallowed with no error and no
   // navigation, which reads as a broken button rather than a blocked one. Scripts are still
@@ -1597,6 +1598,7 @@ export default function DevMailPage() {
   const [detailCache, setDetailCache] = useState<Record<string, SentDetail>>({})
   const [showEmbedded, setShowEmbedded] = useState<Record<string, boolean>>({})
   const [inboundAttachments, setInboundAttachments] = useState<Record<string, DownloadAttachment[]>>({})
+  const [attachmentsComplete, setAttachmentsComplete] = useState<Set<string>>(() => new Set())
   const [readerOpenMobile, setReaderOpenMobile] = useState(false)
   const [railOpen, setRailOpen] = useState(false)
   // Collapsed unless this browser has chosen otherwise, so the mail gets the width by default.
@@ -3983,7 +3985,8 @@ export default function DevMailPage() {
   useEffect(() => {
     if (!selectedInbound) return
     for (const member of threadMembers(selectedInbound.id)) {
-      if (member.html !== null || bodyRequests.current.has(member.id)) continue
+      const unresolvedImages = member.inlineImages === undefined && /cid:/i.test(member.html ?? '')
+      if ((member.html !== null && !unresolvedImages) || bodyRequests.current.has(member.id)) continue
       bodyRequests.current.add(member.id)
       fetch(`/api/mail/inbox/body?id=${encodeURIComponent(member.id)}`, { headers: apiHeaders() })
         .then(response => response.json())
@@ -3992,7 +3995,7 @@ export default function DevMailPage() {
           setInboxEmails(list =>
             list.map(entry =>
               entry.id === member.id
-                ? { ...entry, html: data.html ?? entry.html, text: data.text ?? entry.text }
+                ? { ...entry, html: data.html ?? entry.html, text: data.text ?? entry.text, inlineImages: data.inlineImages ?? entry.inlineImages }
                 : entry,
             ),
           )
@@ -4009,7 +4012,9 @@ export default function DevMailPage() {
       fetch(`/api/mail/inbox/attachments?id=${encodeURIComponent(member.id)}`, { headers: apiHeaders() })
         .then(response => response.json())
         .then(data => {
-          if (data.ok) setInboundAttachments(cache => ({ ...cache, [member.id]: data.attachments }))
+          if (!data.ok) return
+          setInboundAttachments(cache => ({ ...cache, [member.id]: data.attachments }))
+          if (data.complete) setAttachmentsComplete(done => new Set(done).add(member.id))
         })
         .catch(() => {})
     }
@@ -6761,8 +6766,8 @@ export default function DevMailPage() {
     // left the header counting attachments the grid then refused to draw.
     const fetched = inboundAttachments[message.id]
     const inline = inlineAttachmentNames(message)
-    const list: DownloadAttachment[] = (fetched?.length
-      ? fetched
+    const list: DownloadAttachment[] = (fetched?.length || attachmentsComplete.has(message.id)
+      ? fetched ?? []
       : message.attachments.map(entry => ({
           filename: entry.filename,
           size: entry.size ?? 0,
@@ -6815,9 +6820,13 @@ export default function DevMailPage() {
       )
     }
     const split = splitQuotedTail(message.html)
-    const bodyHtml = healGooglePrivateImages(
-      split.tail ? foldQuote(split.head, split.tail) : message.html,
-      sentByUs(message.from) ? CLIENT_BRAND.markUrl : null,
+    const bodyHtml = resolveInlineImages(
+      healGooglePrivateImages(
+        split.tail ? foldQuote(split.head, split.tail) : message.html,
+        sentByUs(message.from) ? CLIENT_BRAND.markUrl : null,
+      ),
+      message.inlineImages,
+      window.location.origin,
     )
     if (framed) {
       // Thread messages auto-size to content (whole conversation scrolls as one).
@@ -7093,7 +7102,7 @@ export default function DevMailPage() {
                   item.inbound.subject,
                   item.inbound.from,
                   item.inbound.receivedAt,
-                  item.inbound.html,
+                  item.inbound.html && resolveInlineImages(item.inbound.html, item.inbound.inlineImages, window.location.origin),
                   item.inbound.text,
                   { to: item.inbound.to, cc: item.inbound.cc },
                 )
@@ -7408,7 +7417,7 @@ export default function DevMailPage() {
                 {ICONS.trash}
               </button>
             )}
-            <button className={styles.iconBtn} title="Print" onClick={() => printMessage(inbound.subject, inbound.from, inbound.receivedAt, inbound.html, inbound.text, { to: inbound.to, cc: inbound.cc })}>
+            <button className={styles.iconBtn} title="Print" onClick={() => printMessage(inbound.subject, inbound.from, inbound.receivedAt, inbound.html && resolveInlineImages(inbound.html, inbound.inlineImages, window.location.origin), inbound.text, { to: inbound.to, cc: inbound.cc })}>
               {ICONS.print}
             </button>
             <button className={styles.iconBtn} title="Download .eml" onClick={() => downloadEml(inbound)}>
