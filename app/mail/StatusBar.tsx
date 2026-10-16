@@ -66,9 +66,9 @@ async function probe(): Promise<{ ok: boolean; build: string | null }> {
   }
 }
 
-function useLink(): { link: Link; retry: () => Promise<void> } {
+function useLink(): { link: Link; retry: () => Promise<boolean> } {
   const [link, setLink] = useState<Link>('online')
-  const recheckRef = useRef<() => Promise<void>>(async () => {})
+  const recheckRef = useRef<() => Promise<boolean>>(async () => false)
   const failures = useRef(0)
   const slowPending = useRef(0)
   const state = useRef<Link>('online')
@@ -120,10 +120,13 @@ function useLink(): { link: Link; retry: () => Promise<void> } {
         failures.current += 1
         if (failures.current >= 2 || !navigator.onLine) set('offline')
       }
+      return result.ok
     }
     recheckRef.current = recheck
     const onOffline = () => set('offline')
-    const onOnline = () => void recheck()
+    const onOnline = () => {
+      void recheck()
+    }
     window.addEventListener('offline', onOffline)
     window.addEventListener('online', onOnline)
     const timer = window.setInterval(() => {
@@ -139,15 +142,16 @@ function useLink(): { link: Link; retry: () => Promise<void> } {
     }
   }, [])
 
-  // A blip shorter than this never shows; only the all-clear appears at once.
+  // An outage shorter than this never shows. Slow has already waited SLOW_MS, so it shows at once.
   const [lasting, setLasting] = useState<Link | null>(null)
   useEffect(() => {
     if (link === 'back') return
-    const timer = window.setTimeout(() => setLasting(link === 'online' ? null : link), link === 'online' ? 0 : SHOW_AFTER_MS)
+    const timer = window.setTimeout(() => setLasting(link === 'online' ? null : link), link === 'offline' ? SHOW_AFTER_MS : 0)
     return () => window.clearTimeout(timer)
   }, [link])
   const retry = useCallback(() => recheckRef.current(), [])
-  const shown = link === 'online' ? link : link === 'back' ? (lasting === 'offline' ? 'back' : 'online') : lasting === link ? link : 'online'
+  const shown =
+    link === 'online' ? link : link === 'back' ? (lasting === 'offline' ? 'back' : 'online') : lasting === link || link === 'slow' ? link : 'online'
   return { link: shown, retry }
 }
 
@@ -221,7 +225,7 @@ export default function StatusBar() {
   const { link, retry } = useLink()
   const newer = useNewVersion()
   const [dismissed, setDismissed] = useState<string | null>(null)
-  const [retrying, setRetrying] = useState(false)
+  const [retrying, setRetrying] = useState<'checking' | 'failed' | null>(null)
   const confirm = useConfirm()
   const ref = useRef<HTMLDivElement | null>(null)
   const update = Boolean(newer && newer !== dismissed)
@@ -259,9 +263,11 @@ export default function StatusBar() {
   }
 
   const tryAgain = async () => {
-    setRetrying(true)
-    await retry()
-    setRetrying(false)
+    setRetrying('checking')
+    const [ok] = await Promise.all([retry(), new Promise(resolve => window.setTimeout(resolve, 900))])
+    if (ok) return setRetrying(null)
+    setRetrying('failed')
+    window.setTimeout(() => setRetrying(current => (current === 'failed' ? null : current)), 1800)
   }
 
   return (
@@ -274,8 +280,8 @@ export default function StatusBar() {
             <span>{COPY[link].detail}</span>
           </span>
           {link === 'offline' && (
-            <button type="button" className={styles.statusGhost} onClick={tryAgain} disabled={retrying}>
-              {retrying ? 'Checking…' : 'Try again'}
+            <button type="button" className={styles.statusGhost} onClick={tryAgain} disabled={retrying === 'checking'}>
+              {retrying === 'checking' ? 'Checking…' : retrying === 'failed' ? 'Still offline' : 'Try again'}
             </button>
           )}
         </div>
