@@ -121,5 +121,5 @@ export async function unblockAddress(address: string): Promise<string | null> {
   await db()`DELETE FROM mail_blocked WHERE address = ${clean}`
   const lifted = await velaCall<{ still_blocked?: VelaEntry | null }>('DELETE', `/suppressions?address=${encodeURIComponent(clean)}`)
   if (!lifted?.still_blocked) return null
-  return `${clean} is still blocked on Vela's shared list because ${REASON_TEXT[asReason(lifted.still_blocked.reason)]}. Novacraft support can lift it there.`
+  return `${clean} is still blocked on Vela's shared list because ${REASON_TEXT[asReason(lifted.still_blocked.reason)]}. It can be lifted there by Vela support, the service that sends this mailbox's mail.`
 }
