@@ -5986,6 +5986,31 @@
   gap: 10px;
 }
 .bodyFileImageFill { width: 100%; }
+.bodyMissing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 10px;
+  background: var(--nc-ink-2);
+  color: var(--nc-fg-2);
+  font: 500 12.5px/1.4 var(--nc-font-sans);
+}
+.bodyMissing button {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--nc-line-2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nc-fg-1);
+  font: 600 12px/1 var(--nc-font-sans);
+  cursor: pointer;
+}
+.bodyMissing button:hover { background: var(--nc-ink-3); }
 .bodyFileImage {
   display: block;
   max-width: 100%;

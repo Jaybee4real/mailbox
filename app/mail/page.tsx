@@ -4000,16 +4000,33 @@ export default function DevMailPage() {
   // Imported archives keep HTML out of the database (in the bucket, or in the primary row of a
   // shared copy). The plain-text body shows at once; the HTML is fetched when the message opens.
   const bodyRequests = useRef<Set<string>>(new Set())
+  const [bodyMissing, setBodyMissing] = useState<Set<string>>(() => new Set())
+  const [bodyRetry, setBodyRetry] = useState(0)
+  useEffect(() => {
+    const onBackOnline = () => setBodyRetry(count => count + 1)
+    window.addEventListener('mailbox:back-online', onBackOnline)
+    return () => window.removeEventListener('mailbox:back-online', onBackOnline)
+  }, [])
   useEffect(() => {
     if (!selectedInbound) return
     for (const member of threadMembers(selectedInbound.id)) {
       const unresolvedImages = member.inlineImages === undefined && /cid:/i.test(member.html ?? '')
       if ((member.html !== null && !unresolvedImages) || bodyRequests.current.has(member.id)) continue
       bodyRequests.current.add(member.id)
+      const missed = () => {
+        bodyRequests.current.delete(member.id)
+        setBodyMissing(current => (current.has(member.id) ? current : new Set(current).add(member.id)))
+      }
       fetch(`/api/mail/inbox/body?id=${encodeURIComponent(member.id)}`, { headers: apiHeaders() })
         .then(response => response.json())
         .then(data => {
-          if (!data.ok) return
+          if (!data.ok) return missed()
+          setBodyMissing(current => {
+            if (!current.has(member.id)) return current
+            const next = new Set(current)
+            next.delete(member.id)
+            return next
+          })
           setInboxEmails(list =>
             list.map(entry =>
               entry.id === member.id
@@ -4018,9 +4035,9 @@ export default function DevMailPage() {
             ),
           )
         })
-        .catch(() => bodyRequests.current.delete(member.id))
+        .catch(missed)
     }
-  }, [selectedInbound, threadMembers, apiHeaders])
+  }, [selectedInbound, threadMembers, apiHeaders, bodyRetry])
 
   useEffect(() => {
     if (!selectedInbound) return
@@ -5428,7 +5445,7 @@ export default function DevMailPage() {
       // is one the sender can act on immediately.
       if (!response.ok || !data?.ok) {
         mergeBlocked(data?.blocked)
-        setReplyError(data?.error ?? `Send failed (${response.status})`)
+        setReplyError(data?.error ?? `Not sent. ${describeHttp(response.status)}`)
         return
       }
       setAttachments([])
@@ -6853,6 +6870,14 @@ export default function DevMailPage() {
       const textShown = quoteOpen.has(message.id)
       return (
         <>
+          {message.html === null && bodyMissing.has(message.id) && (
+            <div className={styles.bodyMissing} role="status">
+              <span>Only a preview is showing. The full message has not downloaded yet.</span>
+              <button type="button" onClick={() => setBodyRetry(count => count + 1)}>
+                Try again
+              </button>
+            </div>
+          )}
           {(textShown ? source : plain.head)
             ? <pre className={styles.readerText}>{textShown ? source : plain.head}</pre>
             : renderBodylessAttachment(inboundAttachments[message.id] ?? []) ?? <pre className={styles.readerText}>(no content)</pre>}
