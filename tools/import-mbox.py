@@ -141,11 +141,13 @@ def bodies(message, keep_bytes=True):
                     raw = part.get_payload(decode=True) or b''
                 except Exception:
                     raw = b''
+            content_id = str(part.get('Content-ID') or '').strip().strip('<>').strip()
             attachments.append({
                 'filename': decoded(filename) or 'attachment',
                 'contentType': part.get_content_type(),
                 'size': len(raw),
                 'bytes': raw,
+                **({'contentId': content_id} if content_id else {}),
             })
             continue
         try:
@@ -543,7 +545,8 @@ def main():
             while len(entries) <= index:
                 entries.append({})
             entries[index] = {'filename': attachment['filename'], 'contentType': attachment['contentType'],
-                              'size': attachment['size'], **stored_fields}
+                              'size': attachment['size'], **stored_fields,
+                              **({'contentId': attachment['contentId']} if attachment.get('contentId') else {})}
             local['files'] += 1
             local['file_bytes'] += attachment['size']
             touched.add(row['id'])
