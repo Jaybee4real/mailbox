@@ -77,6 +77,7 @@
   color-scheme: dark;
   position: fixed;
   inset: 0;
+  top: var(--status-offset, 0px);
   display: grid;
   --rail-w: 236px;
   --list-w: 400px;
@@ -92,7 +93,7 @@
   --thread-pad: 14px 16px;
   --thread-inset: 12px;
   grid-template-columns: var(--rail-w) var(--list-w) 1fr;
-  grid-template-rows: calc(100dvh / var(--ui-zoom, 1));
+  grid-template-rows: calc((100dvh - var(--status-offset, 0px)) / var(--ui-zoom, 1));
   /* This element carries the theme's tokens, so it has to carry the theme's text and
      surface too. Without them anything that does not name a colour of its own inherits
      the document default — black, which only looks deliberate on the light theme. */
@@ -4006,6 +4007,7 @@
 .loginWrap {
   position: fixed;
   inset: 0;
+  top: var(--status-offset, 0px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6110,6 +6112,180 @@
 /* An admin reading someone else's inbox sends as them, so the state has to be
    impossible to miss and one click to leave. */
 /* In flow across every column, so the panes start beneath it instead of under it. */
+.statusBars {
+  --status-bg: #0E0E12;
+  --status-fg: #F4F4F7;
+  --status-muted: #A9A6B8;
+  --status-line: rgba(255, 255, 255, .08);
+  --tone-offline: #F97066;
+  --tone-slow: #FDB022;
+  --tone-back: #32D583;
+  --tone-update: color-mix(in srgb, var(--nc-violet-500, #6D28D9) 55%, #fff);
+  --tone-brand: var(--nc-violet-500, #6D28D9);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2000;
+  padding-top: env(safe-area-inset-top, 0px);
+  background: var(--status-bg);
+  color: var(--status-fg);
+  box-shadow: 0 8px 24px -16px rgba(0, 0, 0, .55);
+}
+:root:has([data-mail-theme="light"]) .statusBars {
+  --status-bg: #FFFFFF;
+  --status-fg: #121118;
+  --status-muted: #5D5A70;
+  --status-line: rgba(18, 17, 24, .08);
+  --tone-offline: #D92D20;
+  --tone-slow: #B54708;
+  --tone-back: #079455;
+  --tone-update: var(--nc-violet-500, #6D28D9);
+  box-shadow: 0 8px 24px -18px rgba(18, 17, 24, .35);
+}
+@media (prefers-color-scheme: light) {
+  :root:not(:has([data-mail-theme])) .statusBars {
+    --status-bg: #FFFFFF;
+    --status-fg: #121118;
+    --status-muted: #5D5A70;
+    --status-line: rgba(18, 17, 24, .08);
+    --tone-offline: #D92D20;
+    --tone-slow: #B54708;
+    --tone-back: #079455;
+    --tone-update: var(--nc-violet-500, #6D28D9);
+  }
+}
+.statusBar {
+  --tone: var(--tone-update);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 7px 16px 9px;
+  border-bottom: 1px solid var(--status-line);
+  font: 400 13px/1.35 var(--nc-font-sans, system-ui, sans-serif);
+  letter-spacing: -0.003em;
+  animation: statusIn .28s cubic-bezier(.2, .8, .2, 1);
+}
+.statusBar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--tone);
+  opacity: .9;
+}
+.status_offline { --tone: var(--tone-offline); }
+.status_slow { --tone: var(--tone-slow); }
+.status_back { --tone: var(--tone-back); }
+.status_update { --tone: var(--tone-update); }
+.status_slow::after {
+  background: linear-gradient(90deg, transparent 0%, var(--tone) 40%, var(--tone) 60%, transparent 100%);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: statusSweep 1.4s ease-in-out infinite;
+}
+.statusIcon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+}
+.statusIcon svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.status_offline .statusIcon::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--tone);
+  animation: statusRing 2s ease-out infinite;
+}
+.status_slow .statusIcon svg { animation: statusTurn 2.4s linear infinite; }
+.statusText {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.statusText strong {
+  font-weight: 650;
+  white-space: nowrap;
+}
+.statusText span { color: var(--status-muted); }
+.statusActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.statusGhost,
+.statusPrimary {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font: 600 12.5px/1 var(--nc-font-sans, system-ui, sans-serif);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color .16s ease, border-color .16s ease, transform .12s ease, opacity .16s ease;
+}
+.statusGhost {
+  border: 1px solid var(--status-line);
+  background: transparent;
+  color: var(--status-fg);
+}
+.statusGhost:hover { background: color-mix(in srgb, var(--status-fg) 8%, transparent); }
+.statusGhost:disabled { opacity: .6; cursor: default; }
+.statusPrimary {
+  border: 1px solid transparent;
+  background: var(--tone-brand);
+  color: #fff;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset, 0 4px 14px -6px var(--tone-brand);
+}
+.statusPrimary:hover { background: color-mix(in srgb, var(--tone-brand) 88%, #fff); }
+.statusGhost:active,
+.statusPrimary:active { transform: scale(.97); }
+@media (max-width: 640px) {
+  .statusBar {
+    justify-content: flex-start;
+    align-items: center;
+    padding: 9px 14px 11px;
+  }
+  .statusText {
+    flex: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .statusText span { font-size: 12px; }
+}
+@keyframes statusIn { from { transform: translateY(-100%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes statusSweep { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+@keyframes statusRing { from { transform: scale(1); opacity: .7; } to { transform: scale(1.7); opacity: 0; } }
+@keyframes statusTurn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .statusBar,
+  .status_slow::after,
+  .status_offline .statusIcon::before,
+  .status_slow .statusIcon svg { animation: none; }
+}
+
 .actingBar {
   position: relative;
   grid-column: 1 / -1;

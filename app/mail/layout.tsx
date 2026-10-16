@@ -3,6 +3,7 @@ import { accentRampCss } from '@/lib/accent-ramp'
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { ConfirmProvider } from './ConfirmDialog'
+import StatusBar from './StatusBar'
 
 export const metadata: Metadata = {
   title: `${BRAND.name} Mail`,
@@ -14,7 +15,10 @@ export default function MailLayout({ children }: { children: ReactNode }) {
   return (
     <>
       {ramp ? <style>{`:root{${ramp}}`}</style> : null}
-      <ConfirmProvider>{children}</ConfirmProvider>
+      <ConfirmProvider>
+        <StatusBar />
+        {children}
+      </ConfirmProvider>
     </>
   )
 }

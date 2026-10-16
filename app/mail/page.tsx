@@ -3283,6 +3283,11 @@ export default function DevMailPage() {
     }
     document.addEventListener('visibilitychange', onWake)
     window.addEventListener('focus', onWake)
+    const onBackOnline = () => {
+      lastRefreshAt.current = 0
+      onWake()
+    }
+    window.addEventListener('mailbox:back-online', onBackOnline)
     const onWorkerMessage = (event: MessageEvent) => {
       if ((event.data as { type?: string } | null)?.type === 'mail:new') {
         lastRefreshAt.current = 0
@@ -3294,6 +3299,7 @@ export default function DevMailPage() {
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onWake)
       window.removeEventListener('focus', onWake)
+      window.removeEventListener('mailbox:back-online', onBackOnline)
       navigator.serviceWorker?.removeEventListener('message', onWorkerMessage)
     }
   }, [isLoggedIn, refreshAll, loadCounts])
@@ -9147,6 +9153,7 @@ export default function DevMailPage() {
             role={composeExpanded ? 'region' : 'dialog'}
             aria-modal={composeExpanded ? undefined : true}
             aria-label="Compose email"
+            data-composing
           >
             <div className={styles.composeHead}>
               <h2 className={styles.composeTitle}>New message</h2>
