@@ -9,7 +9,7 @@ test('only mail addressed to a hosted domain is ingested', async () => {
   const { addressedToUs } = await import('./receive.ts')
 
   assert.equal(addressedToUs(['info@metroperilinsbrokers.com']), true)
-  assert.equal(addressedToUs(['O. Komolafe <okomolafe@metroperilinsbrokers.com>']), true, 'a display name does not hide the domain')
+  assert.equal(addressedToUs(['A. Staff <staff@metroperilinsbrokers.com>']), true, 'a display name does not hide the domain')
   assert.equal(addressedToUs(['someone@example.com', 'info@metroperilinsbrokers.com']), true, 'one of ours is enough')
 
   // The leak: one provider account held several tenants' domains and posted all of their
@@ -32,8 +32,8 @@ test('the To line comes from the header, not from the copy the provider delivere
     ['eric.samuel@coronationinsurance.com.ng', 'sijuatobatele@lasacoassurance.com'],
   )
   assert.deepEqual(
-    headerAddresses('"Adeolu Ajao" <aajao@custodianinsurance.com>, "Ernest Okpata" <eokpata.metroperil@gmail.com>'),
-    ['aajao@custodianinsurance.com', 'eokpata.metroperil@gmail.com'],
+    headerAddresses('"Ada Broker" <ada@insurer.example>, "Ben Client" <ben.client.office@gmail.com>'),
+    ['ada@insurer.example', 'ben.client.office@gmail.com'],
   )
   assert.deepEqual(headerAddresses('"Doe, John" <john@example.com>, jane@example.com'), ['john@example.com', 'jane@example.com'], 'a comma inside a quoted name does not split it')
   assert.deepEqual(headerAddresses('"Say \\"hi\\", please" <quote@example.com>'), ['quote@example.com'], 'an escaped quote does not end the name')
