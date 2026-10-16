@@ -86,13 +86,27 @@ export function outgoingInlineParts<T extends { filename: string; contentId?: st
   return { files: kept, html: body }
 }
 
-/** The body with every `cid:` it can resolve pointed at `urls`; unknown ids are left alone. */
+/**
+ * Pictures a body points at by `cid:` but does not carry, usually ones from earlier in a
+ * thread that the sender's client never attached. No browser can draw them, so they are
+ * removed rather than left as broken icons; ids in `keep` stay.
+ */
+export function dropMissingCidImages(html: string, keep: Set<string> = new Set()): string {
+  const missing = (raw: string) => !keep.has(raw.replace(/^<|>$/g, '').trim().toLowerCase())
+  return html
+    .replace(/<img\b[^>]*\bsrc\s*=\s*["']?cid:([^"'\s>]+)[^>]*>/gi, (tag, raw: string) => (missing(raw) ? '' : tag))
+    .replace(/\s(?:background)\s*=\s*["']cid:([^"']+)["']/gi, (attribute, raw: string) => (missing(raw) ? '' : attribute))
+}
+
+/** The body with every `cid:` it can resolve pointed at `urls`, and the rest removed. */
 export function resolveInlineImages(html: string, urls: Record<string, string> | undefined, origin = ''): string {
-  if (!urls || !Object.keys(urls).length) return html
-  return html.replace(/cid:(<[^"'\s<>]+>|[^"'\s>)\\]+)/gi, (match, raw: string) => {
-    const url = urls[raw.replace(/^<|>$/g, '').trim().toLowerCase()]
-    return url ? `${origin}${url}` : match
-  })
+  const resolved = urls && Object.keys(urls).length
+    ? html.replace(/cid:(<[^"'\s<>]+>|[^"'\s>)\\]+)/gi, (match, raw: string) => {
+        const url = urls[raw.replace(/^<|>$/g, '').trim().toLowerCase()]
+        return url ? `${origin}${url}` : match
+      })
+    : html
+  return dropMissingCidImages(resolved)
 }
 
 /** The files a reader should be offered, in their original order. */

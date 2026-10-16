@@ -12,7 +12,7 @@ import { adaptiveEmail } from '@/lib/color-scheme'
 import { publicOrigin } from '@/lib/public-url'
 import { readsAllInboxes } from '@/lib/scope'
 import { BlockedRecipientsError, blockedAmong } from '@/lib/blocked'
-import { outgoingInlineParts } from '@/lib/attachments'
+import { bareContentId, dropMissingCidImages, outgoingInlineParts } from '@/lib/attachments'
 
 export const runtime = 'nodejs'
 
@@ -113,7 +113,9 @@ export async function POST(req: Request) {
     body.html ?? null,
   )
   const rawAttachments = inline.files
-  if (inline.html !== null) body.html = inline.html
+  if (inline.html !== null) {
+    body.html = dropMissingCidImages(inline.html, new Set(rawAttachments.map(entry => bareContentId(entry.contentId)).filter(Boolean)))
+  }
   if (rawAttachments.length && body.scheduledAt) {
     // The message waits here rather than at a provider, and holding file bytes in the
     // queue for hours is a cost this has not taken on yet.

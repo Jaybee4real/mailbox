@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { inlineImageUrls, outgoingInlineParts, resolveInlineImages } from './attachments.ts'
+import { dropMissingCidImages, inlineImageUrls, outgoingInlineParts, resolveInlineImages } from './attachments.ts'
 import { inlineImageTicket, inlineImageTicketValid } from './share-ticket.ts'
 
 process.env.MAIL_SESSION_SECRET = 'test-secret'
@@ -26,9 +26,16 @@ assert.equal(urls['431e9fb0-27a3'], '/api/mail/inbox/attachments/download?id=m1&
 const html = '<img src="cid:431e9fb0-27a3"><img src=\'cid:<431E9FB0-27A3>\'><img src="cid:unknown"><td background="cid:431e9fb0-27a3">'
 assert.equal(
   resolveInlineImages(html, urls, 'https://mail.test'),
-  '<img src="https://mail.test/api/mail/inbox/attachments/download?id=m1&index=1&inline=1&t=T"><img src=\'https://mail.test/api/mail/inbox/attachments/download?id=m1&index=1&inline=1&t=T\'><img src="cid:unknown"><td background="https://mail.test/api/mail/inbox/attachments/download?id=m1&index=1&inline=1&t=T">',
+  '<img src="https://mail.test/api/mail/inbox/attachments/download?id=m1&index=1&inline=1&t=T"><img src=\'https://mail.test/api/mail/inbox/attachments/download?id=m1&index=1&inline=1&t=T\'><td background="https://mail.test/api/mail/inbox/attachments/download?id=m1&index=1&inline=1&t=T">',
+  'a picture the message does not carry is removed, not drawn broken',
 )
-assert.equal(resolveInlineImages(html, undefined), html)
+assert.equal(resolveInlineImages('<p>Hi</p><img alt="logo" src="cid:gone@x" width="90"><p>Bye</p>', undefined), '<p>Hi</p><p>Bye</p>')
+assert.equal(resolveInlineImages('<img src="https://x.test/a.png">', undefined), '<img src="https://x.test/a.png">', 'ordinary images stay')
+assert.equal(
+  dropMissingCidImages('<img src="cid:Logo@X"><img src="cid:old@y"><td background="cid:old@y">', new Set(['logo@x'])),
+  '<img src="cid:Logo@X"><td>',
+  'outgoing mail keeps the pictures it carries and drops the rest',
+)
 const long = `${'x'.repeat(80)}@outlook`
 const outgoing = outgoingInlineParts(
   [
