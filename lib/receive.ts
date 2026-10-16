@@ -7,6 +7,7 @@ import { matchesInboxFilters } from '@/lib/inbox-filters'
 import { archiveAddress, sendMail } from '@/lib/mail-provider'
 import { MAIL_FROM, SHARED_INBOX } from '@/lib/scope'
 import { providerBase } from '@/lib/provider-base'
+import { storeThumbnail, wantsThumbnail } from '@/lib/thumbnail'
 
 /** The row id of a further mailbox's copy of one delivery. */
 export const copyId = (emailId: string, owner: string) => `${emailId}~${owner}`
@@ -178,7 +179,9 @@ async function rehostAttachments(
       // Written to our own bucket and served back through this domain. The provider's
       // own link expires, dies with the account, and points at a host outside our
       // control; the bucket URL would be a third host again, so neither is handed out.
-      return (await putObject(key, bytes, file.contentType)) ? { ...meta, key } : meta
+      if (!(await putObject(key, bytes, file.contentType))) return meta
+      if (!file.contentId && wantsThumbnail(meta)) void storeThumbnail(key, bytes)
+      return { ...meta, key }
     }),
   )
 }

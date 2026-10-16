@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import styles from './page.module.css'
+import { THUMB_WIDTH } from '@/lib/thumb-size'
 
 export type PreviewItem = { filename: string; url: string; size?: number; contentType?: string }
 
@@ -38,6 +39,54 @@ export function attachmentKind(filename: string, contentType?: string): Attachme
 export function inlineUrl(url: string): string {
   if (!url.startsWith('/api/mail/')) return url
   return `${url}${url.includes('?') ? '&' : '?'}inline=1`
+}
+
+/** The small copy the server makes of a stored image; anything else is returned unchanged. */
+export function thumbUrl(url: string): string {
+  if (!url.startsWith('/api/mail/')) return url
+  return `${url}${url.includes('?') ? '&' : '?'}thumb=1`
+}
+
+/**
+ * Shows the small copy at once and swaps in the original once it has arrived. The original
+ * is fetched at low priority, so a photo never holds up the message it came with.
+ */
+export function ProgressiveImage({
+  src,
+  thumb,
+  fillClassName,
+  className,
+  ...rest
+}: React.ImgHTMLAttributes<HTMLImageElement> & { src: string; thumb?: string; fillClassName?: string }) {
+  const [loaded, setLoaded] = useState<string | null>(null)
+  const [reduced, setReduced] = useState(true)
+  useEffect(() => {
+    if (!thumb || thumb === src) return
+    const full = new Image()
+    full.fetchPriority = 'low'
+    full.onload = () => setLoaded(src)
+    full.src = src
+    return () => {
+      full.onload = null
+    }
+  }, [src, thumb])
+  const showingThumb = Boolean(thumb) && loaded !== src
+  // A small copy drawn at its own size would jump when the original lands, so it is
+  // stretched to the box the original will fill. A small original is already full size.
+  const fill = showingThumb && reduced && fillClassName
+  return (
+    // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
+    <img
+      {...rest}
+      className={fill ? `${className ?? ''} ${fillClassName}` : className}
+      src={showingThumb ? thumb : src}
+      decoding="async"
+      onLoad={event => {
+        if (showingThumb) setReduced(Math.max(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight) >= THUMB_WIDTH)
+        rest.onLoad?.(event)
+      }}
+    />
+  )
 }
 
 export function formatSize(bytes?: number): string {
@@ -141,10 +190,11 @@ export default function AttachmentLightbox({
   const body = (() => {
     if (kind === 'image') {
       return (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <ProgressiveImage
           className={styles.lbImage}
+          fillClassName={styles.lbImageFill}
           src={item.url}
+          thumb={thumbUrl(item.url)}
           alt={item.filename}
           draggable={false}
           style={{

@@ -6,6 +6,7 @@ import { getSentAttachments } from '@/lib/mailbox'
 import { providerBase } from '@/lib/provider-base'
 import { getObject } from '@/lib/r2'
 import { inlineImageTicketValid } from '@/lib/share-ticket'
+import { thumbnailResponse, wantsThumbnail } from '@/lib/thumbnail'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -32,6 +33,10 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
 
   const stored = (await getSentAttachments(id).catch(() => []))[position]
   if (ticketed && !(stored?.key && stored.contentId)) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  if (stored?.key && params.get('thumb') === '1' && wantsThumbnail(stored)) {
+    const small = await thumbnailResponse(stored.key)
+    if (small) return small
+  }
   if (stored?.key) {
     const object = await getObject(stored.key)
     if (object?.body) {

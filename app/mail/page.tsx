@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { extractUrls, inspectUrl, type LinkVerdict } from '@/lib/link-safety'
-import AttachmentLightbox, { attachmentKind, formatSize, inlineUrl, type PreviewItem } from './AttachmentLightbox'
+import AttachmentLightbox, { ProgressiveImage, attachmentKind, formatSize, inlineUrl, thumbUrl, type PreviewItem } from './AttachmentLightbox'
 import AccessCheck from './AccessCheck'
 import { parseQuery, matchesQuery, serverSearchParams, splitForServer } from './search'
 import { useChoose, useConfirm, usePrompt } from './ConfirmDialog'
@@ -6538,7 +6538,7 @@ export default function DevMailPage() {
               >
                 {usable && kind === 'image' ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={attachment.downloadUrl} alt={attachment.filename} loading="lazy" />
+                  <img src={thumbUrl(attachment.downloadUrl)} alt={attachment.filename} loading="lazy" decoding="async" fetchPriority="low" />
                 ) : (
                   <span className={styles.attachGlyph}>
                     {kind === 'pdf' ? 'PDF'
@@ -6764,8 +6764,7 @@ export default function DevMailPage() {
       const kind = attachmentKind(file.filename, file.contentType)
       const source = inlineUrl(file.downloadUrl)
       if (kind === 'image') {
-        // eslint-disable-next-line @next/next/no-img-element
-        return <img className={styles.bodyFileImage} src={source} alt={file.filename} loading="lazy" />
+        return <ProgressiveImage className={styles.bodyFileImage} fillClassName={styles.bodyFileImageFill} src={source} thumb={thumbUrl(file.downloadUrl)} alt={file.filename} loading="lazy" />
       }
       if (kind === 'pdf') return <iframe className={styles.bodyFileFrame} src={source} title={file.filename} />
       if (kind === 'video') return <video className={styles.bodyFileImage} src={source} controls preload="metadata" />

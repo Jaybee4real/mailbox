@@ -5,6 +5,7 @@ import { getInboundAttachments } from '@/lib/mailbox'
 import { getObject } from '@/lib/r2'
 import { mayReadInbound } from '@/lib/sent-access'
 import { inlineImageTicketValid } from '@/lib/share-ticket'
+import { thumbnailResponse, wantsThumbnail } from '@/lib/thumbnail'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,6 +36,11 @@ export async function GET(req: Request) {
   const key = entry && typeof entry.key === 'string' ? entry.key : ''
   if (ticketed && !entry?.contentId) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   if (!key) return NextResponse.json({ ok: false, error: 'That file is not stored here.' }, { status: 404 })
+
+  if (params.get('thumb') === '1' && wantsThumbnail(entry)) {
+    const small = await thumbnailResponse(key)
+    if (small) return small
+  }
 
   const object = await getObject(key)
   if (!object || !object.body) {
