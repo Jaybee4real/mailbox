@@ -4062,35 +4062,35 @@ export default function DevMailPage() {
    */
   const openSeq = useRef(0)
   const openController = useRef<AbortController | null>(null)
+  // A conversation that failed to open keeps its place: the pane stays on it with the reason
+  // and a retry, rather than falling back to whatever was open before the click.
+  const [openFailed, setOpenFailed] = useState<{ threadId: string; latestId: string; reason: string } | null>(null)
   const cancelThreadOpen = () => {
     openSeq.current += 1
     openController.current?.abort()
     openController.current = null
     setThreadOpening(null)
+    setOpenFailed(null)
   }
 
-  // Failing to open is worth a word. It used to go through loadError, which only renders
-  // when the list itself is empty, so on a phone the pane slid in and out and said nothing.
-  const [openError, setOpenError] = useState<string | null>(null)
-  useEffect(() => {
-    if (!openError) return
-    const timer = window.setTimeout(() => setOpenError(null), 4500)
-    return () => window.clearTimeout(timer)
-  }, [openError])
-
   const openThread = async (threadId: string, latestId: string) => {
+    setOpenFailed(null)
     if (!inboxEmails.some(entry => entry.id === latestId)) {
       const seq = ++openSeq.current
-      // Whatever the phone showed before the tap is what a failed open goes back to: the
-      // list if they were on the list, the message if one was open. selectedId is the
-      // wrong proxy for that, because Back on a phone hides the pane and leaves it set.
-      // A pane still sliding in for an earlier tap does not count as open.
-      const wasOpen = readerOpenMobile && !threadOpening
       setThreadOpening(threadId)
       setReaderOpenMobile(true)
       const controller = new AbortController()
       openController.current = controller
-      const giveUp = window.setTimeout(() => controller.abort(), 15000)
+      let timedOut = false
+      const giveUp = window.setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, 15000)
+      const failed = (reason: string) => {
+        setThreadOpening(null)
+        setSelectedId(null)
+        setOpenFailed({ threadId, latestId, reason })
+      }
       try {
         const response = await fetch(`/api/mail/inbox?thread=${encodeURIComponent(threadId)}&limit=200`, {
           headers: apiHeaders(),
@@ -4105,18 +4105,16 @@ export default function DevMailPage() {
             return [...current, ...fresh.filter(entry => !seen.has(entry.id))]
           })
         } else {
-          setThreadOpening(null)
-          setReaderOpenMobile(wasOpen)
-          setOpenError('Could not open that conversation')
-          return
+          return failed(data?.error || describeHttp(response.status))
         }
       } catch (err) {
         if (seq !== openSeq.current) return
         console.warn('[mail] thread load failed', err)
-        setThreadOpening(null)
-        setReaderOpenMobile(wasOpen)
-        setOpenError('Could not open that conversation')
-        return
+        return failed(
+          timedOut
+            ? 'It took too long to arrive. The connection may be slow.'
+            : 'The connection dropped before it arrived.',
+        )
       } finally {
         window.clearTimeout(giveUp)
         if (openController.current === controller) openController.current = null
@@ -4125,6 +4123,15 @@ export default function DevMailPage() {
     }
     openInbound(latestId)
   }
+
+  const retryFailedOpen = useEffectEvent(() => {
+    if (openFailed) void openThread(openFailed.threadId, openFailed.latestId)
+  })
+  useEffect(() => {
+    const onBackOnline = () => retryFailedOpen()
+    window.addEventListener('mailbox:back-online', onBackOnline)
+    return () => window.removeEventListener('mailbox:back-online', onBackOnline)
+  }, [])
 
   const openInbound = (id: string) => {
     cancelThreadOpen()
@@ -5785,7 +5792,7 @@ export default function DevMailPage() {
         if (composeOpen) closeCompose()
         else if (filesOpen) setFilesOpen(false)
         else if (settingsOpen) closeSettings()
-        else if (threadOpening) { cancelThreadOpen(); setReaderOpenMobile(false) }
+        else if (threadOpening || openFailed) { cancelThreadOpen(); setReaderOpenMobile(false) }
         else if (readerOpenMobile) setReaderOpenMobile(false)
         else if (selectedId) setSelectedId(null)
         return
@@ -7225,6 +7232,24 @@ export default function DevMailPage() {
 
   const reader = (() => {
     if (threadOpening) return <ReaderSkeleton />
+    if (openFailed) {
+      const failedRow = threads.find(row => row.threadId === openFailed.threadId)
+      return (
+        <div className={styles.openFailed} role="alert">
+          <span className={styles.listErrorMark} aria-hidden />
+          {failedRow?.subject && <p className={styles.openFailedSubject}>{failedRow.subject}</p>}
+          <p className={styles.listErrorTitle}>This conversation did not open</p>
+          <p className={styles.listErrorSub}>{openFailed.reason}</p>
+          <button
+            type="button"
+            className={styles.listErrorRetry}
+            onClick={() => void openThread(openFailed.threadId, openFailed.latestId)}
+          >
+            Try again
+          </button>
+        </div>
+      )
+    }
     if (selectedInbound) {
       const inbound = selectedInbound
       const inboundMembers = threadMembers(inbound.id)
@@ -8905,7 +8930,7 @@ export default function DevMailPage() {
               const row = (item: (typeof listItems)[number]) => (
               <button
                 key={item.id}
-                className={`${styles.item} ${selectedId === item.id ? styles.itemActive : ''} ${item.unread ? styles.itemUnread : ''} ${selectedBulk.has(item.id) ? styles.itemChecked : ''} ${'threadId' in item && item.threadId && threadOpening === item.threadId ? styles.itemOpening : ''}`}
+                className={`${styles.item} ${selectedId === item.id || ('threadId' in item && item.threadId && openFailed?.threadId === item.threadId) ? styles.itemActive : ''} ${item.unread ? styles.itemUnread : ''} ${selectedBulk.has(item.id) ? styles.itemChecked : ''} ${'threadId' in item && item.threadId && threadOpening === item.threadId ? styles.itemOpening : ''}`}
                 aria-busy={'threadId' in item && item.threadId ? threadOpening === item.threadId : undefined}
                 style={
                   swipe?.id === item.id
@@ -9147,7 +9172,7 @@ export default function DevMailPage() {
         {/* Keyed so React rebuilds it when the selection changes, which is what lets the
             animation replay: switching threads swapped the panel with no sign that
             anything had happened. */}
-        <div className={styles.readerSwap} key={threadOpening ? `opening:${threadOpening}` : (selectedId ?? 'empty')}>
+        <div className={styles.readerSwap} key={threadOpening ? `opening:${threadOpening}` : openFailed ? `failed:${openFailed.threadId}` : (selectedId ?? 'empty')}>
           {reader}
         </div>
       </section>
@@ -11119,11 +11144,6 @@ export default function DevMailPage() {
           <button className={styles.toastUndo} onClick={undoSend} type="button">
             Undo
           </button>
-        </div>
-      )}
-      {openError && !undo && (
-        <div className={`${styles.toast} ${styles.toastError}`} role="alert">
-          {openError}
         </div>
       )}
       {sentFlash && !undo && (

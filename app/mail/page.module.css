@@ -1838,6 +1838,7 @@
 .phoneSheetScrim {
   position: fixed;
   inset: 0;
+  top: var(--status-offset, 0px);
   z-index: 600;
   display: flex;
   align-items: flex-end;
@@ -2064,6 +2065,7 @@
 .composeScrim {
   position: fixed;
   inset: 0;
+  top: var(--status-offset, 0px);
   background: rgba(5, 3, 9, .55);
   z-index: 420;
 }
@@ -2398,7 +2400,7 @@
   right: 24px;
   bottom: 24px;
   width: min(700px, calc(100vw / var(--ui-zoom, 1) - 48px));
-  max-height: calc(100dvh / var(--ui-zoom, 1) - 48px);
+  max-height: calc((100dvh - var(--status-offset, 0px)) / var(--ui-zoom, 1) - 48px);
   display: flex;
   flex-direction: column;
   background: var(--nc-ink-1);
@@ -2413,7 +2415,7 @@
 .composeExpanded {
   /* Above .topRight, whose buttons sat over this one's own header controls. */
   z-index: 520;
-  top: 0;
+  top: var(--status-offset, 0px);
   right: 0;
   bottom: 0;
   left: calc(var(--rail-w, 236px) + var(--list-w, 400px));
@@ -3339,6 +3341,7 @@
 .lbScrim {
   position: fixed;
   inset: 0;
+  top: var(--status-offset, 0px);
   z-index: 600;
   background: rgba(4, 2, 8, .82);
   display: flex;
@@ -3502,7 +3505,7 @@
   .lbScrim { padding: 0; }
   .lbShell {
     width: 100%;
-    height: calc(100dvh / var(--ui-zoom, 1));
+    height: calc((100dvh - var(--status-offset, 0px)) / var(--ui-zoom, 1));
     border: none;
     border-radius: 0;
   }
@@ -3981,11 +3984,6 @@
   font: 500 14px/1 var(--nc-font-sans);
   color: var(--nc-fg-1);
 }
-.toastError {
-  border-color: color-mix(in srgb, var(--nc-danger) 45%, transparent);
-  color: var(--nc-danger);
-}
-
 .toastCount {
   font-family: var(--nc-font-mono);
   color: var(--nc-warn);
@@ -4443,6 +4441,7 @@
 .settingsScrim {
   position: fixed;
   inset: 0;
+  top: var(--status-offset, 0px);
   background: rgba(5, 3, 9, .55);
   /* Above .topRight, which floats at 500 and was landing squarely on the close button. */
   z-index: 530;
@@ -4526,7 +4525,7 @@
 
 .settingsCard {
   width: min(760px, 100%);
-  max-height: calc(100dvh / var(--ui-zoom, 1) - 48px);
+  max-height: calc((100dvh - var(--status-offset, 0px)) / var(--ui-zoom, 1) - 48px);
   overflow-y: auto;
   background: var(--nc-ink-1);
   border: 1px solid var(--nc-line-2);
@@ -4677,6 +4676,7 @@
     display: flex;
     position: fixed;
     inset: 0;
+    top: var(--status-offset, 0px);
     z-index: 410;
     background: var(--nc-ink-0);
     /* Off to the right rather than display:none, so opening a message can be
@@ -4700,11 +4700,11 @@
     --rail-w: 0px;
     --list-w: 0px;
     grid-template-columns: 1fr;
-    grid-template-rows: calc(100dvh / var(--ui-zoom, 1));
+    grid-template-rows: calc((100dvh - var(--status-offset, 0px)) / var(--ui-zoom, 1));
   }
   .rail {
     position: fixed;
-    top: 0;
+    top: var(--status-offset, 0px);
     bottom: 0;
     left: 0;
     width: 268px;
@@ -4723,6 +4723,7 @@
     display: block;
     position: fixed;
     inset: 0;
+    top: var(--status-offset, 0px);
     z-index: 450;
     background: rgba(0,0,0,.5);
     animation: ncFadeIn .25s var(--nc-ease-out) backwards;
@@ -4732,7 +4733,7 @@
   .menuBtn { display: inline-flex; }
   .fab { display: inline-flex; animation: ncPop .5s var(--nc-ease-spring) .1s backwards; }
   .list { padding-bottom: 88px; }
-  .compose { right: 0; bottom: 0; width: calc(100vw / var(--ui-zoom, 1)); max-height: calc(100dvh / var(--ui-zoom, 1)); border-radius: 0; }
+  .compose { right: 0; bottom: 0; width: calc(100vw / var(--ui-zoom, 1)); max-height: calc((100dvh - var(--status-offset, 0px)) / var(--ui-zoom, 1)); border-radius: 0; }
 }
 
 /* ── Motion ──────────────────────────────────────────────── */
@@ -5786,6 +5787,27 @@
   transform: translateY(-1px);
 }
 .listErrorRetry:active { transform: translateY(0) scale(.98); }
+.openFailed {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: min(16vh, 140px) 28px 48px;
+  text-align: center;
+  animation: ncErrIn .28s cubic-bezier(.2, .7, .3, 1) both;
+}
+.openFailedSubject {
+  max-width: 46ch;
+  margin: 10px 0 0;
+  color: var(--nc-fg-3);
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .listError { animation: none; }
@@ -5941,6 +5963,7 @@
 .confirmScrim {
   position: fixed;
   inset: 0;
+  top: var(--status-offset, 0px);
   z-index: 900;
   display: flex;
   align-items: center;
@@ -6763,6 +6786,7 @@
 .lockScrim {
   position: fixed;
   inset: 0;
+  top: var(--status-offset, 0px);
   z-index: 920;
   display: flex;
   align-items: center;
@@ -8317,7 +8341,7 @@
 
 .linkCard {
   max-width: 460px;
-  max-height: calc(100dvh - 48px);
+  max-height: calc(100dvh - var(--status-offset, 0px) - 48px);
   overflow-y: auto;
 }
 
@@ -8358,7 +8382,7 @@
 
 @media (max-width: 720px) {
   .composeFull {
-    top: 0;
+    top: var(--status-offset, 0px);
     height: auto;
     max-height: none;
     border-radius: 0;
