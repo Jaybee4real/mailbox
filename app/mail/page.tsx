@@ -4000,6 +4000,29 @@ export default function DevMailPage() {
   // Imported archives keep HTML out of the database (in the bucket, or in the primary row of a
   // shared copy). The plain-text body shows at once; the HTML is fetched when the message opens.
   const bodyRequests = useRef<Set<string>>(new Set())
+  const bodyPrefetches = useRef<Map<string, Promise<Record<string, unknown> | null>>>(new Map())
+  const prefetchBody = (id: string) => {
+    if (bodyPrefetches.current.has(id) || bodyRequests.current.has(id)) return
+    const loaded = inboxEmails.find(entry => entry.id === id)
+    if (loaded && loaded.html !== null && !(loaded.inlineImages === undefined && /cid:/i.test(loaded.html ?? ''))) return
+    const pending = fetch(`/api/mail/inbox/body?id=${encodeURIComponent(id)}`, { headers: apiHeaders() })
+      .then(response => response.json() as Promise<Record<string, unknown>>)
+      .catch(() => null)
+    bodyPrefetches.current.set(id, pending)
+    void pending.then(data => {
+      if (!data?.ok) bodyPrefetches.current.delete(id)
+    })
+  }
+  const takeBody = useEffectEvent((id: string): Promise<Record<string, unknown> | null> => {
+    const pending = bodyPrefetches.current.get(id)
+    bodyPrefetches.current.delete(id)
+    return (
+      pending ??
+      fetch(`/api/mail/inbox/body?id=${encodeURIComponent(id)}`, { headers: apiHeaders() }).then(
+        response => response.json() as Promise<Record<string, unknown>>,
+      )
+    )
+  })
   const [bodyMissing, setBodyMissing] = useState<Set<string>>(() => new Set())
   const [bodyRetry, setBodyRetry] = useState(0)
   useEffect(() => {
@@ -4017,10 +4040,9 @@ export default function DevMailPage() {
         bodyRequests.current.delete(member.id)
         setBodyMissing(current => (current.has(member.id) ? current : new Set(current).add(member.id)))
       }
-      fetch(`/api/mail/inbox/body?id=${encodeURIComponent(member.id)}`, { headers: apiHeaders() })
-        .then(response => response.json())
+      takeBody(member.id)
         .then(data => {
-          if (!data.ok) return missed()
+          if (!data?.ok) return missed()
           setBodyMissing(current => {
             if (!current.has(member.id)) return current
             const next = new Set(current)
@@ -4030,7 +4052,12 @@ export default function DevMailPage() {
           setInboxEmails(list =>
             list.map(entry =>
               entry.id === member.id
-                ? { ...entry, html: data.html ?? entry.html, text: data.text ?? entry.text, inlineImages: data.inlineImages ?? entry.inlineImages }
+                ? {
+                    ...entry,
+                    html: (data.html as string | null) ?? entry.html,
+                    text: (data.text as string | null) ?? entry.text,
+                    inlineImages: (data.inlineImages as Record<string, string> | undefined) ?? entry.inlineImages,
+                  }
                 : entry,
             ),
           )
@@ -4075,6 +4102,7 @@ export default function DevMailPage() {
 
   const openThread = async (threadId: string, latestId: string) => {
     setOpenFailed(null)
+    prefetchBody(latestId)
     if (!inboxEmails.some(entry => entry.id === latestId)) {
       const seq = ++openSeq.current
       setThreadOpening(threadId)
@@ -8941,7 +8969,15 @@ export default function DevMailPage() {
                     ? { transform: `translateX(${swipe.dx}px)`, animation: 'none', transition: 'none' }
                     : undefined
                 }
-                onTouchStart={item.kind === 'inbound' ? event => onRowTouchStart(item.id, 'threadId' in item ? item.threadId ?? null : null, event) : undefined}
+                onPointerEnter={item.kind === 'inbound' ? () => prefetchBody(item.id) : undefined}
+                onTouchStart={
+                  item.kind === 'inbound'
+                    ? event => {
+                        prefetchBody(item.id)
+                        onRowTouchStart(item.id, 'threadId' in item ? item.threadId ?? null : null, event)
+                      }
+                    : undefined
+                }
                 onTouchMove={item.kind === 'inbound' ? onRowTouchMove : undefined}
                 onTouchEnd={item.kind === 'inbound' ? onRowTouchEnd : undefined}
                 onTouchCancel={item.kind === 'inbound' ? onRowTouchEnd : undefined}

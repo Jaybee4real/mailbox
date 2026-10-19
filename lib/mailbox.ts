@@ -13,6 +13,7 @@ import { randomBytes } from 'node:crypto'
 import { hashPassword } from './password'
 import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
+import { bodyCacheEnabled, cachedBody, isBodyCached, storeBody } from './body-cache'
 import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
 import { inboxFiltersSql, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters'
 import { impersonationReasons, judgeMessage, raiseRisk, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
@@ -476,6 +477,7 @@ export function ensureMailSchema(): Promise<void> {
       await sqlRaw('ALTER TABLE mail_inbox ADD COLUMN thread_id TEXT').catch(() => {})
       await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_thread_idx ON mail_inbox (lower(owner), thread_id, received_at DESC, id DESC)').catch(() => {})
       await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_unread_thread_idx ON mail_inbox (thread_id) WHERE read = 0').catch(() => {})
+      await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_thread_any_idx ON mail_inbox (thread_id, received_at DESC, id DESC)').catch(() => {})
 
       // Snooze. An ISO timestamp in the future means "not now": the message is out of the
       // inbox until then and comes back on its own, because every folder decides from this
@@ -1594,10 +1596,53 @@ export async function migrateBodiesToBucket(limit: number, countRemaining = fals
 /** Full body for one message: the list only carries a snippet, so the reader fetches this. */
 async function htmlFromBucket(key: unknown): Promise<string | null> {
   if (typeof key !== 'string' || !key) return null
+  const cached = await cachedBody(key)
+  if (cached !== null) return cached
   const { presign } = await import('./r2')
   const response = await fetch(presign(key, 'GET', 300))
   if (!response.ok) return null
-  return response.text()
+  const html = await response.text()
+  void storeBody(key, html)
+  return html
+}
+
+const WARM_BATCH = 400
+const WARM_CONCURRENCY = 4
+const WARM_PAUSE_MS = 250
+let bodyCacheWarming: Promise<void> | null = null
+
+/**
+ * Imported mail keeps its HTML in the bucket, a round trip away from every open. The
+ * warmer copies each body to local disk once, in the background, so opening old mail
+ * reads from disk instead of waiting on the bucket.
+ */
+export function startBodyCacheWarm(): void {
+  if (bodyCacheWarming || !bodyCacheEnabled() || process.env.BODY_CACHE_WARM === 'off') return
+  bodyCacheWarming = warmBodyCache().catch(err => console.warn('[body-cache] warming stopped', err))
+}
+
+async function warmBodyCache(): Promise<void> {
+  let before = Number.MAX_SAFE_INTEGER
+  let copied = 0
+  for (;;) {
+    const rows = await sqlRaw(
+      `SELECT rowid AS rid, json_extract(headers, '$."html-key"') AS html_key FROM mail_inbox WHERE rowid < ? ORDER BY rowid DESC LIMIT ?`,
+      [before, WARM_BATCH],
+    )
+    if (!rows.length) break
+    before = Number(rows[rows.length - 1].rid)
+    const keys = [...new Set(rows.map(row => row.html_key).filter((key): key is string => typeof key === 'string' && key.length > 0))]
+    for (let start = 0; start < keys.length; start += WARM_CONCURRENCY) {
+      await Promise.all(
+        keys.slice(start, start + WARM_CONCURRENCY).map(async key => {
+          if (await isBodyCached(key)) return
+          if ((await htmlFromBucket(key).catch(() => null)) !== null) copied += 1
+        }),
+      )
+    }
+    await new Promise(resolve => setTimeout(resolve, WARM_PAUSE_MS))
+  }
+  console.log(`[body-cache] warm complete, ${copied} bodies copied from the bucket`)
 }
 
 /**
@@ -1608,6 +1653,7 @@ async function htmlFromBucket(key: unknown): Promise<string | null> {
  */
 export async function resolveInboundBody(id: string): Promise<{ html: string | null; text: string | null }> {
   await ensureMailSchema()
+  startBodyCacheWarm()
   const sql = db()
   const rows = await sql`
     SELECT m.body_text AS body_text, m.html AS html, m.headers AS headers,
