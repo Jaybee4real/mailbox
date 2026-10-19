@@ -13,7 +13,7 @@ import { randomBytes } from 'node:crypto'
 import { hashPassword } from './password'
 import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
-import { bodyCacheEnabled, cachedBody, isBodyCached, storeBody } from './body-cache'
+import { bodyCacheEnabled, bodyCacheFull, cachedBody, isBodyCached, storeBody } from './body-cache'
 import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
 import { inboxFiltersSql, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters'
 import { impersonationReasons, judgeMessage, raiseRisk, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
@@ -1613,8 +1613,8 @@ let bodyCacheWarming: Promise<void> | null = null
 
 /**
  * Imported mail keeps its HTML in the bucket, a round trip away from every open. The
- * warmer copies each body to local disk once, in the background, so opening old mail
- * reads from disk instead of waiting on the bucket.
+ * warmer copies the newest bodies to local disk in the background, up to the cache's
+ * budget, so opening recent old mail reads from disk instead of waiting on the bucket.
  */
 export function startBodyCacheWarm(): void {
   if (bodyCacheWarming || !bodyCacheEnabled() || process.env.BODY_CACHE_WARM === 'off') return
@@ -1622,15 +1622,24 @@ export function startBodyCacheWarm(): void {
 }
 
 async function warmBodyCache(): Promise<void> {
-  let before = Number.MAX_SAFE_INTEGER
+  let cursor: { receivedAt: string; id: string } | null = null
   let copied = 0
   for (;;) {
-    const rows = await sqlRaw(
-      `SELECT rowid AS rid, json_extract(headers, '$."html-key"') AS html_key FROM mail_inbox WHERE rowid < ? ORDER BY rowid DESC LIMIT ?`,
-      [before, WARM_BATCH],
-    )
+    if (await bodyCacheFull()) break
+    const rows: Record<string, unknown>[] = cursor
+      ? await sqlRaw(
+          `SELECT id, received_at, json_extract(headers, '$."html-key"') AS html_key FROM mail_inbox
+           WHERE (received_at, id) < (?, ?) ORDER BY received_at DESC, id DESC LIMIT ?`,
+          [cursor.receivedAt, cursor.id, WARM_BATCH],
+        )
+      : await sqlRaw(
+          `SELECT id, received_at, json_extract(headers, '$."html-key"') AS html_key FROM mail_inbox
+           ORDER BY received_at DESC, id DESC LIMIT ?`,
+          [WARM_BATCH],
+        )
     if (!rows.length) break
-    before = Number(rows[rows.length - 1].rid)
+    const last = rows[rows.length - 1]
+    cursor = { receivedAt: String(last.received_at ?? ''), id: String(last.id) }
     const keys = [...new Set(rows.map(row => row.html_key).filter((key): key is string => typeof key === 'string' && key.length > 0))]
     for (let start = 0; start < keys.length; start += WARM_CONCURRENCY) {
       await Promise.all(
@@ -1642,7 +1651,7 @@ async function warmBodyCache(): Promise<void> {
     }
     await new Promise(resolve => setTimeout(resolve, WARM_PAUSE_MS))
   }
-  console.log(`[body-cache] warm complete, ${copied} bodies copied from the bucket`)
+  console.log(`[body-cache] warm finished, ${copied} bodies copied from the bucket`)
 }
 
 /**
