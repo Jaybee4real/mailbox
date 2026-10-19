@@ -32,9 +32,9 @@
     "LICENSE"
   ],
   "scripts": {
-    "dev": "next dev -p $(perch port 2>/dev/null || echo 4030)",
+    "dev": "next dev -p $(perch port 2>/dev/null || echo 4031)",
     "build": "next build",
-    "start": "next start -p 4030",
+    "start": "next start -p $(perch port 2>/dev/null || echo 4031)",
     "lint": "eslint ."
   },
   "dependencies": {

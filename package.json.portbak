@@ -1,0 +1,71 @@
+{
+  "name": "@novacraft-engineering/mailbox",
+  "version": "0.4.31",
+  "description": "A shared webmail app: one codebase, one deployment per mailbox. Threads, a rich composer with signatures, attachments on S3-compatible storage, sharing links, full-text search, web push and PWA install.",
+  "keywords": [
+    "webmail",
+    "email",
+    "mailbox",
+    "nextjs",
+    "sqlite",
+    "self-hosted"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jaybee4real/mailbox.git"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "app",
+    "lib",
+    "public",
+    "scripts",
+    "tools",
+    "next.config.ts",
+    "tsconfig.json",
+    "eslint.config.mjs",
+    ".env.example",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "next dev -p $(perch port 2>/dev/null || echo 4030)",
+    "build": "next build",
+    "start": "next start -p 4030",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@libsql/client": "0.18.0",
+    "@tiptap/extension-color": "^3.31.3",
+    "@tiptap/extension-highlight": "^3.31.3",
+    "@tiptap/extension-image": "^3.31.3",
+    "@tiptap/extension-link": "^3.31.3",
+    "@tiptap/extension-table": "^3.31.3",
+    "@tiptap/extension-text-align": "^3.31.3",
+    "@tiptap/extension-text-style": "^3.31.3",
+    "@tiptap/extension-underline": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "next": "^16.3.5",
+    "nspell": "2.1.5",
+    "qrcode-generator": "2.0.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "resend": "^6.12.3",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/nspell": "2.1.6",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
+    "eslint": "9.39.5",
+    "eslint-config-next": "^16.2.6",
+    "typescript": "6.0.3"
+  }
+}
