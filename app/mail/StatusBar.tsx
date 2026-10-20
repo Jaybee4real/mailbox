@@ -4,24 +4,29 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useConfirm } from './ConfirmDialog'
 import styles from './page.module.css'
 
-type Link = 'online' | 'slow' | 'offline' | 'back'
+type Link = 'online' | 'slow' | 'busy' | 'offline' | 'down' | 'back' | 'restored'
 
 const SLOW_MS = 8000
+const CHECK_AT_MS = 3000
+const PROBE_FAST_MS = 2500
 const SHOW_AFTER_MS = 2000
 const BACK_FOR_MS = 2500
 const PROBE_EVERY_MS = 5000
 const VERSION_EVERY_MS = 3 * 60 * 1000
-const UNREACHABLE = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530])
+const GATEWAY = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530])
 const BUILD = process.env.NEXT_PUBLIC_BUILD_TIME ?? null
 
-type Listener = (event: 'ok' | 'fail' | 'slow' | 'slow-done') => void
+type Check = { done: boolean; result?: Probe }
+type Tracked = { path: string; started: number; ended?: number; server?: boolean; check?: Check }
+type Signal = 'ok' | 'network' | 'gateway' | 'slow' | 'slow-done'
+type Listener = (signal: Signal, request: Tracked) => void
 const listeners = new Set<Listener>()
 let plainFetch: typeof fetch | null = null
 
 /**
- * Every request the page makes already says whether the server can be reached, so the bar
- * listens to those rather than to navigator.onLine, which stays true on a router that has
- * lost its internet. Patched once per page; the probe uses the unpatched fetch.
+ * The bar listens to the page's own requests rather than navigator.onLine, which stays true
+ * on a router that has lost its internet. A request that never got an answer means the
+ * reader's connection; a gateway error means Cloudflare was reached and our server was not.
  */
 function observeRequests() {
   if (plainFetch || typeof window === 'undefined') return
@@ -31,36 +36,68 @@ function observeRequests() {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     const ours = url.startsWith('/api/') || url.startsWith(`${window.location.origin}/api/`)
     if (!ours) return original(input, init)
-    const emit = (event: Parameters<Listener>[0]) => listeners.forEach(listener => listener(event))
+    const request: Tracked = { path: new URL(url, window.location.origin).pathname, started: Date.now() }
+    const emit = (signal: Signal) => listeners.forEach(listener => listener(signal, request))
     let slow = false
+    const checkTimer = window.setTimeout(() => {
+      request.check = startCheck()
+    }, CHECK_AT_MS)
     const timer = window.setTimeout(() => {
       slow = true
       emit('slow')
     }, SLOW_MS)
     try {
       const response = await original(input, init)
-      emit(UNREACHABLE.has(response.status) ? 'fail' : 'ok')
+      emit(GATEWAY.has(response.status) ? 'gateway' : 'ok')
       return response
     } catch (err) {
-      if ((err as Error)?.name !== 'AbortError') emit('fail')
+      if ((err as Error)?.name !== 'AbortError') emit('network')
       throw err
     } finally {
+      window.clearTimeout(checkTimer)
       window.clearTimeout(timer)
+      request.ended = Date.now()
       if (slow) emit('slow-done')
+      if (request.server) reportSlow(request)
     }
   }
 }
 
-async function probe(): Promise<{ ok: boolean; build: string | null }> {
+function reportSlow(request: Tracked) {
+  try {
+    const body = JSON.stringify({ path: request.path, ms: (request.ended ?? Date.now()) - request.started })
+    navigator.sendBeacon?.('/api/mail/slow-report', new Blob([body], { type: 'application/json' }))
+  } catch {}
+}
+
+type Probe = { reached: 'ok' | 'gateway' | 'network' | 'timeout'; ms: number; build: string | null }
+
+let sharedCheck: { check: Check; at: number } | null = null
+
+/** Times a tiny request beside a slow one. One check serves every request slowed at once. */
+function startCheck(): Check {
+  if (sharedCheck && Date.now() - sharedCheck.at < 4000) return sharedCheck.check
+  const check: Check = { done: false }
+  sharedCheck = { check, at: Date.now() }
+  void probe().then(result => {
+    check.done = true
+    check.result = result
+  })
+  return check
+}
+
+async function probe(): Promise<Probe> {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 5000)
+  const started = Date.now()
   try {
     const response = await (plainFetch ?? fetch)('/api/version', { cache: 'no-store', signal: controller.signal })
-    if (!response.ok) return { ok: !UNREACHABLE.has(response.status), build: null }
-    const data = (await response.json().catch(() => null)) as { build?: string | null } | null
-    return { ok: true, build: data?.build ?? null }
+    const ms = Date.now() - started
+    if (GATEWAY.has(response.status)) return { reached: 'gateway', ms, build: null }
+    const data = response.ok ? ((await response.json().catch(() => null)) as { build?: string | null } | null) : null
+    return { reached: 'ok', ms, build: data?.build ?? null }
   } catch {
-    return { ok: false, build: null }
+    return { reached: controller.signal.aborted ? 'timeout' : 'network', ms: Date.now() - started, build: null }
   } finally {
     window.clearTimeout(timer)
   }
@@ -69,8 +106,8 @@ async function probe(): Promise<{ ok: boolean; build: string | null }> {
 function useLink(): { link: Link; retry: () => Promise<boolean> } {
   const [link, setLink] = useState<Link>('online')
   const recheckRef = useRef<() => Promise<boolean>>(async () => false)
-  const failures = useRef(0)
-  const slowPending = useRef(0)
+  const failures = useRef({ network: 0, gateway: 0 })
+  const pending = useRef({ network: 0, server: 0 })
   const state = useRef<Link>('online')
 
   useEffect(() => {
@@ -78,15 +115,16 @@ function useLink(): { link: Link; retry: () => Promise<boolean> } {
     let backTimer = 0
     const set = (next: Link) => {
       if (state.current === next) return
-      const wasDown = state.current === 'offline'
+      const from = state.current
       state.current = next
-      if (next === 'online' && wasDown) {
-        state.current = 'back'
-        setLink('back')
+      if (next === 'online' && (from === 'offline' || from === 'down')) {
+        const flash: Link = from === 'offline' ? 'back' : 'restored'
+        state.current = flash
+        setLink(flash)
         window.dispatchEvent(new Event('mailbox:back-online'))
         window.clearTimeout(backTimer)
         backTimer = window.setTimeout(() => {
-          if (state.current === 'back') {
+          if (state.current === flash) {
             state.current = 'online'
             setLink('online')
           }
@@ -95,32 +133,47 @@ function useLink(): { link: Link; retry: () => Promise<boolean> } {
       }
       setLink(next)
     }
-    const listener: Listener = event => {
-      if (event === 'ok') {
-        failures.current = 0
-        if (state.current === 'offline' || (state.current === 'slow' && slowPending.current === 0)) set('online')
-      } else if (event === 'fail') {
-        failures.current += 1
-        if (failures.current >= 2) set('offline')
-      } else if (event === 'slow') {
-        slowPending.current += 1
-        if (state.current !== 'offline') set('slow')
-      } else if (slowPending.current > 0) {
-        slowPending.current -= 1
-        if (slowPending.current === 0 && state.current === 'slow') set('online')
+    const outage = () => state.current === 'offline' || state.current === 'down'
+    const settleSlow = () => {
+      if (outage()) return
+      const next = pending.current.network > 0 ? 'slow' : pending.current.server > 0 ? 'busy' : null
+      if (next) set(next)
+      else if (state.current === 'slow' || state.current === 'busy') set('online')
+    }
+    const answered = () => {
+      failures.current = { network: 0, gateway: 0 }
+      if (outage()) set('online')
+    }
+    const failed = (kind: 'network' | 'gateway') => {
+      failures.current[kind] += 1
+      if (kind === 'network' && (failures.current.network >= 2 || !navigator.onLine)) set('offline')
+      if (kind === 'gateway' && failures.current.gateway >= 2 && state.current !== 'offline') set('down')
+    }
+    const listener: Listener = (signal, request) => {
+      if (signal === 'ok') {
+        answered()
+        settleSlow()
+      } else if (signal === 'network' || signal === 'gateway') {
+        failed(signal)
+      } else if (signal === 'slow') {
+        // A check still out after five seconds is itself the answer: the network is slow.
+        const result = request.check?.done ? request.check.result : undefined
+        if (result?.reached === 'network' || result?.reached === 'gateway') return failed(result.reached)
+        request.server = result?.reached === 'ok' && result.ms < PROBE_FAST_MS
+        pending.current[request.server ? 'server' : 'network'] += 1
+        settleSlow()
+      } else if (request.server !== undefined) {
+        const lane = request.server ? 'server' : 'network'
+        pending.current[lane] = Math.max(0, pending.current[lane] - 1)
+        settleSlow()
       }
     }
     listeners.add(listener)
     const recheck = async () => {
       const result = await probe()
-      if (result.ok) {
-        failures.current = 0
-        if (state.current === 'offline') set('online')
-      } else if (state.current !== 'offline') {
-        failures.current += 1
-        if (failures.current >= 2 || !navigator.onLine) set('offline')
-      }
-      return result.ok
+      if (result.reached === 'ok') answered()
+      else failed(result.reached === 'gateway' ? 'gateway' : 'network')
+      return result.reached === 'ok'
     }
     recheckRef.current = recheck
     const onOffline = () => set('offline')
@@ -130,7 +183,7 @@ function useLink(): { link: Link; retry: () => Promise<boolean> } {
     window.addEventListener('offline', onOffline)
     window.addEventListener('online', onOnline)
     const timer = window.setInterval(() => {
-      if (state.current === 'offline') void recheck()
+      if (outage()) void recheck()
     }, PROBE_EVERY_MS)
     if (!navigator.onLine) set('offline')
     return () => {
@@ -142,16 +195,25 @@ function useLink(): { link: Link; retry: () => Promise<boolean> } {
     }
   }, [])
 
-  // An outage shorter than this never shows. Slow has already waited SLOW_MS, so it shows at once.
+  // An outage shorter than this never shows. A slow request has already waited SLOW_MS.
   const [lasting, setLasting] = useState<Link | null>(null)
   useEffect(() => {
-    if (link === 'back') return
-    const timer = window.setTimeout(() => setLasting(link === 'online' ? null : link), link === 'offline' ? SHOW_AFTER_MS : 0)
+    if (link === 'back' || link === 'restored') return
+    const outage = link === 'offline' || link === 'down'
+    const timer = window.setTimeout(() => setLasting(link === 'online' ? null : link), outage ? SHOW_AFTER_MS : 0)
     return () => window.clearTimeout(timer)
   }, [link])
   const retry = useCallback(() => recheckRef.current(), [])
   const shown =
-    link === 'online' ? link : link === 'back' ? (lasting === 'offline' ? 'back' : 'online') : lasting === link || link === 'slow' ? link : 'online'
+    link === 'online'
+      ? link
+      : link === 'back'
+        ? (lasting === 'offline' ? 'back' : 'online')
+        : link === 'restored'
+          ? (lasting === 'down' ? 'restored' : 'online')
+          : link === 'slow' || link === 'busy' || lasting === link
+            ? link
+            : 'online'
   return { link: shown, retry }
 }
 
@@ -202,7 +264,29 @@ const ICONS = {
       <path d="M12 7v5l3 2" />
     </svg>
   ),
+  busy: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <path d="M6 2h12" />
+      <path d="M6 22h12" />
+      <path d="M7 2v4a5 5 0 0 0 10 0V2" />
+      <path d="M7 22v-4a5 5 0 0 1 10 0v4" />
+    </svg>
+  ),
+  down: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <rect x="3" y="4" width="18" height="7" rx="1.5" />
+      <rect x="3" y="13" width="18" height="7" rx="1.5" />
+      <path d="M7 7.5h.01" />
+      <path d="M7 16.5h.01" />
+      <path d="M11 16.5h6" />
+    </svg>
+  ),
   back: (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  ),
+  restored: (
     <svg viewBox="0 0 24 24" aria-hidden>
       <path d="M20 6 9 17l-5-5" />
     </svg>
@@ -217,8 +301,11 @@ const ICONS = {
 
 const COPY: Record<Exclude<Link, 'online'>, { title: string; detail: string }> = {
   offline: { title: 'You are offline', detail: 'Mail already loaded stays readable. You can send again once you reconnect.' },
+  down: { title: 'Mailbox not responding', detail: 'Your connection is fine. We keep retrying the mail server.' },
   slow: { title: 'Slow connection', detail: 'Still working on it. This can take a little longer than usual.' },
+  busy: { title: 'Taking longer than usual', detail: 'Your connection is fine. The mailbox is still working on it.' },
   back: { title: 'Back online', detail: 'Bringing your mail up to date.' },
+  restored: { title: 'Mailbox is responding again', detail: 'Bringing your mail up to date.' },
 }
 
 export default function StatusBar() {
@@ -279,9 +366,9 @@ export default function StatusBar() {
             <strong>{COPY[link].title}</strong>
             <span>{COPY[link].detail}</span>
           </span>
-          {link === 'offline' && (
+          {(link === 'offline' || link === 'down') && (
             <button type="button" className={styles.statusGhost} onClick={tryAgain} disabled={retrying === 'checking'}>
-              {retrying === 'checking' ? 'Checking…' : retrying === 'failed' ? 'Still offline' : 'Try again'}
+              {retrying === 'checking' ? 'Checking…' : retrying === 'failed' ? (link === 'down' ? 'Still not responding' : 'Still offline') : 'Try again'}
             </button>
           )}
         </div>

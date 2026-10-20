@@ -6227,11 +6227,15 @@
   background: var(--tone);
   opacity: .9;
 }
-.status_offline { --tone: var(--tone-offline); }
-.status_slow { --tone: var(--tone-slow); }
-.status_back { --tone: var(--tone-back); }
+.status_offline,
+.status_down { --tone: var(--tone-offline); }
+.status_slow,
+.status_busy { --tone: var(--tone-slow); }
+.status_back,
+.status_restored { --tone: var(--tone-back); }
 .status_update { --tone: var(--tone-update); }
-.status_slow::after {
+.status_slow::after,
+.status_busy::after {
   background: linear-gradient(90deg, transparent 0%, var(--tone) 40%, var(--tone) 60%, transparent 100%);
   background-size: 40% 100%;
   background-repeat: no-repeat;
@@ -6257,7 +6261,8 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.status_offline .statusIcon::before {
+.status_offline .statusIcon::before,
+.status_down .statusIcon::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -6331,6 +6336,8 @@
   .statusBar,
   .status_slow::after,
   .status_offline .statusIcon::before,
+  .status_down .statusIcon::before,
+  .status_busy::after,
   .status_slow .statusIcon svg { animation: none; }
 }
 
