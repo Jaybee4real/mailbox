@@ -8,7 +8,9 @@ async function ready() {
     id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, email TEXT NOT NULL,
     fingerprint TEXT NOT NULL, device TEXT NOT NULL, expires_at INTEGER NOT NULL,
     created_at TEXT NOT NULL, last_used_at TEXT NOT NULL, push_token TEXT, previews INTEGER DEFAULT 0
-  )`).catch(error => { schema = undefined; throw error })
+  )`)
+    .then(() => tursoQuery('ALTER TABLE mail_mobile_sessions ADD COLUMN push_kind TEXT').catch(() => {}))
+    .catch(error => { schema = undefined; throw error })
   await schema
 }
 export async function issueMobileSession(email: string, fingerprint: string, device = 'Vela Mail') {
@@ -37,11 +39,11 @@ export async function revokeMobileDevice(email: string, id: string) {
   await ready()
   await tursoQuery('DELETE FROM mail_mobile_sessions WHERE email = ? AND id = ?', [email, id])
 }
-export async function setMobilePush(email: string, id: string, token: string | null, previews = false) {
+export async function setMobilePush(email: string, id: string, token: string | null, previews = false, kind: string | null = null) {
   await ready()
-  await tursoQuery('UPDATE mail_mobile_sessions SET push_token = ?, previews = ? WHERE email = ? AND id = ?', [token, previews, email, id])
+  await tursoQuery('UPDATE mail_mobile_sessions SET push_token = ?, previews = ?, push_kind = ? WHERE email = ? AND id = ?', [token, previews, token ? kind : null, email, id])
 }
 export async function mobilePushRecipients(email: string) {
   await ready()
-  return tursoQuery('SELECT id, push_token, previews FROM mail_mobile_sessions WHERE email = ? AND push_token IS NOT NULL AND expires_at > ?', [email, Date.now()])
+  return tursoQuery('SELECT id, push_token, previews, push_kind FROM mail_mobile_sessions WHERE email = ? AND push_token IS NOT NULL AND expires_at > ?', [email, Date.now()])
 }

@@ -23,18 +23,21 @@ async function accessToken(account: Credentials): Promise<string> {
   return data.access_token
 }
 
-export async function sendFcm(token: string, notification: { title: string; body: string }, data: Record<string, string>): Promise<'sent' | 'unregistered' | 'unconfigured' | 'failed'> {
+export async function sendFcm(token: string, notification: { title: string; body: string; subtitle?: string; alertBody?: string } | null, data: Record<string, string>): Promise<'sent' | 'unregistered' | 'unconfigured' | 'failed'> {
   const account = credentials()
   if (!account) return 'unconfigured'
   const bearer = await accessToken(account)
   const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
     method: 'POST', headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      message: {
-        token, notification, data,
-        apns: { headers: { 'apns-priority': '10', 'apns-push-type': 'alert' }, payload: { aps: { sound: 'default', 'thread-id': data.email ?? 'mail' } } },
-        android: { priority: 'high', ttl: '86400s', notification: { channel_id: 'mail', tag: data.id || undefined, icon: 'ic_notification', default_sound: true, notification_priority: 'PRIORITY_HIGH', visibility: 'PRIVATE' } },
-      },
+      message: notification
+        ? {
+            token, data,
+            notification: { title: notification.title, body: notification.body },
+            apns: { headers: { 'apns-priority': '10', 'apns-push-type': 'alert' }, payload: { aps: { sound: 'default', 'thread-id': data.email ?? 'mail', alert: { title: notification.title, ...(notification.subtitle ? { subtitle: notification.subtitle } : {}), body: notification.alertBody ?? notification.body } } } },
+            android: { priority: 'high', ttl: '86400s', notification: { channel_id: 'mail', tag: data.id || undefined, icon: 'ic_notification', default_sound: true, notification_priority: 'PRIORITY_HIGH', visibility: 'PRIVATE' } },
+          }
+        : { token, data, android: { priority: 'high', ttl: '86400s' } },
     }), signal: AbortSignal.timeout(10000),
   })
   if (response.ok) return 'sent'

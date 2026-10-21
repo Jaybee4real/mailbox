@@ -63,6 +63,14 @@ function snippet(html: string | null, text: string | null): string {
   return source.replace(/\s+/g, ' ').trim().slice(0, 240)
 }
 
+const ENTITIES: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'" }
+
+export function notificationPreview(html: string | null, text: string | null): string {
+  const plain = snippet(html, text).replace(/&(nbsp|amp|lt|gt|quot|apos|#39);/g, (_match, name: string) => ENTITIES[name] ?? ' ')
+  const cut = plain.search(/\bOn .{4,120} wrote:|-----Original Message-----|^>/)
+  return (cut > 0 ? plain.slice(0, cut) : plain).replace(/\s+/g, ' ').trim().slice(0, 160)
+}
+
 function escapeHtml(src: string): string {
   return src.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
@@ -424,6 +432,11 @@ export async function ingestReceived(
       await sendPush(inbound.owner, {
         title: sender.name || sender.email || 'New mail',
         body: inbound.subject,
+        subject: inbound.subject || '(no subject)',
+        preview: notificationPreview(inbound.html, inbound.text),
+        senderEmail: sender.email,
+        messageId: String(inbound.headers['message-id'] ?? inbound.headers['Message-ID'] ?? ''),
+        replyTo: parseSender(inbound.replyTo[0] ?? inbound.from).email,
         tag: id,
       }).catch(() => {})
     }
