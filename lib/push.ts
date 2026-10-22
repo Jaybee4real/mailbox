@@ -48,18 +48,21 @@ export async function sendNativePush(owner: string, payload: PushPayload, only?:
       const previews = Boolean(device.previews)
       const subject = payload.subject ?? payload.body
       const preview = payload.preview ?? ''
-      const data = { domain: BRAND.domain, email: owner, url: payload.url ?? '/mail', id: payload.tag ?? '' }
+      const data = {
+        domain: BRAND.domain,
+        email: owner,
+        url: payload.url ?? '/mail',
+        id: payload.tag ?? '',
+        kind: 'mail',
+        label: `${BRAND.name} Mail`,
+        previews: previews ? '1' : '0',
+        ...(previews ? { sender: payload.senderEmail ?? '' } : {}),
+        messageId: payload.messageId ?? '',
+        replyTo: payload.replyTo ?? payload.senderEmail ?? '',
+        replySubject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
+      }
       const result = await (device.push_kind === 'fcm-data'
-        ? sendFcm(String(device.push_token), null, {
-            ...data,
-            kind: 'mail',
-            label: `${BRAND.name} Mail`,
-            previews: previews ? '1' : '0',
-            ...(previews ? { title: payload.title, subject, preview, sender: payload.senderEmail ?? '' } : {}),
-            messageId: payload.messageId ?? '',
-            replyTo: payload.replyTo ?? payload.senderEmail ?? '',
-            replySubject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
-          })
+        ? sendFcm(String(device.push_token), null, { ...data, ...(previews ? { title: payload.title, subject, preview } : {}) })
         : sendFcm(String(device.push_token), previews
             ? { title: payload.title, subtitle: subject, body: preview ? `${subject}\n${preview}` : subject, alertBody: preview || subject }
             : { title: `${BRAND.name} Mail`, body: 'You have new mail.' }, data)

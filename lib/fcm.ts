@@ -34,7 +34,7 @@ export async function sendFcm(token: string, notification: { title: string; body
         ? {
             token, data,
             notification: { title: notification.title, body: notification.body },
-            apns: { headers: { 'apns-priority': '10', 'apns-push-type': 'alert' }, payload: { aps: { sound: 'default', 'thread-id': data.email ?? 'mail', alert: { title: notification.title, ...(notification.subtitle ? { subtitle: notification.subtitle } : {}), body: notification.alertBody ?? notification.body } } } },
+            apns: { headers: { 'apns-priority': '10', 'apns-push-type': 'alert' }, payload: { aps: { sound: 'default', 'thread-id': data.email ?? 'mail', 'mutable-content': 1, category: 'VELA_MAIL', alert: { title: notification.title, ...(notification.subtitle ? { subtitle: notification.subtitle } : {}), body: notification.alertBody ?? notification.body } } } },
             android: { priority: 'high', ttl: '86400s', notification: { channel_id: 'mail', tag: data.id || undefined, icon: 'ic_notification', default_sound: true, notification_priority: 'PRIORITY_HIGH', visibility: 'PRIVATE' } },
           }
         : { token, data, android: { priority: 'high', ttl: '86400s' } },
