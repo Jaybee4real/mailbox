@@ -64,6 +64,7 @@ import { FIRST_MESSAGE_REASON, isLookalikeReason } from '@/lib/risk'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
 import HumanCheck from './HumanCheck'
+import PeopleList, { type Person } from './PeopleList'
 import LinkSettings, { defaultLinkSettings, linkSettingsFromShare, linkSettingsPayload, linkSummary, linkTerms, type LinkSettingsValue } from './LinkSettings'
 import { shareGate, type ShareAccess } from '@/lib/share-policy'
 
@@ -157,16 +158,7 @@ function themeVars(accent: string, base: ThemeBase, custom: ThemeCustom): React.
   return vars as React.CSSProperties
 }
 type MailAccountInfo = { email: string; address: string | null; name?: string | null; role: 'admin' | 'member'; defaultPassword?: boolean }
-type Accessor = {
-  email: string
-  name: string | null
-  address: string | null
-  role: 'admin' | 'member'
-  status: string
-  hasPassword: boolean
-  invitedBy: string | null
-  twoStep?: boolean
-}
+type Accessor = Person
 
 type Folder = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'scheduled' | 'drafts' | 'archived' | 'spam' | 'trash'
 
@@ -10709,144 +10701,41 @@ export default function DevMailPage() {
             )}
           </div>
 
-          <ul className={styles.accessorList}>
-            {accessors.map(entry => (
-              <li key={entry.email} className={styles.accessorItem}>
-                <div className={styles.accessorMeta}>
-                  <strong>{entry.name || entry.email}</strong>
-                  <span className={styles.accessorSub}>{entry.email}</span>
-                  {renameTarget === entry.email ? (
-                    <span className={styles.mailboxField}>
-                      <span className={styles.mailboxInputWrap}>
-                        <input
-                          type="text"
-                          autoFocus
-                          aria-label={`Mailbox for ${entry.email}`}
-                          value={renameHandle}
-                          onChange={event => setRenameHandle(event.target.value)}
-                          onKeyDown={event => {
-                            if (event.key === 'Enter') saveMailboxName(entry.email)
-                            if (event.key === 'Escape') setRenameTarget(null)
-                          }}
-                        />
-                        {addressDomains.length > 1 ? (
-                          <MailSelect
-                            buttonClassName={styles.mailboxDomainSelect}
-                            ariaLabel={`Mail domain for ${entry.email}`}
-                            value={renameDomain}
-                            onChange={setRenameDomain}
-                            options={addressDomains.map(domain => ({ value: domain, label: `@${domain}` }))}
-                          />
-                        ) : (
-                          <span className={styles.mailboxDomain}>@{addressDomain}</span>
-                        )}
-                      </span>
-                      <button className={styles.mailboxSave} onClick={() => saveMailboxName(entry.email)} type="button">
-                        Save
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      className={styles.mailboxTag}
-                      onClick={() => {
-                        setRenameTarget(entry.email)
-                        setRenameHandle((entry.address ?? '').split('@')[0])
-                        setRenameDomain((entry.address ?? '').split('@')[1] || addressDomain)
-                      }}
-                      title="Change this mailbox address"
-                      type="button"
-                    >
-                      {entry.address ?? 'no mailbox'}
-                    </button>
-                  )}
-                </div>
-                <div className={styles.accessorControls}>
-                  <span className={`${styles.accessorBadge} ${entry.status !== 'active' ? styles.accessorPending : ''}`}>
-                    {entry.status === 'active' ? 'Active' : 'Invited'}
-                  </span>
-                  <MailSelect
-                    value={entry.role}
-                    options={ROLE_OPTIONS}
-                    ariaLabel={`Role for ${entry.name || entry.email}`}
-                    buttonClassName={styles.accessorRoleBtn}
-                    onChange={value => changeAccessorRole(entry.email, value as 'admin' | 'member')}
-                  />
-                  <button
-                    className={styles.mailboxTag}
-                    onClick={() => mintResetLink(entry.email)}
-                    title={`Copy a one-time password reset link for ${entry.email}`}
-                    type="button"
-                  >
-                    Reset link
-                  </button>
-                  <button
-                    className={styles.mailboxTag}
-                    onClick={() => setAdminPassword(current => (current?.email === entry.email ? null : { email: entry.email, value: '' }))}
-                    title={`Set a new password for ${entry.email} yourself`}
-                    type="button"
-                  >
-                    Set password
-                  </button>
-                  {entry.twoStep && (
-                    <button
-                      className={styles.mailboxTag}
-                      onClick={() => turnOffTwoStepFor(entry.email)}
-                      title={`Turn off two-step sign-in for ${entry.email}`}
-                      type="button"
-                    >
-                      Turn off two-step
-                    </button>
-                  )}
-                  <button
-                    className={styles.accessorRemove}
-                    onClick={() => removeAccessor(entry.email)}
-                    aria-label={`Remove ${entry.email}`}
-                    type="button"
-                  >
-                    {ICONS.close}
-                  </button>
-                </div>
-                {adminPassword?.email === entry.email && (
-                  <form
-                    className={styles.adminPassword}
-                    onSubmit={event => {
-                      event.preventDefault()
-                      void saveAdminPassword()
-                    }}
-                  >
-                    <label className={styles.settingsField}>
-                      <span>New password for {entry.name || entry.email}</span>
-                      <input
-                        value={adminPassword.value}
-                        onChange={event => setAdminPassword({ email: entry.email, value: event.target.value })}
-                        autoComplete="new-password"
-                        placeholder="At least 10 characters"
-                        autoFocus
-                      />
-                    </label>
-                    <div className={styles.factorActions}>
-                      <button type="submit" className={styles.pwSubmit} disabled={adminPassword.value.length < 10}>
-                        Save and copy
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        onClick={() => {
-                          const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
-                          const bytes = crypto.getRandomValues(new Uint8Array(16))
-                          const generated = Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('')
-                          setAdminPassword({ email: entry.email, value: `${generated.slice(0, 4)}-${generated.slice(4, 8)}-${generated.slice(8, 12)}-${generated.slice(12)}` })
-                        }}
-                      >
-                        Generate one
-                      </button>
-                      <button type="button" className={styles.linkBtn} onClick={() => setAdminPassword(null)}>Cancel</button>
-                    </div>
-                  </form>
-                )}
-              </li>
-            ))}
-          </ul>
+          <PeopleList
+            people={accessors}
+            me={account?.email ?? null}
+            defaultDomain={addressDomain}
+            domains={addressDomains}
+            rename={{
+              target: renameTarget,
+              handle: renameHandle,
+              domain: renameDomain,
+              start: person => {
+                setRenameTarget(person.email)
+                setRenameHandle((person.address ?? '').split('@')[0])
+                setRenameDomain((person.address ?? '').split('@')[1] || addressDomain)
+              },
+              cancel: () => setRenameTarget(null),
+              setHandle: setRenameHandle,
+              setDomain: setRenameDomain,
+              save: saveMailboxName,
+            }}
+            password={{
+              target: adminPassword,
+              toggle: target => setAdminPassword(current => (current?.email === target ? null : { email: target, value: '' })),
+              set: (target, value) => setAdminPassword({ email: target, value }),
+              save: () => void saveAdminPassword(),
+              cancel: () => setAdminPassword(null),
+            }}
+            onRole={changeAccessorRole}
+            onResetLink={mintResetLink}
+            onTwoStepOff={turnOffTwoStepFor}
+            onRemove={removeAccessor}
+            onCopied={address => {
+              setAccessorsBad(false)
+              setAccessorsMsg(`${address} copied.`)
+            }}
+          />
             </>
             )}
 
