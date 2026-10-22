@@ -15,6 +15,7 @@ import {
   deleteAccount,
   createResetToken,
   recordSentMeta,
+  setRecoveryEmail,
   type MailRole,
 } from '@/lib/mailbox'
 
@@ -61,7 +62,7 @@ async function uniqueAddress(handle: string, domain: string = ADDRESS_DOMAIN): P
   const base = slugifyHandle(handle) || 'user'
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const candidate = `${attempt === 0 ? base : `${base}${attempt + 1}`}@${domain}`
-    if (!(await getAccountByAddress(candidate))) return candidate
+    if (!(await getAccountByAddress(candidate)) && !(await getAccount(candidate))) return candidate
   }
   return `${base}.${randomBytes(3).toString('hex')}@${domain}`
 }
@@ -85,26 +86,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const email = (body.email ?? '').trim().toLowerCase()
-  if (!email || !email.includes('@')) {
+  const sendTo = (body.email ?? '').trim().toLowerCase()
+  if (!sendTo || !sendTo.includes('@')) {
     return NextResponse.json({ ok: false, error: 'A valid email is required' }, { status: 400 })
   }
-  const existing = await getAccount(email)
-  if (existing && existing.status === 'active') {
-    return NextResponse.json({ ok: false, error: 'That person already has an account' }, { status: 409 })
-  }
-  if (email === inviter.email || email === inviter.address) {
-    return NextResponse.json({ ok: false, error: 'That is your own address' }, { status: 400 })
-  }
+  const holderOfSendTo = await getAccount(sendTo)
+  const ownSignIn = sendTo === inviter.email.toLowerCase() || sendTo === inviter.address?.toLowerCase()
+  const separateSignIn = ownSignIn || holderOfSendTo?.status === 'active'
+  const existing = separateSignIn ? null : holderOfSendTo
   // An invite has to reach somebody. Sending it to a mailbox on our own domain that nobody
   // can open yet — the very address this invite would create, most often — posts the link
   // into a box only the new person could read once they had already accepted it.
-  const inviteeDomain = email.split('@')[1] ?? ''
+  const inviteeDomain = sendTo.split('@')[1] ?? ''
   if (ADDRESS_DOMAINS.includes(inviteeDomain)) {
-    const holder = await getAccountByAddress(email)
+    const holder = await getAccountByAddress(sendTo)
     if (!holder || holder.status !== 'active') {
       return NextResponse.json(
-        { ok: false, error: `Nobody can read ${email} yet. Send the invite to an address they already have.` },
+        { ok: false, error: `Nobody can read ${sendTo} yet. Send the invite to an address they already have.` },
         { status: 400 },
       )
     }
@@ -114,9 +112,11 @@ export async function POST(req: Request) {
   const name = body.name?.trim() || null
   const domain = resolveDomain(body.domain)
   if (!domain) return NextResponse.json({ ok: false, error: 'That mail domain is not available' }, { status: 400 })
-  const address = existing?.address ?? (await uniqueAddress(body.handle || name || email, domain))
+  const address = existing?.address ?? (await uniqueAddress(body.handle || name || sendTo, domain))
+  const email = separateSignIn ? address : sendTo
 
   await createAccount({ email, address, role, name, status: 'pending', invitedBy: inviter.email })
+  if (separateSignIn) await setRecoveryEmail(email, sendTo)
 
   const token = randomBytes(32).toString('hex')
   await createResetToken(email, token, Date.now() + INVITE_TTL_MS)
@@ -128,14 +128,14 @@ export async function POST(req: Request) {
     const { id } = await sendMail({
       from,
       fromName: `${BRAND.name} Mail`,
-      to: [email],
+      to: [sendTo],
       subject: `You've been invited to ${BRAND.name} Mail`,
-      text: `${inviter.email} invited you to ${BRAND.name} Mail.\n\nSet your password to get started: ${inviteUrl}\n\nThis link expires in 7 days.`,
+      text: `${inviter.email} invited you to ${BRAND.name} Mail${separateSignIn ? ` with the mailbox ${address}, which you sign in with` : ''}.\n\nSet your password to get started: ${inviteUrl}\n\nThis link expires in 7 days.`,
       html: renderActionEmail({
         eyebrow: `${BRAND.name} · Mail`,
         accent: BRAND.colors.accent,
         title: `You've been invited to ${BRAND.name} Mail`,
-        body: `${inviter.email} gave you access to ${BRAND.name} Mail${name ? `, ${name}` : ''}. Set a password to get started.`,
+        body: `${inviter.email} gave you access to ${BRAND.name} Mail${name ? `, ${name}` : ''}${separateSignIn ? ` with the mailbox ${address}, which you sign in with` : ''}. Set a password to get started.`,
         actionLabel: 'Set your password',
         actionUrl: inviteUrl,
         expiry: 'This invite link expires in 7 days.',
@@ -146,10 +146,10 @@ export async function POST(req: Request) {
   } catch (err) {
     // The account row already exists; say the invite did not go out rather than imply it did.
     console.error('[mail] invite email failed:', err)
-    return NextResponse.json({ ok: false, error: err instanceof BlockedRecipientsError ? `Account created, but the invite was not sent. ${err.message}` : 'Account created, but the invite email could not be sent', email, address, role }, { status: 502 })
+    return NextResponse.json({ ok: false, error: err instanceof BlockedRecipientsError ? `Account created, but the invite was not sent. ${err.message}` : 'Account created, but the invite email could not be sent', email, address, role, sentTo: sendTo }, { status: 502 })
   }
 
-  return NextResponse.json({ ok: true, email, address, role })
+  return NextResponse.json({ ok: true, email, address, role, sentTo: sendTo })
 }
 
 export async function PATCH(req: Request) {

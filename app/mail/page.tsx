@@ -3169,7 +3169,7 @@ export default function DevMailPage() {
       const data = await response.json()
       if (data.ok) {
         setAccessorsBad(false)
-        setAccessorsMsg(`Invite sent to ${data.email} — mailbox ${data.address}.`)
+        setAccessorsMsg(`Invite sent to ${data.sentTo ?? data.email} — mailbox ${data.address}${data.sentTo && data.sentTo !== data.email ? `, which signs in as ${data.email}` : ''}.`)
         setInviteEmail('')
         setInviteName('')
         setInviteHandle('')
