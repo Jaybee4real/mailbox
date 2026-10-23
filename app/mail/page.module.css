@@ -8621,3 +8621,21 @@
   .personRow { grid-template-columns: 34px minmax(0, 1fr); }
   .personActions { grid-column: 2; }
 }
+.frameShell {
+  position: relative;
+}
+.frameShellFill {
+  height: 100%;
+}
+.frameShell[data-ready='false'] {
+  min-height: 320px;
+}
+.frameShell[data-ready='false'] > iframe {
+  visibility: hidden;
+}
+.frameSkeleton {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}

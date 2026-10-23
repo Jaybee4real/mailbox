@@ -870,6 +870,32 @@ function BodySkeleton() {
   )
 }
 
+const FRAME_REVEAL_MS = 1200
+
+function LoadingFrame({ fill = false, onLoad, ...frame }: React.IframeHTMLAttributes<HTMLIFrameElement> & { fill?: boolean }) {
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setReady(true), FRAME_REVEAL_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
+  return (
+    <div className={`${styles.frameShell} ${fill ? styles.frameShellFill : ''}`} data-ready={ready}>
+      <iframe
+        {...frame}
+        onLoad={event => {
+          setReady(true)
+          onLoad?.(event)
+        }}
+      />
+      {!ready && (
+        <div className={styles.frameSkeleton} aria-hidden>
+          <BodySkeleton />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function countRemoteRefs(html: string | null): number {
   if (!html) return 0
   return (html.match(/(?:src|background)\s*=\s*["']?https?:\/\//gi) ?? []).length
@@ -1119,7 +1145,14 @@ function frameHtml(html: string, allowRemote: boolean, spacing = DEFAULT_LINE_SP
   // navigation, which reads as a broken button rather than a blocked one. Scripts are still
   // not allowed, so nothing here can open a tab on its own — only a real click can.
   const ownDark = theme !== 'light' && designsForDark(html)
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${csp}${readerTheme(spacing, dark, ownDark)}<base target="_blank"></head><body><div class="nc-paper">${ownLinkTargets(stripOwnPixel(pinColorScheme(html, theme !== 'light')))}</div></body>`
+  // A stylesheet link holds back painting of everything after it until it loads, so a slow
+  // font host left the whole message blank. Placed last, the text paints and restyles later.
+  const stylesheets: string[] = []
+  const content = html.replace(/<link\b[^>]*\brel\s*=\s*["']?stylesheet["']?[^>]*>/gi, tag => {
+    stylesheets.push(tag)
+    return ''
+  })
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${csp}${readerTheme(spacing, dark, ownDark)}<base target="_blank"></head><body><div class="nc-paper">${ownLinkTargets(stripOwnPixel(pinColorScheme(content, theme !== 'light')))}</div>${stylesheets.join('')}</body>`
 }
 
 function headerValue(email: InboundEmail, key: string): string {
@@ -6949,7 +6982,8 @@ export default function DevMailPage() {
       // sandbox omits allow-scripts, so no email JS runs; CSP still blocks fetches.
       return (
         <>
-          <iframe
+          <LoadingFrame
+            key={`${message.id}:${showRemote}`}
             className={styles.threadFrame}
             sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
             srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme)}
@@ -6959,7 +6993,7 @@ export default function DevMailPage() {
         </>
       )
     }
-    return <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation" srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme)} title="Email content" />
+    return <LoadingFrame key={`${message.id}:${showRemote}`} fill className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation" srcDoc={frameHtml(bodyHtml, showRemote, readerSpacing, resolvedTheme)} title="Email content" />
   }
 
   // One message open at a time — opening another collapses the rest.
@@ -6974,7 +7008,8 @@ export default function DevMailPage() {
     if (hasMarkup(detail.html)) {
       const split = splitQuotedTail(detail.html)
       return (
-        <iframe
+        <LoadingFrame
+          key={sent.id}
           className={styles.threadFrame}
           sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
           srcDoc={frameHtml(resolveInlineImages(healGooglePrivateImages(split.tail ? foldQuote(split.head, split.tail) : detail.html, CLIENT_BRAND.markUrl), detail.inlineImages, window.location.origin), true, readerSpacing, resolvedTheme)}
@@ -8304,7 +8339,7 @@ export default function DevMailPage() {
             {!selectedDetail ? (
               <BodySkeleton />
             ) : selectedDetail.html ? (
-              <iframe className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation" srcDoc={frameHtml(resolveInlineImages(selectedDetail.html, selectedDetail.inlineImages, window.location.origin), true, readerSpacing, resolvedTheme)} title="Email content" />
+              <LoadingFrame key={selectedSent?.id} fill className={styles.readerFrame} sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation" srcDoc={frameHtml(resolveInlineImages(selectedDetail.html, selectedDetail.inlineImages, window.location.origin), true, readerSpacing, resolvedTheme)} title="Email content" />
             ) : selectedDetail.text ? (
               <pre className={styles.readerText}>{selectedDetail.text}</pre>
             ) : (
