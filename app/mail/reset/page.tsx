@@ -1,7 +1,7 @@
 'use client'
 
 import { CLIENT_BRAND } from '@/lib/brand.client'
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import styles from '../page.module.css'
@@ -15,6 +15,20 @@ function ResetForm() {
   const [showPassword, setShowPassword] = useState(false)
   const [status, setStatus] = useState<'idle' | 'saving' | 'done'>('idle')
   const [error, setError] = useState('')
+  const [signedInAs, setSignedInAs] = useState<string | null>(null)
+
+  useEffect(() => {
+    let live = true
+    fetch('/api/mail/me')
+      .then(response => (response.ok ? response.json() : null))
+      .then(data => {
+        if (live && data?.ok && data.email) setSignedInAs(data.address || data.email)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -88,6 +102,11 @@ function ResetForm() {
       <p className={styles.loginSub}>
         {invite ? 'Create a password to activate your mailbox and sign in.' : `Choose a new password for your ${CLIENT_BRAND.name} Mail account.`}
       </p>
+      {signedInAs && (
+        <p className={styles.loginSub} role="note">
+          This browser is signed in as <strong>{signedInAs}</strong>. {invite ? 'Creating this password' : 'Saving this password'} signs it in as the account this link belongs to instead, and any open tabs lose access. To stay signed in, open the link in a private window.
+        </p>
+      )}
       <label className={styles.loginField}>
         <span>New password</span>
         <div className={styles.pwWrap}>

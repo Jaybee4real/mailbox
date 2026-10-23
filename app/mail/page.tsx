@@ -1754,6 +1754,7 @@ export default function DevMailPage() {
     }, 220)
   }, [])
   const [account, setAccount] = useState<MailAccountInfo | null>(null)
+  const [switchedTo, setSwitchedTo] = useState<string | null>(null)
   const [mailbox, setMailbox] = useState<string>('all')
   // Starts true so the very first fetch shows skeletons instead of the empty state.
   const [mailboxLoading, setMailboxLoading] = useState(true)
@@ -3366,6 +3367,28 @@ export default function DevMailPage() {
       })
       .catch(() => {})
   }, [isLoggedIn, apiHeaders])
+
+  const accountEmail = account?.email ?? null
+  useEffect(() => {
+    if (!accountEmail) return
+    const check = () => {
+      if (document.visibilityState !== 'visible') return
+      fetch('/api/mail/me')
+        .then(response => (response.ok ? response.json() : null))
+        .then(data => {
+          if (data?.ok && data.email && String(data.email).toLowerCase() !== accountEmail.toLowerCase()) {
+            setSwitchedTo(data.address || data.email)
+          }
+        })
+        .catch(() => {})
+    }
+    window.addEventListener('focus', check)
+    document.addEventListener('visibilitychange', check)
+    return () => {
+      window.removeEventListener('focus', check)
+      document.removeEventListener('visibilitychange', check)
+    }
+  }, [accountEmail])
 
   const scheduledEmails = useMemo(() => {
     // The app's own queue, plus anything a provider is still holding from before this was
@@ -8333,6 +8356,17 @@ export default function DevMailPage() {
       )}
       {(() => {
         const notices: Array<{ key: string; title: string; body: string; dismiss: string; action: string; onDismiss: () => void; onAction: () => void }> = []
+        if (switchedTo) {
+          notices.push({
+            key: 'switched',
+            title: 'Signed in as someone else',
+            body: `This browser is now signed in as ${switchedTo}, from another tab. This page still shows ${account?.address || account?.email || 'your previous account'}, so anything you do here will be refused.`,
+            dismiss: 'Sign out',
+            action: `Continue as ${switchedTo}`,
+            onDismiss: () => void signOut(),
+            onAction: () => window.location.reload(),
+          })
+        }
         if (isLoggedIn && !settings.desktopNotifications && notifyPermission !== 'denied' && notifyPermission !== 'unsupported' && !notifyNoticeHidden) {
           notices.push({
             key: 'notifications',
