@@ -19,6 +19,7 @@ import { inboxFiltersSql, normalizeInboxFilters, prioritySenders, prioritySql, t
 import { impersonationReasons, judgeMessage, raiseRisk, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
 import type { ShareAccess, ShareSettings } from './share-policy'
 import { providerBase } from './provider-base'
+import { removeAllPasskeys } from './passkeys'
 
 export { judgeMessage, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding }
 
@@ -2155,6 +2156,7 @@ export async function deleteAccount(email: string): Promise<void> {
   const sql = db()
   await sql`DELETE FROM mail_accounts WHERE email = ${email.trim().toLowerCase()}`
   await sql`DELETE FROM mail_reset_tokens WHERE email = ${email.trim().toLowerCase()}`
+  await removeAllPasskeys(email).catch(() => {})
 }
 
 /** Record a recovery address as claimed but unproven. Re-saving the same one re-arms it. */

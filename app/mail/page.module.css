@@ -4119,6 +4119,19 @@
   margin: 4px 0 0;
   text-decoration: none;
 }
+.loginPasskeyBtn {
+  margin: 0;
+  padding: 11px 16px;
+  border: 1px solid var(--nc-line-2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--nc-fg-1);
+  font: 600 14px/1.2 var(--nc-font-sans);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--nc-ease-out);
+}
+.loginPasskeyBtn:hover { background: var(--nc-ink-2); }
+.loginPasskeyBtn:disabled { opacity: .6; cursor: default; }
 .loginTextLink {
   border: none;
   background: transparent;

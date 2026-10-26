@@ -18,6 +18,6 @@ export async function GET() {
     protocol: 'novacraft-mailbox', version: 1,
     ...identity,
     workspace: identity,
-    capabilities: ['bearer-session', 'threads', 'search', 'scheduled', 'stash', 'workspace'],
+    capabilities: ['bearer-session', 'threads', 'search', 'scheduled', 'stash', 'workspace', 'passkeys'],
   }, { headers: { 'Cache-Control': 'public, max-age=300' } })
 }

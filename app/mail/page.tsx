@@ -65,6 +65,8 @@ import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
 import HumanCheck from './HumanCheck'
 import PeopleList, { type Person } from './PeopleList'
+import PasskeySettings from './PasskeySettings'
+import PasskeySignIn from './PasskeySignIn'
 import LinkSettings, { defaultLinkSettings, linkSettingsFromShare, linkSettingsPayload, linkSummary, linkTerms, type LinkSettingsValue } from './LinkSettings'
 import { shareGate, type ShareAccess } from '@/lib/share-policy'
 
@@ -6485,7 +6487,7 @@ export default function DevMailPage() {
                   const [local, domain] = trimmed.split('@')
                   setEmail(domain ? trimmed.toLowerCase() : `${local}@${loginDomain}`)
                 }}
-                autoComplete="username"
+                autoComplete="username webauthn"
                 placeholder="you"
                 required
               />
@@ -6588,6 +6590,15 @@ export default function DevMailPage() {
           <button type="submit" className={styles.loginBtn} disabled={loginBusy || (Boolean(humanKey) && !humanToken)}>
             {loginBusy ? <><span className={styles.loginSpinner} aria-hidden />Signing in…</> : 'Sign in'}
           </button>
+          <PasskeySignIn
+            disabled={loginBusy}
+            onSignedIn={signedInEmail => {
+              setEmail(signedInEmail)
+              setIsLoggedIn(true)
+              localStorage.setItem(LS_EMAIL_KEY, JSON.stringify(signedInEmail))
+            }}
+            onError={message => { setLoginError(message); setLoginDetail('') }}
+          />
           <button type="button" className={styles.loginTextLink} onClick={() => { setResetMode(true); setLoginError('') }}>
             Forgot password?
           </button>
@@ -10078,6 +10089,8 @@ export default function DevMailPage() {
               )}
             </div>
 
+
+            <PasskeySettings />
 
             <div className={styles.securitySection}>
               <p className={styles.pwHeading}>Two-step sign-in</p>
