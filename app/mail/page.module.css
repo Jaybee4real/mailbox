@@ -4012,57 +4012,228 @@
   background: var(--nc-ink-0);
   padding: 24px;
 }
-.loginCard {
-  width: min(520px, 100%);
-  background: var(--nc-ink-1);
-  border: 1px solid var(--nc-line-1);
-  border-radius: var(--radius-feature);
-  padding: 36px;
+.loginShell {
+  position: fixed;
+  inset: 0;
+  top: var(--status-offset, 0px);
+  display: grid;
+  grid-template-columns: minmax(380px, 42%) 1fr;
+  background: var(--nc-ink-0);
+  color: var(--nc-fg-1);
+}
+.loginPanel {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 40px 48px;
+  background: color-mix(in srgb, var(--nc-violet-500) 45%, #000);
+  background: oklch(from var(--nc-violet-500) min(l, .36) c h);
+  color: #fff;
+}
+.loginPanel::after {
+  content: '';
+  position: absolute;
+  right: -14%;
+  bottom: -8%;
+  width: 78%;
+  aspect-ratio: 30 / 22;
+  background: rgba(255, 255, 255, .055);
+  mask: var(--brand-mark, url('/brand/mark.png')) no-repeat center / contain;
+  -webkit-mask: var(--brand-mark, url('/brand/mark.png')) no-repeat center / contain;
+  pointer-events: none;
+}
+[data-mark-style='image'] .loginPanel::after { display: none; }
+.loginPanel > * {
+  position: relative;
+  z-index: 1;
+}
+.loginPanelBrand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.loginPanelTile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #fff;
+}
+.loginPanelName {
+  display: none;
+  font: 700 16px/1.2 var(--nc-font-sans);
+  letter-spacing: .01em;
+}
+.loginPanelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 420px;
+}
+.loginPanelEyebrow {
+  margin: 0;
+  font: 600 11px/1 var(--nc-font-mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--nc-violet-500) 30%, #fff);
+}
+.loginPanelTitle {
+  margin: 0;
+  font-family: var(--nc-font-display);
+  font-weight: 700;
+  font-size: clamp(36px, 4vw, 52px);
+  line-height: 1.04;
+  letter-spacing: -.025em;
+  overflow-wrap: anywhere;
+}
+.loginPanelLead {
+  margin: 6px 0 0;
+  font: 400 16px/1.5 var(--nc-font-sans);
+  color: rgba(255, 255, 255, .74);
+}
+.loginPanelDomains {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.loginPanelDomains li {
+  padding: 7px 11px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 999px;
+  font: 500 13px/1 var(--nc-font-mono);
+  color: #fff;
+}
+.loginPanelFoot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  font: 400 12.5px/1.4 var(--nc-font-sans);
+  color: rgba(255, 255, 255, .6);
+}
+.loginPanelFoot a {
+  color: inherit;
+  text-decoration: none;
+}
+.loginPanelFoot a:hover {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.loginMain {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 48px 32px;
+}
+.loginCard {
+  width: min(400px, 100%);
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: loginCardIn var(--dur-med) var(--nc-ease-out) both;
+}
+@keyframes loginCardIn {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loginCard { animation: none; }
+}
+@media (max-width: 900px) {
+  .loginShell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .loginPanel { padding: 14px 20px; }
+  .loginPanelName { display: block; }
+  .loginPanel::after,
+  .loginPanelBody,
+  .loginPanelFoot { display: none; }
+  .loginPanelTile {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+  .loginMain {
+    align-items: flex-start;
+    padding: 32px 20px;
+  }
+  .loginCard { margin: 0; }
 }
 .loginBrand {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 4px;
 }
 .loginTitle {
   font-family: var(--nc-font-display);
   font-weight: 700;
-  font-size: 24px;
-  letter-spacing: -.018em;
+  font-size: 32px;
+  line-height: 1.1;
+  letter-spacing: -.02em;
   margin: 0;
 }
 .loginSub {
-  font: 400 14px/1.5 var(--nc-font-sans);
+  font: 400 15px/1.5 var(--nc-font-sans);
   color: var(--nc-fg-3);
-  margin: -8px 0 4px;
+  margin: -10px 0 6px;
 }
 .loginField {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
-.loginField span {
-  font-family: var(--nc-font-mono);
-  font-size: 11px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--nc-fg-3);
+.loginField > span,
+.loginFieldHead > label {
+  font: 600 13px/1.2 var(--nc-font-sans);
+  color: var(--nc-fg-2);
+}
+.loginFieldHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.loginInlineLink {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--nc-violet-500);
+  color: oklch(from var(--nc-violet-500) min(l, .5) c h);
+  font: 600 13px/1.2 var(--nc-font-sans);
+  cursor: pointer;
+}
+.loginInlineLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .loginField input {
+  min-height: 46px;
   background: var(--nc-ink-2);
-  border: 1px solid var(--nc-line-1);
-  border-radius: 10px;
+  border: 1px solid var(--nc-line-2);
+  border-radius: var(--radius-control);
   padding: 12px 14px;
   color: var(--nc-fg-1);
-  font: 500 14px/1.4 var(--nc-font-sans);
+  font: 500 15px/1.4 var(--nc-font-sans);
   outline: none;
-  transition: border-color var(--dur-fast) var(--nc-ease-out);
+  transition: border-color var(--dur-fast) var(--nc-ease-out), box-shadow var(--dur-fast) var(--nc-ease-out);
 }
-.loginField input:focus { border-color: var(--nc-violet-400); }
+.loginField input:focus {
+  border-color: var(--nc-violet-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nc-violet-500) 14%, transparent);
+}
 .loginErrorBox {
   display: flex;
   flex-direction: column;
@@ -4106,8 +4277,8 @@
   height: 13px;
   margin-right: 8px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, .35);
-  border-top-color: #fff;
+  border: 2px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-top-color: currentColor;
   display: inline-block;
   vertical-align: -2px;
   animation: ncSpin .7s linear infinite;
@@ -4116,21 +4287,52 @@
 .loginBtn:disabled { opacity: .75; cursor: default; }
 .loginBtn {
   composes: composeBtn;
+  color: oklch(from var(--nc-violet-500) clamp(0, (.64 - l) * 1000, 1) 0 0);
+  min-height: 46px;
   margin: 4px 0 0;
+  font-size: 15px;
   text-decoration: none;
 }
+.loginOr {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -2px 0;
+  color: var(--nc-fg-4);
+  font: 500 12px/1 var(--nc-font-sans);
+}
+.loginOr::before,
+.loginOr::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--nc-line-1);
+}
 .loginPasskeyBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 46px;
   margin: 0;
   padding: 11px 16px;
   border: 1px solid var(--nc-line-2);
-  border-radius: 8px;
-  background: transparent;
+  border-radius: var(--radius-control);
+  background: var(--nc-ink-2);
   color: var(--nc-fg-1);
-  font: 600 14px/1.2 var(--nc-font-sans);
+  font: 600 15px/1.2 var(--nc-font-sans);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--nc-ease-out);
+  transition: background var(--dur-fast) var(--nc-ease-out), border-color var(--dur-fast) var(--nc-ease-out);
 }
-.loginPasskeyBtn:hover { background: var(--nc-ink-2); }
+.loginPasskeyBtn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.loginPasskeyBtn:hover {
+  background: var(--nc-ink-3);
+  border-color: var(--nc-fg-4);
+}
 .loginPasskeyBtn:disabled { opacity: .6; cursor: default; }
 .loginTextLink {
   border: none;
@@ -4142,7 +4344,10 @@
   text-align: center;
   transition: color var(--dur-fast) var(--nc-ease-out);
 }
-.loginTextLink:hover { color: var(--nc-violet-300); }
+.loginTextLink:hover {
+  color: var(--nc-violet-500);
+  color: oklch(from var(--nc-violet-500) min(l, .5) c h);
+}
 
 .pwWrap {
   position: relative;
@@ -7258,7 +7463,10 @@
   color: var(--nc-fg-1);
 }
 .loginAddr .loginLocal:focus,
-.loginAddr .loginDomainEdit:focus { outline: none; }
+.loginAddr .loginDomainEdit:focus {
+  outline: none;
+  box-shadow: none;
+}
 .loginDomainEdit { flex: 1 1 60%; border-left: 1px solid var(--nc-line-1) !important; }
 
 .loginDomain {

@@ -56,22 +56,31 @@ export default function PasskeySignIn({ onSignedIn, onError, disabled }: Props) 
 
   if (!supported) return null
   return (
-    <button
-      type="button"
-      className={styles.loginPasskeyBtn}
-      disabled={disabled || busy}
-      onClick={async () => {
-        setBusy(true)
-        try {
-          onSignedIn(await signInWithPasskey(false))
-        } catch (error) {
-          if (!cancelled(error)) onError(error instanceof Error ? error.message : 'That passkey could not sign you in.')
-        } finally {
-          setBusy(false)
-        }
-      }}
-    >
-      {busy ? 'Waiting for your passkey…' : 'Sign in with a passkey'}
-    </button>
+    <>
+      <div className={styles.loginOr} aria-hidden="true"><span>or</span></div>
+      <button
+        type="button"
+        className={styles.loginPasskeyBtn}
+        disabled={disabled || busy}
+        onClick={async () => {
+          setBusy(true)
+          try {
+            onSignedIn(await signInWithPasskey(false))
+          } catch (error) {
+            if (!cancelled(error)) onError(error instanceof Error ? error.message : 'That passkey could not sign you in.')
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="7.5" cy="15.5" r="4.5" />
+          <path d="m10.7 12.3 8.6-8.6" />
+          <path d="m17 6 2.5 2.5" />
+          <path d="m14.5 8.5 2.5 2.5" />
+        </svg>
+        {busy ? 'Waiting for your passkey…' : 'Sign in with a passkey'}
+      </button>
+    </>
   )
 }

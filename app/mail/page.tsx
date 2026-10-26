@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useEffectEvent, useMemo, useRef, useS
 import { extractUrls, inspectUrl, type LinkVerdict } from '@/lib/link-safety'
 import AttachmentLightbox, { ProgressiveImage, attachmentKind, formatSize, inlineUrl, thumbUrl, type PreviewItem } from './AttachmentLightbox'
 import AccessCheck from './AccessCheck'
+import LoginShell from './LoginShell'
 import { parseQuery, matchesQuery, serverSearchParams, splitForServer } from './search'
 import { useChoose, useConfirm, usePrompt } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
@@ -6339,10 +6340,9 @@ export default function DevMailPage() {
   if (!isLoggedIn) {
     if (resetMode) {
       return (
-        <div className={styles.loginWrap}>
+        <LoginShell domains={LOGIN_DOMAINS}>
           <div className={styles.loginCard}>
             <div className={styles.loginBrand}>
-              <span className={styles.brandMark} role="img" aria-label={CLIENT_BRAND.name} />
               <h1 className={styles.loginTitle}>Reset password</h1>
             </div>
             {resetSent ? (
@@ -6374,14 +6374,14 @@ export default function DevMailPage() {
               </>
             )}
           </div>
-        </div>
+        </LoginShell>
       )
     }
     if (secondStep) {
       const byEmail = secondStep.method === 'email'
       const other = secondStep.methods.find(method => method !== secondStep.method)
       return (
-        <div className={styles.loginWrap}>
+        <LoginShell domains={LOGIN_DOMAINS}>
           <form
             className={styles.loginCard}
             onSubmit={event => {
@@ -6391,7 +6391,6 @@ export default function DevMailPage() {
             }}
           >
             <div className={styles.loginBrand}>
-              <span className={styles.brandMark} role="img" aria-label={CLIENT_BRAND.name} />
               <h1 className={styles.loginTitle}>Two-step sign-in</h1>
             </div>
             <p className={styles.loginSub}>
@@ -6452,11 +6451,11 @@ export default function DevMailPage() {
               ← Back to sign in
             </button>
           </form>
-        </div>
+        </LoginShell>
       )
     }
     return (
-      <div className={styles.loginWrap}>
+      <LoginShell domains={LOGIN_DOMAINS}>
         <form
           className={styles.loginCard}
           onSubmit={event => {
@@ -6466,8 +6465,7 @@ export default function DevMailPage() {
           }}
         >
           <div className={styles.loginBrand}>
-            <span className={styles.brandMark} role="img" aria-label={CLIENT_BRAND.name} />
-            <h1 className={styles.loginTitle}>{CLIENT_BRAND.name} Mail</h1>
+            <h1 className={styles.loginTitle}>Sign in</h1>
           </div>
           <p className={styles.loginSub}>Admin access only. Sign in with your account credentials.</p>
           <label className={styles.loginField}>
@@ -6553,10 +6551,16 @@ export default function DevMailPage() {
               )}
             </div>
           </label>
-          <label className={styles.loginField}>
-            <span>Password</span>
+          <div className={styles.loginField}>
+            <div className={styles.loginFieldHead}>
+              <label htmlFor="login-password">Password</label>
+              <button type="button" className={styles.loginInlineLink} onClick={() => { setResetMode(true); setLoginError('') }}>
+                Forgot password?
+              </button>
+            </div>
             <div className={styles.pwWrap}>
               <input
+                id="login-password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={event => setPassword(event.target.value)}
@@ -6567,7 +6571,7 @@ export default function DevMailPage() {
                 {showPassword ? 'Hide' : 'Show'}
               </button>
             </div>
-          </label>
+          </div>
           {loginError && (
             <div className={styles.loginErrorBox} role="alert">
               <p className={styles.loginError}>{loginError}</p>
@@ -6599,11 +6603,8 @@ export default function DevMailPage() {
             }}
             onError={message => { setLoginError(message); setLoginDetail('') }}
           />
-          <button type="button" className={styles.loginTextLink} onClick={() => { setResetMode(true); setLoginError('') }}>
-            Forgot password?
-          </button>
         </form>
-      </div>
+      </LoginShell>
     )
   }
 
