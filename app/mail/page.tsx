@@ -5,6 +5,7 @@ import { extractUrls, inspectUrl, type LinkVerdict } from '@/lib/link-safety'
 import AttachmentLightbox, { ProgressiveImage, attachmentKind, formatSize, inlineUrl, thumbUrl, type PreviewItem } from './AttachmentLightbox'
 import AccessCheck from './AccessCheck'
 import LoginShell from './LoginShell'
+import { usePasskeyDevice } from './passkey-support'
 import { parseQuery, matchesQuery, serverSearchParams, splitForServer } from './search'
 import { useChoose, useConfirm, usePrompt } from './ConfirmDialog'
 import { subscribePush, unsubscribePush, useInstall, useNotifications } from './pwa'
@@ -160,7 +161,7 @@ function themeVars(accent: string, base: ThemeBase, custom: ThemeCustom): React.
   }
   return vars as React.CSSProperties
 }
-type MailAccountInfo = { email: string; address: string | null; name?: string | null; role: 'admin' | 'member'; defaultPassword?: boolean }
+type MailAccountInfo = { email: string; address: string | null; name?: string | null; role: 'admin' | 'member'; defaultPassword?: boolean; passkeys?: number | null }
 type Accessor = Person
 
 type Folder = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'scheduled' | 'drafts' | 'archived' | 'spam' | 'trash'
@@ -412,6 +413,8 @@ type MailSettings = {
 
 const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const NOTIFY_NOTICE_KEY = 'mail:notify-notice-until'
+const PASSKEY_NOTICE_KEY = 'mail:passkey-notice-until'
+const NOTICE_SNOOZE_MS = 14 * 86400_000
 
 const DEFAULT_SETTINGS: MailSettings = {
   signature: '',
@@ -1752,7 +1755,23 @@ export default function DevMailPage() {
   const dismissNotifyNotice = useCallback(() => {
     setNotifyNoticeHidden(true)
     try {
-      localStorage.setItem(NOTIFY_NOTICE_KEY, String(Date.now() + 14 * 86400_000))
+      localStorage.setItem(NOTIFY_NOTICE_KEY, String(Date.now() + NOTICE_SNOOZE_MS))
+    } catch {}
+  }, [])
+  const passkeyDevice = usePasskeyDevice()
+  const [passkeyAddRequest, setPasskeyAddRequest] = useState(0)
+  const [passkeyNoticeHidden, setPasskeyNoticeHidden] = useState(true)
+  useEffect(() => {
+    try {
+      if (Number(localStorage.getItem(PASSKEY_NOTICE_KEY) ?? 0) < Date.now()) setPasskeyNoticeHidden(false)
+    } catch {
+      setPasskeyNoticeHidden(false)
+    }
+  }, [])
+  const dismissPasskeyNotice = useCallback(() => {
+    setPasskeyNoticeHidden(true)
+    try {
+      localStorage.setItem(PASSKEY_NOTICE_KEY, String(Date.now() + NOTICE_SNOOZE_MS))
     } catch {}
   }, [])
   const [settings, setMailSettings] = useState<MailSettings>(DEFAULT_SETTINGS)
@@ -1790,6 +1809,9 @@ export default function DevMailPage() {
     }, 220)
   }, [])
   const [account, setAccount] = useState<MailAccountInfo | null>(null)
+  const rememberPasskeyCount = useCallback((count: number) => {
+    setAccount(current => (current ? { ...current, passkeys: count } : current))
+  }, [])
   const [switchedTo, setSwitchedTo] = useState<string | null>(null)
   const [mailbox, setMailbox] = useState<string>('all')
   // Starts true so the very first fetch shows skeletons instead of the empty state.
@@ -3399,7 +3421,7 @@ export default function DevMailPage() {
     fetch('/api/mail/me', { headers })
       .then(response => response.json())
       .then(data => {
-        if (data.ok) setAccount({ email: data.email, address: data.address ?? null, name: data.name ?? null, role: data.role, defaultPassword: Boolean(data.defaultPassword) })
+        if (data.ok) setAccount({ email: data.email, address: data.address ?? null, name: data.name ?? null, role: data.role, defaultPassword: Boolean(data.defaultPassword), passkeys: typeof data.passkeys === 'number' ? data.passkeys : null })
       })
       .catch(() => {})
   }, [isLoggedIn, apiHeaders])
@@ -8414,6 +8436,22 @@ export default function DevMailPage() {
             onAction: () => window.location.reload(),
           })
         }
+        if (isLoggedIn && !switchedTo && account?.passkeys === 0 && passkeyDevice && !passkeyNoticeHidden) {
+          notices.push({
+            key: 'passkey',
+            title: 'Sign in with a passkey',
+            body: 'Use Face ID, Touch ID, your fingerprint or your device PIN instead of your password. It is quicker, and it cannot be phished.',
+            dismiss: 'Not now',
+            action: 'Create one',
+            onDismiss: dismissPasskeyNotice,
+            onAction: () => {
+              setSettingsOpen(true)
+              setSettingsTab('security')
+              setPasskeyNoticeHidden(true)
+              setPasskeyAddRequest(request => request + 1)
+            },
+          })
+        }
         if (isLoggedIn && !settings.desktopNotifications && notifyPermission !== 'denied' && notifyPermission !== 'unsupported' && !notifyNoticeHidden) {
           notices.push({
             key: 'notifications',
@@ -10091,7 +10129,7 @@ export default function DevMailPage() {
             </div>
 
 
-            <PasskeySettings />
+            <PasskeySettings addRequest={passkeyAddRequest} onCount={rememberPasskeyCount} />
 
             <div className={styles.securitySection}>
               <p className={styles.pwHeading}>Two-step sign-in</p>

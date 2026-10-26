@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { usingDefaultPassword } from '@/lib/mailbox'
+import { listPasskeys } from '@/lib/passkeys'
 
 export const runtime = 'nodejs'
 
@@ -9,5 +10,6 @@ export async function GET(req: Request) {
   if (guard) return guard
   const account = await resolveAccount(req)
   const defaultPassword = account.email ? await usingDefaultPassword(account.email) : false
-  return NextResponse.json({ ok: true, ...account, defaultPassword })
+  const passkeys = account.email ? await listPasskeys(account.email).then(list => list.length, () => null) : null
+  return NextResponse.json({ ok: true, ...account, defaultPassword, passkeys })
 }

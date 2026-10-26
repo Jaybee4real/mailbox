@@ -1,13 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
-import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { startRegistration } from '@simplewebauthn/browser'
 import { useConfirm } from './ConfirmDialog'
+import { usePasskeyDevice } from './passkey-support'
 import styles from './page.module.css'
 
 type Passkey = { id: string; name: string; createdAt: string; lastUsedAt: string | null; synced: boolean }
 
-const subscribeNever = () => () => {}
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 function deviceLabel(): string {
@@ -27,7 +27,12 @@ async function fetchPasskeys(): Promise<PasskeyList | null> {
 
 const dateLabel = (value: string) => new Date(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 
-export default function PasskeySettings() {
+type Props = {
+  addRequest?: number
+  onCount?: (count: number) => void
+}
+
+export default function PasskeySettings({ addRequest = 0, onCount }: Props) {
   const [passkeys, setPasskeys] = useState<Passkey[] | null>(null)
   const [needsPassword, setNeedsPassword] = useState(true)
   const [adding, setAdding] = useState(false)
@@ -35,14 +40,17 @@ export default function PasskeySettings() {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null)
-  const supported = useSyncExternalStore(subscribeNever, browserSupportsWebAuthn, () => true)
+  const supported = usePasskeyDevice()
   const confirm = useConfirm()
+  const sectionRef = useRef<HTMLDivElement>(null)
+  const firstFieldRef = useRef<HTMLInputElement>(null)
 
   const apply = useCallback((data: PasskeyList | null) => {
     if (!data) return
     setPasskeys(data.passkeys)
     setNeedsPassword(data.needsPassword)
-  }, [])
+    onCount?.(data.passkeys.length)
+  }, [onCount])
   const load = useCallback(async () => apply(await fetchPasskeys()), [apply])
 
   useEffect(() => {
@@ -52,6 +60,22 @@ export default function PasskeySettings() {
       alive = false
     }
   }, [apply])
+
+  useEffect(() => {
+    if (!addRequest || !supported) return
+    const opening = window.setTimeout(() => {
+      setAdding(true)
+      setMessage(null)
+    }, 0)
+    const settling = window.setTimeout(() => {
+      sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      firstFieldRef.current?.focus({ preventScroll: true })
+    }, 420)
+    return () => {
+      window.clearTimeout(opening)
+      window.clearTimeout(settling)
+    }
+  }, [addRequest, supported])
 
   const add = async () => {
     setBusy(true)
@@ -99,7 +123,7 @@ export default function PasskeySettings() {
   }
 
   return (
-    <div className={styles.securitySection}>
+    <div className={styles.securitySection} ref={sectionRef}>
       <p className={styles.pwHeading}>Passkeys</p>
       <p className={styles.settingsProse}>
         Sign in with Face ID, Touch ID, a fingerprint or your device PIN instead of your password. A passkey also counts as
@@ -121,8 +145,11 @@ export default function PasskeySettings() {
       ))}
       {passkeys?.length === 0 && <p className={styles.settingsNote}>No passkeys yet.</p>}
 
-      {!supported ? (
-        <p className={styles.settingsNote}>This browser cannot create passkeys. Try Safari, Chrome or Edge, or add one in the Vela Mail app.</p>
+      {supported === null ? null : !supported ? (
+        <p className={styles.settingsNote}>
+          This device cannot hold a passkey. It needs Face ID, Touch ID, Windows Hello, a fingerprint reader or a screen
+          lock in a browser such as Safari, Chrome or Edge. You can add one from your phone or in the Vela Mail app.
+        </p>
       ) : adding ? (
         <div className={styles.factorSetup}>
           <label className={styles.settingsField}>
@@ -132,7 +159,7 @@ export default function PasskeySettings() {
           {needsPassword && (
             <label className={styles.settingsField}>
               <span>Your password</span>
-              <input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} />
+              <input ref={firstFieldRef} type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} />
             </label>
           )}
           <div className={styles.factorActions}>
