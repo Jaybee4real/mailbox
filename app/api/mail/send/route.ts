@@ -7,7 +7,7 @@ import { presign } from '@/lib/r2'
 import { listAccounts, recordContact, recordPixel, recordSentMeta, recordSentMessage, recordSentOrigin } from '@/lib/mailbox'
 import { originHeaders, visitorContext } from '@/lib/client-context'
 import { scheduleSend } from '@/lib/scheduled'
-import { outgoingBody } from '@/lib/email-html'
+import { outgoingBody, shouldTrackOpens } from '@/lib/email-html'
 import { adaptiveEmail } from '@/lib/color-scheme'
 import { publicOrigin } from '@/lib/public-url'
 import { readsAllInboxes } from '@/lib/scope'
@@ -170,7 +170,7 @@ export async function POST(req: Request) {
   // Open-tracking pixel: a 1x1 image whose load hits our endpoint, so we can tell
   // an HTML email was opened independently of Resend's own tracking.
   const origin = publicOrigin(req)
-  const pixelId = body.track === false ? null : randomUUID()
+  const pixelId = shouldTrackOpens(body.track, BRAND.trackOpensDefault) ? randomUUID() : null
   const outgoingHtml = body.html?.trim() ? adaptiveEmail(outgoingBody(body.html.trim(), origin, pixelId)) : null
 
   // Thread the reply: In-Reply-To/References point at the inbound Message-ID so the

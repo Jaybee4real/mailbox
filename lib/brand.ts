@@ -50,6 +50,7 @@ export const BRAND = {
   accentHex: env('BRAND_ACCENT_HEX', env('NEXT_PUBLIC_BRAND_ACCENT', '#6d28d9')),
   supportEmail: env('MAIL_SUPPORT_EMAIL', `info@${domain}`),
   vapidSubject: env('VAPID_SUBJECT', `mailto:info@${domain}`),
+  trackOpensDefault: ['on', 'true', '1', 'yes'].includes(env('MAIL_TRACK_OPENS_DEFAULT').toLowerCase()),
 } as const
 
 const addressDomains: string[] = (() => {

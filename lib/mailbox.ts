@@ -1924,6 +1924,14 @@ export async function recordPixel(pixelId: string, emailId: string, recipient: s
     INSERT INTO mail_pixels (pixel_id, email_id, recipient, subject, created_at)
     VALUES (${pixelId}, ${emailId}, ${recipient}, ${subject}, ${nowIso()})
     ON CONFLICT (pixel_id) DO NOTHING`
+  await prunePixels().catch(() => {})
+}
+
+export const PIXEL_RETENTION_DAYS = 365
+
+export async function prunePixels(days = PIXEL_RETENTION_DAYS): Promise<void> {
+  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString()
+  await db()`DELETE FROM mail_pixels WHERE created_at < ${cutoff}`
 }
 
 export async function markPixelOpened(pixelId: string): Promise<void> {

@@ -161,7 +161,7 @@ function themeVars(accent: string, base: ThemeBase, custom: ThemeCustom): React.
   }
   return vars as React.CSSProperties
 }
-type MailAccountInfo = { email: string; address: string | null; name?: string | null; role: 'admin' | 'member'; defaultPassword?: boolean; passkeys?: number | null }
+type MailAccountInfo = { email: string; address: string | null; name?: string | null; role: 'admin' | 'member'; defaultPassword?: boolean; passkeys?: number | null; trackOpens?: boolean }
 type Accessor = Person
 
 type Folder = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'scheduled' | 'drafts' | 'archived' | 'spam' | 'trash'
@@ -312,7 +312,7 @@ type ComposeData = {
   htmlSource: string
   htmlDirty: boolean
   useSignature: boolean
-  track: boolean
+  track: boolean | null
   delayKey: string
   customDate: string
   campaign: Campaign
@@ -353,7 +353,7 @@ const EMPTY_COMPOSE: ComposeData = {
   htmlSource: '',
   htmlDirty: false,
   useSignature: true,
-  track: true,
+  track: null,
   delayKey: '20',
   customDate: '',
   campaign: EMPTY_CAMPAIGN,
@@ -3421,12 +3421,14 @@ export default function DevMailPage() {
     fetch('/api/mail/me', { headers })
       .then(response => response.json())
       .then(data => {
-        if (data.ok) setAccount({ email: data.email, address: data.address ?? null, name: data.name ?? null, role: data.role, defaultPassword: Boolean(data.defaultPassword), passkeys: typeof data.passkeys === 'number' ? data.passkeys : null })
+        if (data.ok) setAccount({ email: data.email, address: data.address ?? null, name: data.name ?? null, role: data.role, defaultPassword: Boolean(data.defaultPassword), passkeys: typeof data.passkeys === 'number' ? data.passkeys : null, trackOpens: data.trackOpens === true })
       })
       .catch(() => {})
   }, [isLoggedIn, apiHeaders])
 
   const accountEmail = account?.email ?? null
+  const trackOpensDefault = account?.trackOpens === true
+  const composeTracked = compose.track ?? trackOpensDefault
   useEffect(() => {
     if (!accountEmail) return
     const check = () => {
@@ -5201,7 +5203,7 @@ export default function DevMailPage() {
           text,
           scheduledAt: scheduledAt ?? undefined,
           inReplyTo: compose.inReplyTo || undefined,
-          track: compose.track,
+          track: composeTracked,
           actAs: sendAs?.address ?? actingAs ?? undefined,
           attachments: [
             ...attachable.map(({ filename, url, key }) => (key ? { filename, key } : { filename, path: url })),
@@ -9738,13 +9740,14 @@ export default function DevMailPage() {
               {composeError && <span className={styles.composeError}>{composeError}</span>}
               <span className={styles.footSpacer} />
               <button
-                className={`${styles.attachBtn} ${compose.track ? '' : styles.attachBtnActive}`}
-                onClick={() => setCompose(data => ({ ...data, track: !data.track }))}
-                title={compose.track ? 'An invisible image reports when this email is opened. Click to send it without one.' : 'This email goes out without the open-tracking image.'}
+                className={`${styles.attachBtn} ${composeTracked ? '' : styles.attachBtnActive}`}
+                onClick={() => setCompose(data => ({ ...data, track: !(data.track ?? trackOpensDefault) }))}
+                title={composeTracked ? 'An invisible image reports when this email is opened. Click to send it without one.' : 'This email goes out without the open-tracking image. Click to track opens.'}
+                aria-pressed={composeTracked}
                 type="button"
               >
-                {compose.track ? ICONS.eye : ICONS.eyeOff}
-                <span>{compose.track ? 'Tracking on' : 'Not tracked'}</span>
+                {composeTracked ? ICONS.eye : ICONS.eyeOff}
+                <span>{composeTracked ? 'Tracking on' : 'Not tracked'}</span>
               </button>
               <button
                 className={`${styles.attachBtn} ${attachments.length ? styles.attachBtnActive : ''}`}

@@ -211,6 +211,10 @@ export function outlookSafeImages(html: string): string {
   })
 }
 
+export function shouldTrackOpens(choice: unknown, tenantDefault: boolean): boolean {
+  return typeof choice === 'boolean' ? choice : tenantDefault
+}
+
 /** The open-tracking pixel this app appends to outgoing mail, at its current and its former path. */
 export const OWN_PIXEL = /<img[^>]*\/api\/(?:dev\/)?mail\/pixel\/[^>]*>/gi
 export const stripOwnPixel = (html: string) => html.replace(OWN_PIXEL, '')
