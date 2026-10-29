@@ -2121,10 +2121,12 @@ export default function DevMailPage() {
   useEffect(() => {
     const saved = localStorage.getItem(LS_EMAIL_KEY) ? (JSON.parse(localStorage.getItem(LS_EMAIL_KEY)!) as string) : ''
     setEmail(saved)
-    setLoginRaw(saved.split('@')[0])
     const savedDomain = localStorage.getItem(LS_DOMAIN_KEY)
-    if (saved.includes('@')) setLoginDomain(saved.split('@')[1])
-    else if (savedDomain) setLoginDomain(savedDomain)
+    const [savedLocal, savedAt] = saved.split('@')
+    const ownDomain = savedAt ? LOGIN_DOMAINS.includes(savedAt.toLowerCase()) : false
+    setLoginRaw(savedAt && !ownDomain && LOGIN_DOMAINS.length > 1 ? saved : savedLocal)
+    if (savedAt && ownDomain) setLoginDomain(savedAt.toLowerCase())
+    else if (!savedAt && savedDomain && LOGIN_DOMAINS.includes(savedDomain)) setLoginDomain(savedDomain)
     // A saved address means this browser was signed in before. Draw the mailbox now on
     // that assumption and let the session check correct it: waiting for the check first
     // held even the cached list behind a round trip, on every single visit.

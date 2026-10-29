@@ -3,13 +3,32 @@
 import { useEffect, useRef, useState } from 'react'
 import styles from './page.module.css'
 
+function fixedFrame(anchor: HTMLElement): DOMRect {
+  for (let node = anchor.parentElement; node && node !== document.body; node = node.parentElement) {
+    const style = getComputedStyle(node)
+    if (
+      style.transform !== 'none' ||
+      style.filter !== 'none' ||
+      style.perspective !== 'none' ||
+      (style.backdropFilter ?? 'none') !== 'none' ||
+      /paint|layout|strict|content/.test(style.contain) ||
+      /transform|filter|perspective/.test(style.willChange)
+    ) return node.getBoundingClientRect()
+  }
+  return new DOMRect(0, 0, window.innerWidth, window.innerHeight)
+}
+
 export function anchoredMenuStyle(anchor: HTMLElement): React.CSSProperties {
   const rect = anchor.getBoundingClientRect()
-  const base: React.CSSProperties = { position: 'fixed', left: rect.left, minWidth: rect.width }
+  const frame = fixedFrame(anchor)
+  const alignRight = rect.left + rect.width / 2 > window.innerWidth / 2
+  const base: React.CSSProperties = alignRight
+    ? { position: 'fixed', right: frame.right - rect.right, minWidth: rect.width }
+    : { position: 'fixed', left: rect.left - frame.left, minWidth: rect.width }
   const openUpward = rect.bottom > window.innerHeight - 260
   return openUpward
-    ? { ...base, bottom: window.innerHeight - rect.top + 6 }
-    : { ...base, top: rect.bottom + 6 }
+    ? { ...base, bottom: frame.bottom - rect.top + 6 }
+    : { ...base, top: rect.bottom - frame.top + 6 }
 }
 
 export const GLYPH = {
