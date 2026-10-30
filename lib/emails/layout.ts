@@ -108,6 +108,7 @@ export type RequestNotice = {
   details: RequestDetails
   wasntYou: string
   helpUrl?: string
+  devicesUrl?: string
 }
 
 const requestRows = (details: RequestDetails): Array<[string, string]> => [
@@ -121,8 +122,10 @@ export function requestPanel(notice: RequestNotice): string {
   const rows = requestRows(notice.details).map(([label, value]): [string, string] => [label, escapeHtml(value)])
   const href = notice.helpUrl ? safeUrl(notice.helpUrl) : '#'
   const link = href === '#' ? '' : ` <a href="${href}" class="em-accent" style="color:inherit;text-decoration:underline;">${href}</a>`
+  const devicesHref = notice.devicesUrl ? safeUrl(notice.devicesUrl) : '#'
+  const devices = devicesHref === '#' ? '' : ` <a href="${devicesHref}" class="em-accent" style="color:inherit;text-decoration:underline;">Review signed-in devices</a>`
   return `${detailsPanel(rows, 'Request details')}
-  <p class="em-dim" style="margin:12px 0 0;font-family:${BODY_FONT};font-size:13.5px;line-height:1.6;color:${LIGHT.dim};"><strong>Wasn't you?</strong> ${escapeHtml(notice.wasntYou)}${link}</p>`
+  <p class="em-dim" style="margin:12px 0 0;font-family:${BODY_FONT};font-size:13.5px;line-height:1.6;color:${LIGHT.dim};"><strong>Wasn't you?</strong> ${escapeHtml(notice.wasntYou)}${link}${devices}</p>`
 }
 
 export function requestText(notice: RequestNotice): string[] {
@@ -131,6 +134,7 @@ export function requestText(notice: RequestNotice): string[] {
     ...requestRows(notice.details).map(([label, value]) => `${label}: ${value}`),
     '',
     `Wasn't you? ${notice.wasntYou}${notice.helpUrl ? ` ${notice.helpUrl}` : ''}`,
+    ...(notice.devicesUrl ? [`Review signed-in devices: ${notice.devicesUrl}`] : []),
   ]
 }
 
