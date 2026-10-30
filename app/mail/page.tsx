@@ -402,6 +402,7 @@ type SecurityInfo = {
 const SIGNIN_OUTCOMES: Record<string, string> = {
   'signed-in': 'Signed in',
   'wrong-password': 'Wrong password',
+  'wrong-password-passkey': 'Wrong password while adding a passkey',
   'second-step': 'Password accepted, code asked for',
   'wrong-code': 'Wrong code',
   'admin-two-step-off': 'Two-step sign-in turned off by an admin',
@@ -8171,7 +8172,7 @@ export default function DevMailPage() {
                       <button
                         type="button"
                         className={styles.composeSignatureEdit}
-                        onClick={() => { setSettingsTab('profile'); setSettingsOpen(true) }}
+                        onClick={() => { setSignatureTab(isAdmin && !ownSignature ? 'company' : 'personal'); setSettingsTab('signature'); setSettingsOpen(true) }}
                       >
                         Edit
                       </button>
@@ -9670,7 +9671,7 @@ export default function DevMailPage() {
                     <button
                       type="button"
                       className={styles.composeSignatureEdit}
-                      onClick={() => { setSettingsTab('profile'); setSettingsOpen(true) }}
+                      onClick={() => { setSignatureTab(isAdmin && !ownSignature ? 'company' : 'personal'); setSettingsTab('signature'); setSettingsOpen(true) }}
                     >
                       Edit
                     </button>

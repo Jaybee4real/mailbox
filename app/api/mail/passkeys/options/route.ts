@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount, verifyMailAuth } from '@/lib/dev-auth'
-import { getAccount } from '@/lib/mailbox'
+import { getAccount, recordSignin } from '@/lib/mailbox'
 import { registrationOptions } from '@/lib/passkeys'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
-import { signInBody } from '@/lib/signin'
+import { requestContext, signInBody } from '@/lib/signin'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,8 +25,13 @@ export async function POST(req: Request) {
   if (stored?.hasPassword) {
     const password = typeof body?.password === 'string' ? body.password : ''
     if (!password) return fail('Enter your password to add a passkey.', 401)
+    const perAccount = rateLimit(`passkey-password:${account.email.toLowerCase()}`, 10, 15 * 60 * 1000)
+    if (perAccount) return perAccount
     const check = await verifyMailAuth(account.email, password)
-    if (!check.ok) return fail('That password is not right.', 401)
+    if (!check.ok) {
+      void recordSignin(account.email, { ...requestContext(req), method: 'passkey-setup', outcome: 'wrong-password-passkey' }).catch(() => {})
+      return fail('That password is not right.', 401)
+    }
   }
 
   const created = await registrationOptions(account)
