@@ -6,6 +6,7 @@ import { sendMail } from '@/lib/mail-provider'
 import { renderActionEmail, withRequestText } from '@/lib/emails'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { publicOrigin } from '@/lib/public-url'
+import { mobileDevicesByAccount } from '@/lib/mobile-session'
 import { requestNotice, sendContext } from '@/lib/signin'
 import { VelaRateLimitError, rateLimitedResponse } from '@/lib/vela'
 import {
@@ -72,7 +73,19 @@ async function uniqueAddress(handle: string, domain: string = ADDRESS_DOMAIN): P
 export async function GET(req: Request) {
   const denied = await requireAdmin(req)
   if (denied) return denied
-  const accessors = await listAccounts()
+  const [accounts, devices] = await Promise.all([listAccounts(), mobileDevicesByAccount().catch(() => new Map<string, Array<Record<string, unknown>>>())])
+  const accessors = accounts.map(account => ({
+    ...account,
+    apps: (devices.get(account.email.toLowerCase()) ?? []).map(device => ({
+      device: String(device.device ?? ''),
+      version: String(device.app_version ?? ''),
+      build: String(device.app_build ?? ''),
+      update: String(device.app_update ?? ''),
+      platform: String(device.app_platform ?? ''),
+      os: String(device.os_version ?? ''),
+      lastUsedAt: String(device.last_used_at ?? ''),
+    })),
+  }))
   return NextResponse.json({ ok: true, accessors, domain: ADDRESS_DOMAIN, domains: ADDRESS_DOMAINS })
 }
 

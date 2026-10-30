@@ -15,6 +15,7 @@ export type Person = {
   twoStep?: boolean
   createdAt?: string | null
   recoveryEmail?: string | null
+  apps?: Array<{ device: string; version: string; build: string; update: string; platform: string; os: string; lastUsedAt: string }>
 }
 
 type Filter = 'all' | 'admin' | 'member' | 'invited' | 'two-step-off'
@@ -43,6 +44,26 @@ const day = (value?: string | null) => {
   const time = Date.parse(value ?? '')
   return Number.isFinite(time) ? new Date(time).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : null
 }
+
+const PLATFORM_NAMES: Record<string, string> = { ios: 'iOS', android: 'Android' }
+
+const ago = (value: string) => {
+  const time = Date.parse(value)
+  if (!Number.isFinite(time)) return ''
+  const minutes = Math.max(0, Math.round((Date.now() - time) / 60000))
+  if (minutes < 60) return minutes < 2 ? 'active now' : `active ${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 48) return `active ${hours} h ago`
+  return `active ${Math.round(hours / 24)} days ago`
+}
+
+const appLabel = (app: NonNullable<Person['apps']>[number]) =>
+  [
+    app.version ? `Vela ${app.version}${app.build ? ` (${app.build})` : ''}${app.update ? ` · update ${app.update}` : ''}` : 'Vela (version not reported yet)',
+    app.platform ? `${PLATFORM_NAMES[app.platform] ?? app.platform}${app.os ? ` ${app.os}` : ''}` : '',
+    app.platform && /^vela mail on /i.test(app.device) ? '' : app.device,
+    ago(app.lastUsedAt),
+  ].filter(Boolean).join(' · ')
 
 const matchesFilter = (person: Person, filter: Filter) => {
   if (filter === 'admin' || filter === 'member') return person.role === filter
@@ -293,6 +314,11 @@ export default function PeopleList({
                             <> · invited{invitedOn ? ` ${invitedOn}` : ''}{person.invitedBy ? ` by ${person.invitedBy}` : ''}</>
                           )}
                         </span>
+                        {person.apps?.map(app => (
+                          <span key={`${app.device}-${app.lastUsedAt}`} className={styles.personApp}>
+                            {appLabel(app)}
+                          </span>
+                        ))}
                       </div>
 
                       <div className={styles.personActions}>

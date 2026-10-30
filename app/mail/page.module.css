@@ -8813,6 +8813,11 @@
   font: 400 12px/1.45 var(--nc-font-sans);
   word-break: break-word;
 }
+.personApp {
+  color: var(--nc-fg-3);
+  font: 400 11.5px/1.45 var(--nc-font-mono);
+  word-break: break-word;
+}
 .personMeta b {
   color: var(--nc-fg-2);
   font-weight: 500;
