@@ -71,6 +71,7 @@ import PasskeySettings from './PasskeySettings'
 import PasskeySignIn from './PasskeySignIn'
 import RequestPause, { PauseAnnouncer, useCountdown, usePause } from './RequestPause'
 import { formatWait, readPause, readThrottle } from './pause'
+import { readDeepLink, spacedCode, type DeepLink } from '@/lib/deep-links'
 import LinkSettings, { defaultLinkSettings, linkSettingsFromShare, linkSettingsPayload, linkSummary, linkTerms, type LinkSettingsValue } from './LinkSettings'
 import { shareGate, type ShareAccess } from '@/lib/share-policy'
 
@@ -88,6 +89,25 @@ const LS_EMAIL_KEY = LS('email')
 const LS_DOMAIN_KEY = LS('domain')
 const LS_INBOX_CACHE_KEY = LS('inbox_cache')
 const LS_PASSWORD_KEY = LS('password')
+const LS_PENDING_SIGNIN_KEY = LS('pending_signin')
+const LS_PENDING_ENROL_KEY = LS('pending_enrol')
+const PENDING_TTL_MS = 10 * 60 * 1000
+
+function readPending<T>(key: string): T | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? 'null') as (T & { savedAt?: number }) | null
+    return parsed && Date.now() - Number(parsed.savedAt) < PENDING_TTL_MS ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function writePending(key: string, value: object | null): void {
+  try {
+    if (value) localStorage.setItem(key, JSON.stringify({ ...value, savedAt: Date.now() }))
+    else localStorage.removeItem(key)
+  } catch {}
+}
 const LS_THEME_KEY = LS('theme')
 const LS_RAIL_KEY = LS('rail_collapsed')
 const LS_LIST_W_KEY = LS('list_width')
@@ -1631,6 +1651,12 @@ export default function DevMailPage() {
   const { pause: resetPaused, start: pauseReset, end: endResetPause, announcement: resetAnnouncement } = usePause('reset')
   const [resetAgainAt, setResetAgainAt] = useState<number | null>(null)
   const resendIn = useCountdown(secondStep?.resendAt ?? null)
+  const [deepTarget, setDeepTarget] = useState<{ code: string | null; enrol: { challenge: string; sentTo: string } | null } | null>(null)
+  const arrival = useRef<{
+    link: DeepLink
+    signin: Pick<SecondStep, 'challenge' | 'email' | 'methods' | 'emailHint'> | null
+    enrol: { challenge: string; sentTo: string } | null
+  } | null>(null)
   const resetAgainIn = useCountdown(resetAgainAt)
   const [humanRound, setHumanRound] = useState(0)
   const [showPassword, setShowPassword] = useState(false)
@@ -2175,6 +2201,40 @@ export default function DevMailPage() {
     }
     // Earlier builds kept the plaintext password here. Drop it on sight.
     localStorage.removeItem(LS_PASSWORD_KEY)
+    if (!arrival.current) {
+      const arrivedBy = readDeepLink(window.location.pathname, window.location.search)
+      if (arrivedBy) {
+        arrival.current = {
+          link: arrivedBy,
+          signin: readPending<Pick<SecondStep, 'challenge' | 'email' | 'methods' | 'emailHint'>>(LS_PENDING_SIGNIN_KEY),
+          enrol: readPending<{ challenge: string; sentTo: string }>(LS_PENDING_ENROL_KEY),
+        }
+      }
+    }
+    if (arrival.current) {
+      const { link } = arrival.current
+      window.history.replaceState(null, '', '/mail')
+      if (link.email) {
+        const [linkLocal, linkDomain] = link.email.split('@')
+        setEmail(link.email)
+        if (LOGIN_DOMAINS.includes(linkDomain)) {
+          setLoginRaw(linkLocal)
+          setLoginDomain(linkDomain)
+        } else {
+          setLoginRaw(link.email)
+        }
+      }
+      if (link.target === 'signin') {
+        const pending = arrival.current.signin
+        if (pending?.methods?.includes('email')) {
+          setSecondStep({ ...pending, method: 'email', emailSent: true, resendAt: null, throttled: false })
+          if (link.code) setSecondCode(spacedCode(link.code))
+        }
+      } else {
+        if (link.target === 'forgot') setResetMode(true)
+        setDeepTarget({ code: link.code, enrol: link.target === 'security' ? arrival.current.enrol : null })
+      }
+    }
     const storedTheme = localStorage.getItem(LS_THEME_KEY)
     if (storedTheme === 'light' || storedTheme === 'dim' || storedTheme === 'dark' || storedTheme === 'system') setThemePref(storedTheme)
     const storedAccent = localStorage.getItem(LS_ACCENT_KEY)
@@ -2377,6 +2437,10 @@ export default function DevMailPage() {
       .then(data => setHumanKey(typeof data?.turnstile === 'string' ? data.turnstile : null))
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    writePending(LS_PENDING_SIGNIN_KEY, secondStep ? { challenge: secondStep.challenge, email: secondStep.email, methods: secondStep.methods, emailHint: secondStep.emailHint } : null)
+  }, [secondStep])
 
   const secondStepFailed = useCallback((data: { error?: string; expired?: boolean } | null, fallback: string) => {
     setLoginError(data?.error ?? fallback)
@@ -6058,6 +6122,19 @@ export default function DevMailPage() {
   const [totpSetup, setTotpSetup] = useState<{ secret: string; uri: string } | null>(null)
   const [emailEnrol, setEmailEnrol] = useState<{ challenge: string; sentTo: string } | null>(null)
   const [factorCode, setFactorCode] = useState('')
+  useEffect(() => {
+    writePending(LS_PENDING_ENROL_KEY, emailEnrol)
+  }, [emailEnrol])
+  useEffect(() => {
+    if (!deepTarget || !isLoggedIn || checking) return
+    setSettingsTab('security')
+    setSettingsOpen(true)
+    if (deepTarget.enrol) {
+      setEmailEnrol({ challenge: deepTarget.enrol.challenge, sentTo: deepTarget.enrol.sentTo })
+      if (deepTarget.code) setFactorCode(spacedCode(deepTarget.code))
+    }
+    setDeepTarget(null)
+  }, [deepTarget, isLoggedIn, checking])
   const [factorOff, setFactorOff] = useState<{ which: 'authenticator' | 'email'; password: string } | null>(null)
   const [securityBusy, setSecurityBusy] = useState(false)
   const [securityMsg, setSecurityMsg] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null)

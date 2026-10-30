@@ -377,6 +377,7 @@ export type ActionEmailVars = {
   recipient?: string
   reason?: string
   request?: RequestNotice
+  codeLinkUrl?: string
 }
 
 export function renderActionEmail(vars: ActionEmailVars): string {
@@ -389,7 +390,7 @@ export function renderActionEmail(vars: ActionEmailVars): string {
     heading: vars.code ? 'Your sign-in code' : vars.title,
     bodyHtml: `<p style="margin:0;">${escapeHtml(vars.body)}</p>`,
     moduleHtml: vars.code ? codePanel(brand, vars.code, 'Expires in 10 min') : '',
-    cta: vars.code ? undefined : { label: vars.actionLabel, url: vars.actionUrl },
+    cta: vars.code ? (vars.codeLinkUrl ? { label: vars.actionLabel, url: vars.codeLinkUrl } : undefined) : { label: vars.actionLabel, url: vars.actionUrl },
     noteHtml: `<p style="margin:0 0 8px;">${escapeHtml(vars.expiry)}</p><p style="margin:0;">${escapeHtml(vars.footer)}</p>`,
     request: vars.request,
     recipient: vars.recipient,

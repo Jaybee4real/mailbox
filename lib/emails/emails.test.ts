@@ -45,4 +45,10 @@ assert.match(access.html, /Request details/)
 assert.match(access.text, /IP address: 198\.51\.100\.9\nLocation: Ikeja, Lagos, NG/)
 assert.match(emails.withRequestText('Your code is 123 456.', request), /^Your code is 123 456\.\n\nRequest details\nTime: /)
 
+const linked = emails.renderActionEmail({ eyebrow: 'Example · Mail', code: '123 456', title: '123 456', body: 'Enter this code.', actionLabel: 'Open Example Mail', actionUrl: 'https://mail.example.com/mail', codeLinkUrl: 'https://mail.example.com/mail/signin?email=ada%40example.com&code=123456', expiry: 'Expires in 10 minutes.', footer: 'Not you?', request: { ...request, devicesUrl: 'https://mail.example.com/mail/security' } })
+assert.match(linked, /href="https:\/\/mail\.example\.com\/mail\/signin\?email=ada%40example\.com&amp;code=123456"/, 'a code email opens the code screen with the code filled in')
+assert.match(linked, /Open Example Mail/)
+assert.match(linked, /href="https:\/\/mail\.example\.com\/mail\/security"[^>]*>Review signed-in devices</)
+assert.ok(!rendered[1][1].includes('href="https://mail.example.com/mail/signin'), 'without a link the code email still has no button')
+
 console.log('mailbox emails: ok')

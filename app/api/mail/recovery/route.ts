@@ -67,6 +67,7 @@ export async function POST(req: Request) {
   const verifyUrl = `${publicOrigin(req)}/api/mail/recovery/verify?token=${token}`
   const from = (process.env.MAIL_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
   const request = requestNotice(req, {
+    account: identity.email,
     wasntYou: `Ignore this email if you don't know ${identity.email}. If that account is yours and you didn't add this address, someone may be signed in to it: reset your password with Forgot password on the sign-in page, or ask your mailbox admin to lock the account:`,
   })
 
