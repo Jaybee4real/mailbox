@@ -8803,6 +8803,7 @@ export default function DevMailPage() {
             onClick={() => {
               setThemePreview(null)
               setThemeMenuOpen(false)
+              setSettingsTab('appearance')
               setSettingsOpen(true)
             }}
           >
