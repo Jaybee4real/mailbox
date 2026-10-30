@@ -8,6 +8,8 @@ COPY package.json yarn.lock ./
 RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
     yarn install --frozen-lockfile --ignore-engines
 COPY . .
+ARG BUILD_SHA=""
+ENV BUILD_SHA=$BUILD_SHA
 RUN yarn build
 
 FROM node:22.23.4-bookworm-slim

@@ -259,6 +259,17 @@
   transition: color var(--dur-fast) var(--nc-ease-out), background-color var(--dur-fast) var(--nc-ease-out);
 }
 .railLink:hover { color: var(--nc-fg-1); background: var(--nc-ink-2); }
+.railVersion {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border: none;
+  background: transparent;
+  color: var(--nc-fg-4);
+  font: 400 11px/1.4 var(--nc-font-mono);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.railVersion:hover { color: var(--nc-fg-2); }
 
 .railClose {
   display: none;
@@ -378,7 +389,8 @@
   .railCollapsed:not(:hover) .folderCount,
   .railCollapsed:not(:hover) .folderSpinner,
   .railCollapsed:not(:hover) .railIdentityText,
-  .railCollapsed:not(:hover) .railLink { display: none; }
+  .railCollapsed:not(:hover) .railLink,
+  .railCollapsed:not(:hover) .railVersion { display: none; }
   .railCollapsed:not(:hover) .brand { flex-direction: column-reverse; gap: 12px; padding: 0 0 12px; }
   .railCollapsed:not(:hover) .railToggle { margin-left: 0; }
   .railCollapsed:not(:hover) .composeBtn { padding: 12px 0; }

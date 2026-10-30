@@ -1,4 +1,15 @@
 import type { NextConfig } from "next";
+import { execSync } from "node:child_process";
+import packageJson from "./package.json";
+
+const buildSha = (() => {
+  if (process.env.BUILD_SHA) return process.env.BUILD_SHA;
+  try {
+    return execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  } catch {
+    return "";
+  }
+})();
 
 /**
  * This is a private mailbox. Nothing here should ever be indexed, summarised or
@@ -21,6 +32,8 @@ const nextConfig: NextConfig = {
     // Captured at build time. On Vercel this is the last successful build's
     // ISO timestamp; locally it's the time `next build` ran.
     NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),
+    NEXT_PUBLIC_APP_VERSION: packageJson.version,
+    NEXT_PUBLIC_BUILD_SHA: buildSha,
   },
   async headers() {
     return [

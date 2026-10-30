@@ -37,6 +37,8 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
           tags: |
             ${{ steps.image.outputs.name }}:${{ github.sha }}
             ${{ steps.image.outputs.name }}:latest

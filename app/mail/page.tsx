@@ -67,6 +67,7 @@ import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
 import HumanCheck from './HumanCheck'
 import PeopleList, { type Person } from './PeopleList'
+import { APP_VERSION, BUILD_LABEL, BUILD_SHA, builtAt } from '@/lib/build-info'
 import PasskeySettings from './PasskeySettings'
 import PasskeySignIn from './PasskeySignIn'
 import RequestPause, { PauseAnnouncer, useCountdown, usePause } from './RequestPause'
@@ -8914,6 +8915,14 @@ export default function DevMailPage() {
           <button className={styles.railLink} onClick={signOut}>
             Sign out
           </button>
+          <button
+            type="button"
+            className={styles.railVersion}
+            onClick={() => { setSettingsTab('app'); setSettingsOpen(true); setRailOpen(false) }}
+            title={`Built ${builtAt()}`}
+          >
+            {BUILD_LABEL}
+          </button>
         </div>
       </aside>
 
@@ -11111,7 +11120,9 @@ export default function DevMailPage() {
             </div>
             <div className={styles.settingsField}>
               <span>Build</span>
-              <p className={styles.settingsNote}>{process.env.NEXT_PUBLIC_BUILD_TIME ?? 'unknown'}</p>
+              <p className={styles.settingsNote}>
+                Version {APP_VERSION || 'unknown'}{BUILD_SHA ? ` · commit ${BUILD_SHA}` : ''} · built {builtAt()}
+              </p>
             </div>
             </>)}
               </div>
