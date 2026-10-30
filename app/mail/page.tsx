@@ -332,7 +332,7 @@ type ReplyMode = 'write' | 'preview' | 'plain' | 'html' | 'raw'
 type SavedAttachment = { filename: string; url: string; key?: string; size: number }
 type Draft = { id: string; savedAt: string; data: ComposeData & { attachments?: SavedAttachment[] }; mailbox?: string }
 
-const draftText = (data: ComposeData) => (data.bodyHtml.trim() ? htmlToPlainText(data.bodyHtml) : data.markdown).replace(/\s+/g, ' ').trim()
+const draftText = (data: ComposeData) => ((data.bodyHtml ?? '').trim() ? htmlToPlainText(data.bodyHtml) : (data.markdown ?? '').trim() || htmlToPlainText(data.htmlSource ?? '')).replace(/\s+/g, ' ').trim()
 
 const EMPTY_CAMPAIGN: Campaign = {
   kind: '',
@@ -360,6 +360,26 @@ const EMPTY_COMPOSE: ComposeData = {
   delayKey: '20',
   customDate: '',
   campaign: EMPTY_CAMPAIGN,
+}
+
+function normaliseDraft(raw: unknown): Draft['data'] {
+  const stored = (raw && typeof raw === 'object' ? raw : {}) as Partial<Draft['data']>
+  const list = (value: unknown) => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [])
+  const markdown = typeof stored.markdown === 'string' ? stored.markdown : ''
+  const bodyHtml = typeof stored.bodyHtml === 'string' && stored.bodyHtml.trim() ? stored.bodyHtml : markdown.trim() ? markdownToHtml(markdown) : ''
+  return {
+    ...EMPTY_COMPOSE,
+    ...stored,
+    bodyHtml,
+    markdown,
+    to: list(stored.to),
+    cc: list(stored.cc),
+    bcc: list(stored.bcc),
+    subject: typeof stored.subject === 'string' ? stored.subject : '',
+    htmlSource: typeof stored.htmlSource === 'string' ? stored.htmlSource : '',
+    campaign: { ...EMPTY_CAMPAIGN, ...(stored.campaign ?? {}) },
+    attachments: Array.isArray(stored.attachments) ? stored.attachments : [],
+  }
 }
 
 type SecondStep = {
@@ -1983,7 +2003,7 @@ export default function DevMailPage() {
     let live = true
     fetchStash('draft', apiHeaders(), mailboxAll && mailbox !== 'all' ? mailbox : undefined).then(items => {
       if (!live) return
-      setDrafts(items.map(item => ({ id: item.id, savedAt: item.updatedAt, data: item.data as Draft['data'], mailbox: item.mailbox })))
+      setDrafts(items.map(item => ({ id: item.id, savedAt: item.updatedAt, data: normaliseDraft(item.data), mailbox: item.mailbox })))
     })
     return () => {
       live = false
