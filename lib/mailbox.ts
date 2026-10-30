@@ -18,7 +18,7 @@ import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
 import { inboxFiltersSql, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters'
 import { impersonationReasons, judgeMessage, raiseRisk, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
 import type { ShareAccess, ShareSettings } from './share-policy'
-import { providerBase } from './provider-base'
+import { velaApiBase, velaApiKey } from './vela-config'
 import { removeAllPasskeys } from './passkeys'
 
 export { judgeMessage, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding }
@@ -2257,7 +2257,7 @@ export async function recordSentMessage(message: SentMessage): Promise<void> {
   const sql = db()
   await sql`
     INSERT INTO mail_sent (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, created_at, last_event, provider, archived_at, attachments)
-    VALUES (${message.id}, ${message.from}, ${JSON.stringify(message.to)}, ${JSON.stringify(message.cc)}, ${JSON.stringify(message.bcc)}, ${JSON.stringify(message.replyTo)}, ${message.subject}, ${message.html}, ${message.text}, ${message.createdAt}, ${message.lastEvent ?? null}, ${process.env.MAIL_PROVIDER ?? 'resend'}, ${nowIso()}, ${JSON.stringify(message.attachments ?? [])})
+    VALUES (${message.id}, ${message.from}, ${JSON.stringify(message.to)}, ${JSON.stringify(message.cc)}, ${JSON.stringify(message.bcc)}, ${JSON.stringify(message.replyTo)}, ${message.subject}, ${message.html}, ${message.text}, ${message.createdAt}, ${message.lastEvent ?? null}, ${'vela'}, ${nowIso()}, ${JSON.stringify(message.attachments ?? [])})
     ON CONFLICT (id) DO NOTHING`
 }
 
@@ -2974,7 +2974,7 @@ function moveDraftsToMailboxes(): Promise<void> {
         await sql`UPDATE OR IGNORE mail_stash SET owner = ${address} WHERE kind = 'draft' AND owner = ${email}`
       }
     }
-    const shared = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? '').replace(/^.*<|>$/g, '').trim().toLowerCase()
+    const shared = (process.env.MAIL_FROM ?? '').replace(/^.*<|>$/g, '').trim().toLowerCase()
     if (shared) await sql`UPDATE OR IGNORE mail_stash SET owner = ${shared} WHERE kind = 'draft' AND owner = 'local@dev'`
   })().catch(error => {
     draftsMoved = null
@@ -3098,9 +3098,9 @@ export async function backfillAttachments(limit: number, countRemaining = false)
   if (rows.length === 0) return result
   result.scanned = rows.length
 
-  const apiKey = process.env.RESEND_API_KEY
+  const apiKey = velaApiKey()
   if (!apiKey) return result
-  const base = providerBase()
+  const base = velaApiBase()
   const { putObject } = await import('./r2')
 
   await Promise.all(

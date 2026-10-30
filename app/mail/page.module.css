@@ -8860,3 +8860,45 @@
   overflow: hidden;
   pointer-events: none;
 }
+
+.pausePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--nc-line-2);
+  border-radius: var(--radius-control);
+  background: var(--nc-ink-2);
+}
+.pauseTitle {
+  margin: 0;
+  font: 650 16px/1.3 var(--nc-font-sans);
+  color: var(--nc-fg-1);
+}
+.pauseBody {
+  margin: 0;
+  font: 400 14px/1.55 var(--nc-font-sans);
+  color: var(--nc-fg-2);
+}
+.pauseHint {
+  margin: 0;
+  font: 400 12.5px/1.45 var(--nc-font-sans);
+  color: var(--nc-fg-3);
+}
+.pauseSupport {
+  align-self: center;
+  padding: 6px;
+  color: var(--nc-fg-3);
+  font: 500 13px/1 var(--nc-font-sans);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pauseSupport:hover {
+  color: var(--nc-violet-500);
+  color: oklch(from var(--nc-violet-500) min(l, .5) c h);
+}
+.codeSentNote {
+  margin: 0;
+  font: 400 13.5px/1.5 var(--nc-font-sans);
+  color: var(--nc-fg-2);
+}

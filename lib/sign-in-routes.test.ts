@@ -14,7 +14,14 @@ after(() => rmSync(directory, { recursive: true, force: true }))
 
 const PASSWORD = 'correct horse battery staple'
 const realFetch = globalThis.fetch
+const velaCalls: Array<{ url: string; body: Record<string, unknown> }> = []
+let velaAnswer: (url: string, body: Record<string, unknown>) => Response | null = () => null
 globalThis.fetch = async (input, init) => {
+  if (String(input).startsWith('https://vela.example.com/')) {
+    const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+    velaCalls.push({ url: String(input), body })
+    return velaAnswer(String(input), body) ?? new Response(JSON.stringify({ allowed: true }))
+  }
   if (String(input).includes('challenges.cloudflare.com')) {
     const token = (init?.body as URLSearchParams).get('response')
     return new Response(JSON.stringify({ success: token === 'pass' }))
@@ -51,6 +58,15 @@ async function account(email: string, address = email) {
   const { mailbox, hashPassword } = await routes()
   await mailbox.createAccount({ email, address, status: 'active' })
   await mailbox.setAccountPassword(email, await hashPassword(PASSWORD))
+}
+
+const PAUSED = { ok: false, error: 'Too many attempts. Try again shortly.', name: 'rate_limited', scope: 'ip' }
+
+async function assertPausedBody(response: Response) {
+  const body = await response.json()
+  assert.deepEqual({ ok: body.ok, error: body.error, name: body.name, scope: body.scope }, PAUSED)
+  assert.equal(body.retry_after, Number(response.headers.get('retry-after')))
+  assert.ok(Date.parse(body.blocked_until) > Date.now())
 }
 
 function assertThrottled(response: Response) {
@@ -121,7 +137,7 @@ test('the native bypass meets a per-IP and a per-address ceiling that browsers d
   }
   const rotated = await login(post('/api/mail/login', { ip: freshIp(), headers: NATIVE, body: { email: 'target@example.com', password: 'guess' } }))
   assertThrottled(rotated)
-  assert.deepEqual(await rotated.json(), { ok: false, error: 'Too many attempts. Try again shortly.' })
+  await assertPausedBody(rotated)
 
   const browser = await login(post('/api/mail/login', { ip: freshIp(), headers: BROWSER, body: { email: 'target@example.com', password: 'guess', turnstile: 'pass' } }))
   assert.equal(browser.status, 401, 'a browser that solved Turnstile is not held to the native ceiling')
@@ -190,7 +206,7 @@ test('login/email-code is limited per IP and challenge, with Retry-After', async
   for (let count = 0; count < 8; count++) assert.equal((await send(ip, challengeA)).status, 401)
   const throttled = await send(ip, challengeA)
   assertThrottled(throttled)
-  assert.deepEqual(await throttled.json(), { ok: false, error: 'Too many attempts. Try again shortly.' })
+  await assertPausedBody(throttled)
   assert.equal((await send(ip, challengeB)).status, 401, 'another sign-in from the same IP is unaffected')
   assert.equal((await send(freshIp(), challengeA)).status, 401, 'another IP is unaffected')
 })
@@ -224,7 +240,7 @@ test('login/verify counts wrong codes per IP and per account, and a burst cannot
   assertThrottled(await send(freshIp(), last))
 })
 
-test('a resend inside the cooldown says when to try again', async () => {
+test('a resend inside the cooldown is answered as already sent, with when to ask again', async () => {
   const { emailCode, mailbox, newChallengeId } = await routes()
   const challenge = newChallengeId()
   await account('codes@example.com')
@@ -234,9 +250,12 @@ test('a resend inside the cooldown says when to try again', async () => {
   await mailbox.createLoginChallenge(challenge, 'codes@example.com', 'signin', 10 * 60 * 1000)
   await mailbox.setChallengeCode(challenge, 'hash')
   const response = await emailCode(post('/api/mail/login/email-code', { ip: freshIp(), headers: NATIVE, body: { challenge } }))
-  assertThrottled(response)
-  assert.ok(Number(response.headers.get('retry-after')) <= 60)
-  assert.deepEqual(await response.json(), { ok: false, error: 'A code was just sent. Wait a minute before asking for another.' })
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.ok, true)
+  assert.equal(body.throttled, true)
+  assert.equal(body.sentTo, 'c••••@outside.example')
+  assert.ok(body.retry_after > 0 && body.retry_after <= 60)
 })
 
 test('request-reset gives a message to show, flags needsAdmin, and does not tell known from unknown', async () => {
@@ -273,4 +292,76 @@ test('the native bypass on request-reset is no stricter than the browser per add
   const ask = (ip: string) => requestReset(post('/api/mail/request-reset', { ip, headers: NATIVE, body: { email: 'native-reset@example.com' } }))
   for (let count = 0; count < 5; count++) assert.equal((await ask(freshIp())).status, 200)
   assertThrottled(await ask(freshIp()))
+})
+
+test('Vela guards password sign-in: a pause passes through with scope, retry_after and blocked_until', async () => {
+  process.env.VELA_API_URL = 'https://vela.example.com'
+  process.env.VELA_API_KEY = 'vela_test'
+  try {
+    const { login } = await routes()
+    await account('guarded@example.com')
+    velaCalls.length = 0
+    velaAnswer = url => url.endsWith('/api/v1/guard')
+      ? new Response(JSON.stringify({ name: 'rate_limited', message: 'Too many requests. Try again in 4 minutes.', scope: 'device', retry_after: 240, blocked_until: '2099-01-01T00:04:00.000Z' }), { status: 429, headers: { 'retry-after': '240' } })
+      : null
+    const blocked = await login(post('/api/mail/login', { ip: '203.0.113.60', headers: { ...NATIVE, 'x-mail-install-id': '6f9619ff-8b86-4011-b42d-00cf4fc964ff', 'user-agent': 'Vela/1.0' }, body: { email: 'guarded@example.com', password: PASSWORD } }))
+    assert.equal(blocked.status, 429)
+    assert.equal(blocked.headers.get('retry-after'), '240')
+    assert.deepEqual(await blocked.json(), { ok: false, error: 'Too many requests. Try again in 4 minutes.', name: 'rate_limited', scope: 'device', retry_after: 240, blocked_until: '2099-01-01T00:04:00.000Z' })
+    assert.deepEqual(velaCalls[0].body, {
+      action: 'sign_in_password',
+      target: 'guarded@example.com',
+      context: { ip: '203.0.113.60', device: 'app:6f9619ff-8b86-4011-b42d-00cf4fc964ff', account: 'guarded@example.com', user_agent: 'Vela/1.0' },
+    })
+
+    velaCalls.length = 0
+    velaAnswer = () => null
+    const allowed = await login(post('/api/mail/login', { ip: freshIp(), headers: NATIVE, body: { email: 'guarded@example.com', password: PASSWORD } }))
+    assert.equal(allowed.status, 200)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.deepEqual(velaCalls.map(call => new URL(call.url).pathname), ['/api/v1/guard', '/api/v1/guard/success'])
+
+    velaAnswer = () => { throw new Error('connect ECONNREFUSED') }
+    const unreachable = await login(post('/api/mail/login', { ip: freshIp(), headers: NATIVE, body: { email: 'guarded@example.com', password: PASSWORD } }))
+    assert.equal(unreachable.status, 200, 'an unreachable guard never locks anyone out')
+  } finally {
+    delete process.env.VELA_API_URL
+    delete process.env.VELA_API_KEY
+    velaAnswer = () => null
+  }
+})
+
+test('a code send carries the request context, and a recipient cooldown reads as already sent', async () => {
+  process.env.VELA_API_URL = 'https://vela.example.com'
+  process.env.VELA_API_KEY = 'vela_test'
+  try {
+    const { emailCode, mailbox, newChallengeId } = await routes()
+    await account('context@example.com')
+    await mailbox.setRecoveryEmail('context@example.com', 'context@outside.example')
+    await mailbox.markRecoveryVerified('context@example.com', 'context@outside.example')
+    await mailbox.setEmailCodes('context@example.com', true)
+    const challenge = newChallengeId()
+    await mailbox.createLoginChallenge(challenge, 'context@example.com', 'signin', 10 * 60 * 1000)
+
+    velaCalls.length = 0
+    velaAnswer = url => (url.endsWith('/api/v1/emails') ? new Response(JSON.stringify({ id: null, throttled: true, reason: 'recipient_cooldown', retry_after: 45 })) : new Response(JSON.stringify({ data: [] })))
+    const response = await emailCode(post('/api/mail/login/email-code', { ip: '203.0.113.50', headers: { ...BROWSER, cookie: 'mail_device=abcdefghijklmnopqrstuvwx' }, body: { challenge } }))
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), { ok: true, sentTo: 'c••••••@outside.example', throttled: true, retry_after: 45 })
+    const sent = velaCalls.find(call => call.url.endsWith('/api/v1/emails'))
+    assert.deepEqual(sent?.body.context, { purpose: 'login_code', ip: '203.0.113.50', device: 'web:abcdefghijklmnopqrstuvwx', account: 'context@example.com' })
+    assert.equal((await mailbox.getLoginChallenge(challenge))?.codeSentAt ?? null, null, 'a throttled send leaves the earlier code in place')
+
+    velaAnswer = url => (url.endsWith('/api/v1/emails')
+      ? new Response(JSON.stringify({ name: 'rate_limited', message: 'Too many requests.', scope: 'ip', retry_after: 300, blocked_until: '2099-01-01T00:05:00.000Z' }), { status: 429 })
+      : new Response(JSON.stringify({ data: [] })))
+    const paused = await emailCode(post('/api/mail/login/email-code', { ip: '203.0.113.50', headers: BROWSER, body: { challenge } }))
+    assert.equal(paused.status, 429)
+    assert.equal((await paused.json()).scope, 'ip')
+    assert.ok(paused.headers.get('set-cookie')?.includes('mail_device='), 'a browser without a device id gets one')
+  } finally {
+    delete process.env.VELA_API_URL
+    delete process.env.VELA_API_KEY
+    velaAnswer = () => null
+  }
 })

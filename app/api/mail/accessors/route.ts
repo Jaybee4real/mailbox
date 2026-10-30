@@ -6,7 +6,8 @@ import { sendMail } from '@/lib/mail-provider'
 import { renderActionEmail, withRequestText } from '@/lib/emails'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { publicOrigin } from '@/lib/public-url'
-import { requestNotice } from '@/lib/signin'
+import { requestNotice, sendContext } from '@/lib/signin'
+import { VelaRateLimitError, rateLimitedResponse } from '@/lib/vela'
 import {
   listAccounts,
   getAccount,
@@ -122,15 +123,16 @@ export async function POST(req: Request) {
   const token = randomBytes(32).toString('hex')
   await createResetToken(email, token, Date.now() + INVITE_TTL_MS)
 
-  const from = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
+  const from = (process.env.MAIL_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
   const origin = publicOrigin(req)
   const inviteUrl = `${origin}/mail/reset?token=${token}&invite=1`
   const request = requestNotice(req, {
     wasntYou: `Weren't expecting this invite? Ignore it and no account opens, or ask ${inviter.email}, the mailbox admin who sent it.`,
     link: false,
   })
+  let throttledFor = 0
   try {
-    const { id } = await sendMail({
+    const sent = await sendMail({
       from,
       fromName: `${BRAND.name} Mail`,
       to: [sendTo],
@@ -147,15 +149,18 @@ export async function POST(req: Request) {
         footer: `You are receiving this because ${inviter.email} invited you.`,
         request,
       }),
+      context: sendContext(req, 'invite', inviter.email),
     })
-    if (id) await recordSentMeta(id, null, true).catch(() => {})
+    if (sent.throttled) throttledFor = sent.retryAfter ?? 60
+    if (sent.id) await recordSentMeta(sent.id, null, true).catch(() => {})
   } catch (err) {
+    if (err instanceof VelaRateLimitError) return rateLimitedResponse(err)
     // The account row already exists; say the invite did not go out rather than imply it did.
     console.error('[mail] invite email failed:', err)
     return NextResponse.json({ ok: false, error: err instanceof BlockedRecipientsError ? `Account created, but the invite was not sent. ${err.message}` : 'Account created, but the invite email could not be sent', email, address, role, sentTo: sendTo }, { status: 502 })
   }
 
-  return NextResponse.json({ ok: true, email, address, role, sentTo: sendTo })
+  return NextResponse.json({ ok: true, email, address, role, sentTo: sendTo, ...(throttledFor ? { throttled: true, retry_after: throttledFor } : {}) })
 }
 
 export async function PATCH(req: Request) {

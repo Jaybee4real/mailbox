@@ -6,7 +6,7 @@ import { ADDRESS_ALIASES, appendInbound, classifyAddressed, isDmarcAggregateRepo
 import { matchesInboxFilters } from '@/lib/inbox-filters'
 import { archiveAddress, sendMail } from '@/lib/mail-provider'
 import { MAIL_FROM, SHARED_INBOX } from '@/lib/scope'
-import { providerBase } from '@/lib/provider-base'
+import { velaApiBase, velaApiKey } from '@/lib/vela-config'
 import { storeThumbnail, wantsThumbnail } from '@/lib/thumbnail'
 
 /** The row id of a further mailbox's copy of one delivery. */
@@ -131,7 +131,7 @@ export type ReceivedEmail = {
 // The email.received webhook payload carries only metadata (from/to/subject) — the body
 // lives on Resend and must be pulled from the receiving endpoint, or the inbox stores blanks.
 export async function fetchReceivedEmail(emailId: string, apiKey: string): Promise<ReceivedEmail | null> {
-  const base = providerBase()
+  const base = velaApiBase()
   try {
     const response = await fetch(`${base}/emails/receiving/${encodeURIComponent(emailId)}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
@@ -195,7 +195,7 @@ async function rehostAttachments(
 }
 
 async function fetchAttachmentBytes(emailId: string, apiKey: string): Promise<SendAttachment[]> {
-  const base = providerBase()
+  const base = velaApiBase()
   try {
     const response = await fetch(`${base}/emails/receiving/${encodeURIComponent(emailId)}/attachments`, {
       headers: { Authorization: `Bearer ${apiKey}` },
@@ -255,7 +255,7 @@ export async function forwardToAccounts(
   const from = MAIL_FROM
   // Attachment bytes only come from Resend's receiving API; under another provider the
   // forward still goes out, just without re-attaching the files.
-  const resendKey = process.env.RESEND_API_KEY
+  const resendKey = velaApiKey()
   const attachments = (files ?? (resendKey ? await fetchAttachmentBytes(emailId, resendKey) : [])).filter(file => file.content)
   const header = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5A5170;border-left:3px solid ${BRAND.colors.accent};padding:4px 0 4px 12px;margin:0 0 16px;">---------- Forwarded message ----------<br><strong>From:</strong> ${escapeHtml(inbound.from)}<br><strong>Subject:</strong> ${escapeHtml(inbound.subject)}</div>`
   try {
@@ -293,7 +293,7 @@ export async function ingestReceived(
    */
   mode: 'store' | 'repair' | 'backfill' = 'store',
 ): Promise<{ owner: string; subject: string; from: string }> {
-  const apiKey = process.env.RESEND_API_KEY
+  const apiKey = velaApiKey()
   // The webhook payload has no body — pull the full email (html/text/attachments) from Resend.
   const full = apiKey ? await fetchReceivedEmail(emailId, apiKey) : null
 
@@ -488,7 +488,7 @@ export async function listReceived(apiKey: string, since: Date): Promise<Receive
   for (let page = 0; page < 200; page += 1) {
     const params = new URLSearchParams({ limit: '50' })
     if (after) params.set('after', after)
-    const response = await fetch(`${providerBase()}/emails/receiving?${params}`, {
+    const response = await fetch(`${velaApiBase()}/emails/receiving?${params}`, {
       headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     })
     if (!response.ok) throw new Error(`provider list failed (${response.status})`)

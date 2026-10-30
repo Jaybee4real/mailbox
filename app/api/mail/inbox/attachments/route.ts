@@ -4,7 +4,7 @@ import { getInboundAttachments, resolveInboundBody, setInboundAttachments } from
 import { isEmbedded, referencedCids } from '@/lib/attachments'
 import { mayReadInbound } from '@/lib/sent-access'
 import { providerEmailId } from '@/lib/receive'
-import { providerBase } from '@/lib/provider-base'
+import { velaApiBase, velaApiKey } from '@/lib/vela'
 
 export const runtime = 'nodejs'
 
@@ -57,10 +57,10 @@ export async function GET(req: Request) {
   // Nothing of ours yet: this message predates the copy-on-arrival. Pull the bytes from
   // the provider now and keep them, so the next reader is served from here and the file
   // survives the provider's own retention window.
-  const apiKey = process.env.RESEND_API_KEY
+  const apiKey = velaApiKey()
   if (!apiKey) return NextResponse.json({ ok: true, attachments: [] })
 
-  const response = await fetch(`${providerBase()}/emails/receiving/${encodeURIComponent(providerEmailId(id))}/attachments`, {
+  const response = await fetch(`${velaApiBase()}/emails/receiving/${encodeURIComponent(providerEmailId(id))}/attachments`, {
     headers: { authorization: `Bearer ${apiKey}` },
   })
   if (!response.ok) return NextResponse.json({ ok: true, attachments: [] })

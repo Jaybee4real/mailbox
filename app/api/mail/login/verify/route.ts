@@ -4,7 +4,8 @@ import { deleteLoginChallenge, getLoginChallenge, recordSignin, reserveChallenge
 import { clientKey, peekRateLimit, rateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession } from '@/lib/session'
 import { issueMobileSession } from '@/lib/mobile-session'
-import { requestContext, signInBody } from '@/lib/signin'
+import { requestContext, requesterContext, signInBody } from '@/lib/signin'
+import { guardRequest, guardSuccess, rateLimitedResponse } from '@/lib/vela'
 import { nativeClient } from '@/lib/turnstile'
 import { EMAIL_CODE_TTL_MS, MAX_CODE_ATTEMPTS, hashEmailCode, isChallengeId, verifyTotp, type SecondFactor } from '@/lib/two-factor'
 
@@ -44,6 +45,10 @@ export async function POST(req: Request) {
   const accountLimited = peekRateLimit(accountKey, WRONG_CODES_PER_ACCOUNT)
   if (accountLimited) return accountLimited
 
+  const requester = requesterContext(req, challenge.email)
+  const paused = await guardRequest('verify_code', challenge.email, requester)
+  if (paused) return rateLimitedResponse(paused)
+
   const used = await reserveChallengeAttempt(challenge.id, MAX_CODE_ATTEMPTS)
   if (used === null) {
     await deleteLoginChallenge(challenge.id)
@@ -74,6 +79,7 @@ export async function POST(req: Request) {
   }
 
   await deleteLoginChallenge(challenge.id)
+  void guardSuccess('verify_code', challenge.email, requester)
   await recordSignin(challenge.email, { ...context, method, outcome: 'signed-in' }).catch(() => {})
   await clearPinLock(challenge.email).catch(() => {})
   const token = issueSession(challenge.email, await currentFingerprint(challenge.email))

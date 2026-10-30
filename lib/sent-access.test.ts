@@ -19,7 +19,7 @@ registerHooks({
 
 process.env.DATABASE_URL = 'file::memory:'
 process.env.MAIL_SEATS = '[]'
-process.env.RESEND_FROM = 'Example <hello@example.com>'
+process.env.MAIL_SUPPORT_EMAIL = 'hello@example.com'
 process.env.MAIL_ALL_INBOXES_ADDRESS = 'boss@example.com'
 
 const mailbox = await import('./mailbox.ts')

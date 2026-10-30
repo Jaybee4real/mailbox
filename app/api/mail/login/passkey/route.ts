@@ -5,7 +5,8 @@ import { issueMobileSession } from '@/lib/mobile-session'
 import { completeSignin } from '@/lib/passkeys'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession } from '@/lib/session'
-import { requestContext, signInBody } from '@/lib/signin'
+import { requestContext, requesterContext, signInBody, withDeviceCookie } from '@/lib/signin'
+import { guardRequest, guardSuccess, rateLimitedResponse } from '@/lib/vela'
 import { nativeClient } from '@/lib/turnstile'
 
 export const runtime = 'nodejs'
@@ -20,11 +21,19 @@ export async function POST(req: Request) {
   if (limited) return limited
   if (!body) return NextResponse.json({ ok: false, error: 'Invalid request.' }, { status: 400 })
 
+  const anonymous = requesterContext(req)
+  const deviceTarget = anonymous.device ?? anonymous.ip
+  if (deviceTarget) {
+    const paused = await guardRequest('passkey', deviceTarget, anonymous)
+    if (paused) return withDeviceCookie(req, rateLimitedResponse(paused))
+  }
+
   const email = await completeSignin(body.challenge, body.response).catch(() => null)
   if (!email) return refusedSignin()
   const account = await getAccount(email)
   if (!account || account.status !== 'active') return refusedSignin()
 
+  if (deviceTarget) void guardSuccess('passkey', deviceTarget, anonymous)
   await recordSignin(email, { ...requestContext(req), method: 'passkey', outcome: 'signed-in' }).catch(() => {})
   await clearPinLock(email).catch(() => {})
   const fingerprint = await currentFingerprint(email)

@@ -38,7 +38,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           // Only the public brand settings, and escaped so a value can never close the tag.
           dangerouslySetInnerHTML={{
             __html: `window.__MAILBOX_BRAND_ENV__=${JSON.stringify(
-              Object.fromEntries(BRAND_ENV_KEYS.flatMap(key => (process.env[key] ? [[key, process.env[key]]] : []))),
+              {
+                ...Object.fromEntries(BRAND_ENV_KEYS.flatMap(key => (process.env[key] ? [[key, process.env[key]]] : []))),
+                NEXT_PUBLIC_MAIL_SUPPORT_EMAIL: BRAND.supportEmail,
+              },
             ).replace(/</g, '\\u003c')}`,
           }}
         />

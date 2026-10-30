@@ -2,7 +2,7 @@ import { BRAND } from '@/lib/brand'
 import { getInboundSource, listAccounts, readSentMeta, readSentSenders } from '@/lib/mailbox'
 import { readsAllInboxes, SHARED_INBOX, type Viewer } from '@/lib/scope'
 
-const SHARED_ADDRESS = (process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim().toLowerCase()
+const SHARED_ADDRESS = BRAND.supportEmail.replace(/^.*<|>$/g, '').trim().toLowerCase()
 
 /**
  * The mailbox each sent message belongs to: the one it is assigned to, else the one whose

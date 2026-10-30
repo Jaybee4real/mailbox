@@ -3,9 +3,8 @@ import { NextResponse } from 'next/server'
 import { mailAuthGuard, isLocalOrigin, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
 import { blockAddress } from '@/lib/blocked'
-import { searchInbox, appendEvent, appendInbound, recordContact, setInboundFlags, setInboundSpam, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, trustSenderOf, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
-import { addressedToUs, forwardToAccounts, ingestReceived, parseSender, attributeOwners, copyId } from '@/lib/receive'
-import { isBrevoInbound, normalizeBrevoInbound } from '@/lib/mail-provider'
+import { searchInbox, appendEvent, setInboundFlags, setInboundSpam, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, trustSenderOf, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
+import { addressedToUs, ingestReceived } from '@/lib/receive'
 import { mayReadInbound } from '@/lib/sent-access'
 
 export const runtime = 'nodejs'
@@ -135,7 +134,7 @@ export async function PATCH(req: Request) {
 const SIGNATURE_MAX_AGE_MS = 48 * 60 * 60 * 1000
 
 function verifyWebhookSignature(req: Request, payload: string): boolean {
-  const secret = process.env.RESEND_WEBHOOK_SECRET
+  const secret = process.env.VELA_WEBHOOK_SECRET
   // No secret configured: allow only local development, never unsigned prod posts.
   if (!secret) return isLocalOrigin(req)
   const svixId = req.headers.get('svix-id') ?? ''
@@ -168,22 +167,6 @@ function verifyWebhookSignature(req: Request, payload: string): boolean {
   })
 }
 
-/**
- * Brevo inbound parsing has no signature scheme, so the webhook URL carries a shared
- * secret: .../api/mail/inbox?secret=… — treated as a bearer token.
- */
-function verifyBrevoSecret(req: Request): boolean {
-  const expected = process.env.BREVO_WEBHOOK_SECRET
-  if (!expected) return isLocalOrigin(req)
-  const provided = new URL(req.url).searchParams.get('secret') ?? ''
-  if (provided.length !== expected.length) return false
-  try {
-    return timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
-  } catch {
-    return false
-  }
-}
-
 export async function POST(req: Request) {
   const payload = await req.text()
 
@@ -194,58 +177,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // ── Brevo inbound parsing ──────────────────────────────────────
-  if (isBrevoInbound(parsed)) {
-    if (!verifyBrevoSecret(req)) {
-      return NextResponse.json({ ok: false, error: 'Invalid secret' }, { status: 401 })
-    }
-    const items = Array.isArray((parsed as { items?: unknown[] }).items)
-      ? ((parsed as { items: Record<string, unknown>[] }).items)
-      : [parsed]
-    let stored = 0
-    for (const item of items) {
-      let deliveryId = ''
-      try {
-        const message = normalizeBrevoInbound(item)
-        // Brevo carries no delivery id, so the message id stands in: a replayed batch
-        // must not forward a second copy of mail already handled.
-        deliveryId = `brevo:${message.id}`
-        if ((await claimWebhookEvent(deliveryId)) !== 'claimed') continue
-        const owners = await attributeOwners([...message.to, ...message.cc, ...message.bcc])
-        const sender = parseSender(message.from)
-        await recordContact(sender.email, sender.name).catch(() => {})
-        for (const [index, owner] of owners.entries()) {
-          const id = index === 0 ? message.id : copyId(message.id, owner)
-          await appendInbound({ ...message, id, read: false, owner })
-          await forwardToAccounts(
-            id,
-            {
-              html: message.html,
-              text: message.text,
-              from: message.from,
-              to: message.to,
-              cc: message.cc,
-              bcc: message.bcc,
-              replyTo: message.replyTo,
-              subject: message.subject,
-              headers: message.headers,
-              createdAt: message.receivedAt,
-              attachments: message.attachments,
-            },
-            owner,
-          )
-        }
-        await completeWebhookEvent(deliveryId)
-        stored++
-      } catch (err) {
-        await releaseWebhookEvent(deliveryId)
-        console.warn('[mail] brevo inbound item failed:', err)
-      }
-    }
-    return NextResponse.json({ ok: true, stored })
-  }
-
-  // ── Resend webhook ─────────────────────────────────────────────
+  // ── Vela webhook ─────────────────────────────────────────────
   if (!verifyWebhookSignature(req, payload)) {
     return NextResponse.json({ ok: false, error: 'Invalid signature' }, { status: 401 })
   }

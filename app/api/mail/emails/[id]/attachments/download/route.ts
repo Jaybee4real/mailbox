@@ -3,7 +3,7 @@ import { attachmentHeaders } from '@/lib/attachments'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { mayReadSent } from '@/lib/sent-access'
 import { getSentAttachments } from '@/lib/mailbox'
-import { providerBase } from '@/lib/provider-base'
+import { velaApiBase, velaApiKey } from '@/lib/vela'
 import { getObject } from '@/lib/r2'
 import { inlineImageTicketValid } from '@/lib/share-ticket'
 import { thumbnailResponse, wantsThumbnail } from '@/lib/thumbnail'
@@ -50,10 +50,10 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     }
   }
 
-  const apiKey = process.env.RESEND_API_KEY
+  const apiKey = velaApiKey()
   if (!apiKey) return NextResponse.json({ ok: false, error: 'Sending is not configured.' }, { status: 503 })
 
-  const listing = await fetch(`${providerBase()}/emails/${encodeURIComponent(id)}/attachments`, {
+  const listing = await fetch(`${velaApiBase()}/emails/${encodeURIComponent(id)}/attachments`, {
     headers: { authorization: `Bearer ${apiKey}` },
   }).catch(() => null)
   if (!listing?.ok) return NextResponse.json({ ok: false, error: 'That file could not be read.' }, { status: 502 })

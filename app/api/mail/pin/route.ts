@@ -4,6 +4,8 @@ import { pinState, recordPinAttempt, savePin } from '@/lib/mailbox'
 import { PIN_MAX_ATTEMPTS, PIN_PATTERN, hashPin, verifyPin } from '@/lib/pin'
 import { readMobileSession, revokeMobileDevice } from '@/lib/mobile-session'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
+import { requesterContext } from '@/lib/signin'
+import { guardRequest, guardSuccess, rateLimitedResponse } from '@/lib/vela'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -49,9 +51,15 @@ export async function POST(req: Request) {
   const state = await pinState(who.email)
   if (!state.set) return fail('No PIN is set.', 404)
   if (state.locked) return fail('Too many wrong PINs. Sign in again with your password.', 423, { locked: true, attemptsLeft: 0 })
+  const requester = requesterContext(req, who.email)
+  const paused = await guardRequest('pin', who.email, requester)
+  if (paused) return rateLimitedResponse(paused)
   const ok = verifyPin(pin, state.hash)
   const after = await recordPinAttempt(who.email, ok, PIN_MAX_ATTEMPTS)
-  if (ok) return NextResponse.json({ ok: true })
+  if (ok) {
+    void guardSuccess('pin', who.email, requester)
+    return NextResponse.json({ ok: true })
+  }
   if (after.locked) await signOutDevice(req, who.email)
   const attemptsLeft = Math.max(0, PIN_MAX_ATTEMPTS - after.failed)
   return fail(after.locked ? 'Too many wrong PINs. Sign in again with your password.' : 'Wrong PIN.', after.locked ? 423 : 401, { locked: after.locked, attemptsLeft })

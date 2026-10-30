@@ -5,7 +5,7 @@ import { FORWARD_RECIPIENTS, mailAuthGuard, resolveAccount } from '@/lib/dev-aut
 import { scopeFor } from '@/lib/scope'
 import { readSentFlags, setSentFlags, readPixelOpens, readSentMeta, readSentOrigins, setSentMetaOwner, listAccounts, readSentArchive, type SentFlags } from '@/lib/mailbox'
 
-const SHARED_ADDRESS = (process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim().toLowerCase()
+const SHARED_ADDRESS = BRAND.supportEmail.replace(/^.*<|>$/g, '').trim().toLowerCase()
 
 function fromAddressOf(email: SentEmail): string {
   return (email.from.match(/<([^>]+)>/)?.[1] ?? email.from).trim().toLowerCase()
@@ -21,7 +21,7 @@ const KNOWN_AUTO_SUBJECTS = new Set([`Reset your ${BRAND.name} Mail password`])
 function looksAutomated(email: SentEmail): boolean {
   if (KNOWN_AUTO_SUBJECTS.has(email.subject)) return true
   const internal = new Set(
-    [...FORWARD_RECIPIENTS, ...(process.env.RESEND_TO ?? '').split(',')]
+    FORWARD_RECIPIENTS
       .map(addr => addr.trim().toLowerCase())
       .filter(Boolean),
   )

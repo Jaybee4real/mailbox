@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent } from '@/lib/mailbox'
 import { findMissingReceived, ingestReceived } from '@/lib/receive'
+import { velaApiKey } from '@/lib/vela'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -26,7 +27,7 @@ function sinceFrom(req: Request): Date {
 /** What the provider received for this domain that never reached the mailbox. Read-only. */
 export async function GET(req: Request) {
   if (!authorised(req)) return NextResponse.json({ ok: false, error: 'Unauthorised' }, { status: 403 })
-  const apiKey = process.env.RESEND_API_KEY
+  const apiKey = velaApiKey()
   if (!apiKey) return NextResponse.json({ ok: false, error: 'No provider key' }, { status: 400 })
   const missing = await findMissingReceived(apiKey, sinceFrom(req))
   return NextResponse.json({ ok: true, missing })
@@ -39,7 +40,7 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   if (!authorised(req)) return NextResponse.json({ ok: false, error: 'Unauthorised' }, { status: 403 })
-  const apiKey = process.env.RESEND_API_KEY
+  const apiKey = velaApiKey()
   if (!apiKey) return NextResponse.json({ ok: false, error: 'No provider key' }, { status: 400 })
   const url = new URL(req.url)
   const one = url.searchParams.get('id')

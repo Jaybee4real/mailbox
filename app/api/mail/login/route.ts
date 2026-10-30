@@ -4,7 +4,8 @@ import { createLoginChallenge, recordSignin, twoFactorState, clearPinLock } from
 import { clientKey, rateLimit, clearRateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession } from '@/lib/session'
 import { issueMobileSession } from '@/lib/mobile-session'
-import { requestContext, signInBody } from '@/lib/signin'
+import { requestContext, requesterContext, signInBody, withDeviceCookie } from '@/lib/signin'
+import { guardRequest, guardSuccess, rateLimitedResponse } from '@/lib/vela'
 import { chargeNative, clearNativeAddress, humanCheck, nativeClient, turnstileSiteKey } from '@/lib/turnstile'
 import { CHALLENGE_TTL_MS, maskEmail, newChallengeId } from '@/lib/two-factor'
 
@@ -18,8 +19,8 @@ const MAX_EMAIL_LENGTH = 254
 const MAX_PASSWORD_LENGTH = 1024
 const WINDOW_MS = 15 * 60 * 1000
 
-export function GET() {
-  return NextResponse.json({ ok: true, turnstile: turnstileSiteKey() }, { headers: { 'cache-control': 'no-store' } })
+export function GET(req: Request) {
+  return withDeviceCookie(req, NextResponse.json({ ok: true, turnstile: turnstileSiteKey() }, { headers: { 'cache-control': 'no-store' } }))
 }
 
 export async function POST(req: Request) {
@@ -48,6 +49,10 @@ export async function POST(req: Request) {
     return human
   }
 
+  const requester = requesterContext(req, seatKey)
+  const paused = await guardRequest('sign_in_password', seatKey, requester)
+  if (paused) return withDeviceCookie(req, rateLimitedResponse(paused))
+
   const result = await verifyMailAuth(email, password)
   const context = requestContext(req)
   if (!result.ok) {
@@ -60,6 +65,7 @@ export async function POST(req: Request) {
 
   clearRateLimit(key)
   clearNativeAddress(native)
+  void guardSuccess('sign_in_password', seatKey, requester)
   const identity = result.email ?? email
 
   const factors = await twoFactorState(identity)
