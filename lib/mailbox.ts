@@ -2929,6 +2929,60 @@ export async function upsertStash(owner: string, kind: string, id: string, data:
     ON CONFLICT (owner, kind, id) DO UPDATE SET data = excluded.data, updated_at = ${nowIso()}`
 }
 
+export async function readDraftsFor(mailboxes: string[]): Promise<Array<StashItem & { mailbox: string }>> {
+  if (!mailboxes.length) return []
+  await ensureMailSchema()
+  await moveDraftsToMailboxes()
+  const sql = db()
+  const wanted = new Set(mailboxes.map(entry => entry.toLowerCase()))
+  const rows = await sql`
+    SELECT owner, id, data, updated_at FROM mail_stash
+    WHERE kind = 'draft'
+    ORDER BY updated_at DESC`
+  return rows
+    .filter(row => wanted.has(String(row.owner)))
+    .map(row => ({
+      id: String(row.id),
+      mailbox: String(row.owner),
+      data: parseJson<unknown>(row.data, null),
+      updatedAt: isoOrNull(row.updated_at) ?? new Date(0).toISOString(),
+    }))
+}
+
+export async function deleteDraftIn(mailboxes: string[], id: string): Promise<void> {
+  await ensureMailSchema()
+  const sql = db()
+  for (const mailbox of mailboxes) {
+    await sql`DELETE FROM mail_stash WHERE owner = ${mailbox.toLowerCase()} AND kind = 'draft' AND id = ${id}`
+  }
+}
+
+let draftsMoved: Promise<void> | null = null
+
+/**
+ * Drafts were once filed under the signed-in account's email. They belong to the mailbox
+ * they are written from, so an admin switching to that mailbox finds them.
+ */
+function moveDraftsToMailboxes(): Promise<void> {
+  draftsMoved ??= (async () => {
+    const sql = db()
+    const accounts = (await sql`SELECT email, address FROM mail_accounts WHERE address IS NOT NULL`) as Array<Record<string, unknown>>
+    for (const row of accounts) {
+      const email = String(row.email).toLowerCase()
+      const address = String(row.address).toLowerCase()
+      if (email !== address) {
+        await sql`UPDATE OR IGNORE mail_stash SET owner = ${address} WHERE kind = 'draft' AND owner = ${email}`
+      }
+    }
+    const shared = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? '').replace(/^.*<|>$/g, '').trim().toLowerCase()
+    if (shared) await sql`UPDATE OR IGNORE mail_stash SET owner = ${shared} WHERE kind = 'draft' AND owner = 'local@dev'`
+  })().catch(error => {
+    draftsMoved = null
+    throw error
+  })
+  return draftsMoved
+}
+
 export async function deleteStash(owner: string, kind: string, id: string): Promise<void> {
   await ensureMailSchema()
   const sql = db()

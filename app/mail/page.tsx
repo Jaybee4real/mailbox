@@ -329,7 +329,10 @@ type InlinePart = { filename: string; key: string; size: number; contentType?: s
 /** The inline quick-reply still has its own views; the composer is now one editor. */
 type ReplyMode = 'write' | 'preview' | 'plain' | 'html' | 'raw'
 
-type Draft = { id: string; savedAt: string; data: ComposeData }
+type SavedAttachment = { filename: string; url: string; key?: string; size: number }
+type Draft = { id: string; savedAt: string; data: ComposeData & { attachments?: SavedAttachment[] }; mailbox?: string }
+
+const draftText = (data: ComposeData) => (data.bodyHtml.trim() ? htmlToPlainText(data.bodyHtml) : data.markdown).replace(/\s+/g, ' ').trim()
 
 const EMPTY_CAMPAIGN: Campaign = {
   kind: '',
@@ -1330,9 +1333,9 @@ function shareLinkText(entry: Attachment): string {
 
 type StashHeaders = Record<string, string>
 
-async function fetchStash(kind: 'draft' | 'template', headers: StashHeaders): Promise<Array<{ id: string; data: unknown; updatedAt: string }>> {
+async function fetchStash(kind: 'draft' | 'template', headers: StashHeaders, mailbox?: string): Promise<Array<{ id: string; data: unknown; updatedAt: string; mailbox?: string }>> {
   try {
-    const response = await fetch(`/api/mail/stash?kind=${kind}`, { headers })
+    const response = await fetch(`/api/mail/stash?kind=${kind}${mailbox ? `&mailbox=${encodeURIComponent(mailbox)}` : ''}`, { headers })
     const data = await response.json()
     return data.ok ? data.items : []
   } catch {
@@ -1340,8 +1343,8 @@ async function fetchStash(kind: 'draft' | 'template', headers: StashHeaders): Pr
   }
 }
 
-function putStash(kind: 'draft' | 'template', id: string, data: unknown, headers: StashHeaders): void {
-  fetch('/api/mail/stash', { method: 'PUT', headers, body: JSON.stringify({ kind, id, data }) }).catch(() => {})
+function putStash(kind: 'draft' | 'template', id: string, data: unknown, headers: StashHeaders, mailbox?: string): void {
+  fetch('/api/mail/stash', { method: 'PUT', headers, body: JSON.stringify({ kind, id, data, mailbox }) }).catch(() => {})
 }
 
 function deleteStashItem(kind: 'draft' | 'template', id: string, headers: StashHeaders): void {
@@ -1875,6 +1878,7 @@ export default function DevMailPage() {
   const [sending, setSending] = useState(false)
   const [composeError, setComposeError] = useState('')
   const [draftId, setDraftId] = useState<string | null>(null)
+  const [draftMailbox, setDraftMailbox] = useState<string | undefined>(undefined)
   const [quickReply, setQuickReply] = useState('')
   const [replyError, setReplyError] = useState('')
   // Collapsed by default: the signature is long, and the composer is for the message.
@@ -1981,6 +1985,18 @@ export default function DevMailPage() {
   }, [isLoggedIn, apiHeaders])
 
   const mailboxQuery = mailboxAll && mailbox !== 'all' ? `?mailbox=${encodeURIComponent(mailbox)}` : ''
+
+  useEffect(() => {
+    if (!isLoggedIn) return
+    let live = true
+    fetchStash('draft', apiHeaders(), mailboxAll && mailbox !== 'all' ? mailbox : undefined).then(items => {
+      if (!live) return
+      setDrafts(items.map(item => ({ id: item.id, savedAt: item.updatedAt, data: item.data as Draft['data'], mailbox: item.mailbox })))
+    })
+    return () => {
+      live = false
+    }
+  }, [isLoggedIn, apiHeaders, mailboxAll, mailbox])
 
   const mailboxOptions = useMemo(
     () => [
@@ -3382,9 +3398,6 @@ export default function DevMailPage() {
   useEffect(() => {
     if (!isLoggedIn) return
     const headers = apiHeaders()
-    fetchStash('draft', headers).then(items =>
-      setDrafts(items.map(item => ({ id: item.id, savedAt: item.updatedAt, data: item.data as ComposeData }))),
-    )
     fetch('/api/mail/settings', { headers })
       .then(response => response.json())
       .then(data => {
@@ -3926,14 +3939,15 @@ export default function DevMailPage() {
       return pinned.length ? [...pinned, ...sorted.filter(item => !('priority' in item && item.priority))] : sorted
     }
     if (folder === 'drafts') {
+      const showMailbox = mailboxAll && mailbox === 'all' && mailboxes.length > 1
       return drafts
-        .filter(entry => matches(`${entry.data.subject} ${entry.data.to.join(' ')} ${entry.data.markdown}`))
+        .filter(entry => matches(`${entry.data.subject} ${entry.data.to.join(' ')} ${draftText(entry.data)}`))
         .map(entry => ({
           id: entry.id,
           kind: 'draft' as const,
           primary: entry.data.to.join(', ') || '(no recipients)',
           subject: entry.data.subject || '(no subject)',
-          snippet: entry.data.markdown.slice(0, 120),
+          snippet: [showMailbox && entry.mailbox ? mailboxes.find(option => option.address.toLowerCase() === entry.mailbox)?.name ?? entry.mailbox : '', draftText(entry.data).slice(0, 120)].filter(Boolean).join(' · '),
           time: formatRelative(entry.savedAt, now),
           unread: false,
           starred: false,
@@ -3950,7 +3964,7 @@ export default function DevMailPage() {
       .filter(entry => searched || matches(`${entry.to.join(' ')} ${entry.subject}`))
       .filter(entry => !(folder === 'sent' && (entry.archived || entry.trashed)))
       .map(entry => sentToItem(entry))
-  }, [folder, isInboundFolder, inboxEmails, drafts, scheduledEmails, deliveredEmails, sentSearchResults, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, now, hideForwarded, threadSentMembers, detailCache, threads, search, inboxFilters, showFiltered, priorityIds, selectedId])
+  }, [folder, isInboundFolder, inboxEmails, drafts, mailboxAll, mailbox, mailboxes, scheduledEmails, deliveredEmails, sentSearchResults, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, now, hideForwarded, threadSentMembers, detailCache, threads, search, inboxFilters, showFiltered, priorityIds, selectedId])
 
   const listSettling = searching || sentSearching || ((mailboxLoading || !threadsResolved) && listItems.length === 0)
   const listRefreshing = !listSettling && (mailboxStale || mailboxLoading || !threadsResolved)
@@ -4747,14 +4761,18 @@ export default function DevMailPage() {
   )
 
   const saveDraftNow = useCallback(
-    (data: ComposeData, id: string | null): string => {
+    (data: ComposeData, id: string | null, files: Attachment[] = [], draftBox?: string): string => {
       const draftKey = id ?? uid()
-      const hasContent = data.subject.trim() || data.markdown.trim() || data.to.length || data.htmlSource.trim()
+      const saved: SavedAttachment[] = files
+        .filter(entry => !entry.uploading && !entry.error && (entry.key || entry.url))
+        .map(({ filename, url, key, size }) => ({ filename, url, key, size }))
+      const hasContent = data.subject.trim() || data.markdown.trim() || draftText(data) || data.to.length || data.htmlSource.trim() || saved.length
       const savedAt = new Date().toISOString()
       const headers = apiHeaders()
       if (hasContent) {
-        putStash('draft', draftKey, data, headers)
-        setDrafts(current => [{ id: draftKey, savedAt, data }, ...current.filter(entry => entry.id !== draftKey)])
+        const stored = { ...data, attachments: saved }
+        putStash('draft', draftKey, stored, headers, draftBox)
+        setDrafts(current => [{ id: draftKey, savedAt, data: stored, mailbox: draftBox ?? current.find(entry => entry.id === draftKey)?.mailbox }, ...current.filter(entry => entry.id !== draftKey)])
       } else {
         deleteStashItem('draft', draftKey, headers)
         setDrafts(current => current.filter(entry => entry.id !== draftKey))
@@ -4768,12 +4786,12 @@ export default function DevMailPage() {
     if (!composeOpen) return
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
     draftTimerRef.current = setTimeout(() => {
-      setDraftId(current => saveDraftNow(compose, current))
+      setDraftId(current => saveDraftNow(compose, current, attachments, draftMailbox))
     }, 800)
     return () => {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
     }
-  }, [compose, composeOpen, saveDraftNow])
+  }, [compose, composeOpen, saveDraftNow, attachments, draftMailbox])
 
   const openCompose = (data?: Partial<ComposeData>, existingDraftId?: string, options?: { keepAttachments?: boolean }) => {
     // Full width unless a message is open — replying wants the original in view.
@@ -4788,11 +4806,14 @@ export default function DevMailPage() {
     setShowCcBcc(Boolean(data?.cc?.length || data?.bcc?.length))
     setCcAuto(Boolean(data?.cc?.length || data?.bcc?.length))
     setDraftId(existingDraftId ?? null)
+    const existing = existingDraftId ? drafts.find(entry => entry.id === existingDraftId) : undefined
+    const fallback = selectedInbound?.owner || (mailbox !== 'all' ? mailbox : account?.address) || undefined
+    setDraftMailbox(mailboxAll ? (existing?.mailbox ?? fallback)?.toLowerCase() : undefined)
     setComposeOpen(true)
   }
 
   const closeCompose = () => {
-    setDraftId(current => saveDraftNow(compose, current))
+    setDraftId(current => saveDraftNow(compose, current, attachments, draftMailbox))
     setComposeOpen(false)
   }
 
@@ -4818,7 +4839,9 @@ export default function DevMailPage() {
     cancelThreadOpen()
     const draft = drafts.find(entry => entry.id === id)
     if (!draft) return
-    openCompose(draft.data, draft.id)
+    const { attachments: savedFiles, ...data } = draft.data
+    openCompose(data, draft.id)
+    if (savedFiles?.length) setAttachments(savedFiles.map(entry => ({ ...entry, uid: uid() })))
   }
 
   const deleteDraft = (id: string) => {
@@ -5176,7 +5199,7 @@ export default function DevMailPage() {
       writingSettings,
     )
     if (!(await confirmIssues(issues))) return
-    const sendAs = await pickSendAs(selectedInbound?.owner)
+    const sendAs = await pickSendAs(draftId ? draftMailbox ?? selectedInbound?.owner : selectedInbound?.owner ?? draftMailbox)
     if (sendAs === null) return
 
     if (settings.confirmSend && !scheduledAt) {
