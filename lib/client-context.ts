@@ -114,3 +114,49 @@ export function originHeaders(context: VisitorContext): Record<string, string> {
   if (context.userAgent) headers['X-Sender-User-Agent'] = headerSafe(context.userAgent)
   return headers
 }
+
+export type RequestDetails = {
+  time: string
+  ip: string | null
+  location: string | null
+  device: string
+}
+
+const NATIVE_PLATFORMS: Record<string, string> = { ios: 'iOS', android: 'Android' }
+
+export function nativeAppDevice(deviceHeader: string | null, userAgent: string | null): string {
+  const agent = userAgent ?? ''
+  const platform =
+    deviceHeader?.match(/\bon\s+(ios|android)\b/i)?.[1].toLowerCase()
+    ?? (/iPhone|iPad|Darwin|CFNetwork/.test(agent) ? 'ios' : /Android|okhttp/i.test(agent) ? 'android' : null)
+  return platform ? `Vela Mail on ${NATIVE_PLATFORMS[platform]}` : 'Vela Mail app'
+}
+
+export function formatRequestTime(moment: Date, timezone: string | null): string {
+  const format = (zone: string) =>
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: zone,
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    }).format(moment)
+  if (!timezone) return format('UTC')
+  try {
+    return `${format(timezone)} (${timezone})`
+  } catch {
+    return format('UTC')
+  }
+}
+
+export function describeRequest(context: VisitorContext, options: { native?: boolean; deviceHeader?: string | null; now?: Date } = {}): RequestDetails {
+  return {
+    time: formatRequestTime(options.now ?? new Date(), context.timezone),
+    ip: context.ip,
+    location: describeLocation(context),
+    device: options.native ? nativeAppDevice(options.deviceHeader ?? null, context.userAgent) : context.device,
+  }
+}

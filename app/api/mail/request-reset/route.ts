@@ -5,10 +5,10 @@ import { NextResponse } from 'next/server'
 import { isMailAccount, resolveSeat } from '@/lib/dev-auth'
 import { createResetToken, getAccount, recordSentMeta } from '@/lib/mailbox'
 import { sendMail } from '@/lib/mail-provider'
-import { renderActionEmail } from '@/lib/emails'
+import { renderActionEmail, withRequestText } from '@/lib/emails'
 import { publicOrigin } from '@/lib/public-url'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
-import { signInBody } from '@/lib/signin'
+import { requestNotice, signInBody } from '@/lib/signin'
 import { chargeNative, humanCheck } from '@/lib/turnstile'
 
 export const runtime = 'nodejs'
@@ -77,13 +77,17 @@ export async function POST(req: Request) {
     .replace(/^.*<|>$/g, '')
     .trim()
   const resetUrl = `${publicOrigin(req)}/mail/reset?token=${token}`
+  const request = requestNotice(req, {
+    wasntYou: 'Ignore this email and your password will not change. If more of these arrive, tell your mailbox admin.',
+    link: false,
+  })
   try {
     const { id } = await sendMail({
       from,
       fromName: `${BRAND.name} Mail`,
       to: [destination],
       subject: `Reset your ${BRAND.name} Mail password`,
-      text: `Someone requested a password reset for ${email} on ${BRAND.name} Mail.\n\nSet a new password: ${resetUrl}\n\nThis link expires in 30 minutes. If you didn't request it, ignore this email — your password won't change.`,
+      text: withRequestText(`Someone requested a password reset for ${email} on ${BRAND.name} Mail.\n\nSet a new password: ${resetUrl}\n\nThis link expires in 30 minutes. If you didn't request it, ignore this email — your password won't change.`, request),
       html: renderActionEmail({
         eyebrow: `${BRAND.name} · Mail`,
         accent: BRAND.colors.accent,
@@ -93,6 +97,7 @@ export async function POST(req: Request) {
         actionUrl: resetUrl,
         expiry: 'This link expires in 30 minutes and can be used once.',
         footer: "Didn't request this? Ignore this email — your password will not change.",
+        request,
       }),
     })
     if (id) await recordSentMeta(id, null, true).catch(() => {})

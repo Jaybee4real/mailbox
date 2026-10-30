@@ -1,11 +1,11 @@
 import { BRAND } from '../brand.ts'
 import { hexToHsl } from '../accent-ramp.ts'
 import {
-  bulletList, calloutPanel, codePanel, detailsPanel, emailLayout, emailText, escapeHtml,
-  type EmailBrand,
+  bulletList, calloutPanel, codePanel, detailsPanel, emailLayout, emailText, escapeHtml, withRequestText,
+  type EmailBrand, type RequestNotice,
 } from './layout.ts'
 
-export { escapeHtml }
+export { escapeHtml, withRequestText, type RequestNotice }
 export type EmailMode = 'project' | 'academy'
 export type EmailField = { label: string; value: string }
 
@@ -320,6 +320,7 @@ export type AccessEmailInput = {
   link: string
   expiry: string
   invitedBy?: string
+  request?: RequestNotice
 }
 
 export function renderAccessEmail(input: AccessEmailInput): { subject: string; html: string; text: string } {
@@ -347,6 +348,7 @@ export function renderAccessEmail(input: AccessEmailInput): { subject: string; h
       ]),
       cta,
       noteHtml: `<p style="margin:0 0 8px;">The link works once. ${escapeHtml(input.product)} will never ask for your password by email or phone.</p><p style="margin:0;">${escapeHtml(ignore)}</p>`,
+      request: input.request,
       recipient: input.recipient,
       reason: invite ? `because ${input.invitedBy ?? 'an administrator'} invited this address` : 'because a password reset was requested for this account',
     }),
@@ -357,6 +359,7 @@ export function renderAccessEmail(input: AccessEmailInput): { subject: string; h
       details: [['Account', input.recipient], ['Link expires', input.expiry]],
       cta,
       note: [`The link works once. ${ignore}`],
+      request: input.request,
     }),
   }
 }
@@ -373,6 +376,7 @@ export type ActionEmailVars = {
   code?: string
   recipient?: string
   reason?: string
+  request?: RequestNotice
 }
 
 export function renderActionEmail(vars: ActionEmailVars): string {
@@ -387,6 +391,7 @@ export function renderActionEmail(vars: ActionEmailVars): string {
     moduleHtml: vars.code ? codePanel(brand, vars.code, 'Expires in 10 min') : '',
     cta: vars.code ? undefined : { label: vars.actionLabel, url: vars.actionUrl },
     noteHtml: `<p style="margin:0 0 8px;">${escapeHtml(vars.expiry)}</p><p style="margin:0;">${escapeHtml(vars.footer)}</p>`,
+    request: vars.request,
     recipient: vars.recipient,
     reason: vars.reason,
   })

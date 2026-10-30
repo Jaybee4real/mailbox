@@ -1,3 +1,5 @@
+import type { RequestDetails } from '../client-context.ts'
+
 export type EmailBrand = {
   name: string
   accent: string
@@ -102,6 +104,38 @@ export function detailsPanel(rows: Array<[string, string]>, title?: string): str
   </table>`
 }
 
+export type RequestNotice = {
+  details: RequestDetails
+  wasntYou: string
+  helpUrl?: string
+}
+
+const requestRows = (details: RequestDetails): Array<[string, string]> => [
+  ['Time', details.time],
+  ['IP address', details.ip ?? 'Unknown'],
+  ['Location', details.location ?? 'Unknown'],
+  ['Device', details.device],
+]
+
+export function requestPanel(notice: RequestNotice): string {
+  const rows = requestRows(notice.details).map(([label, value]): [string, string] => [label, escapeHtml(value)])
+  const href = notice.helpUrl ? safeUrl(notice.helpUrl) : '#'
+  const link = href === '#' ? '' : ` <a href="${href}" class="em-accent" style="color:inherit;text-decoration:underline;">${href}</a>`
+  return `${detailsPanel(rows, 'Request details')}
+  <p class="em-dim" style="margin:12px 0 0;font-family:${BODY_FONT};font-size:13.5px;line-height:1.6;color:${LIGHT.dim};"><strong>Wasn't you?</strong> ${escapeHtml(notice.wasntYou)}${link}</p>`
+}
+
+export function requestText(notice: RequestNotice): string[] {
+  return [
+    'Request details',
+    ...requestRows(notice.details).map(([label, value]) => `${label}: ${value}`),
+    '',
+    `Wasn't you? ${notice.wasntYou}${notice.helpUrl ? ` ${notice.helpUrl}` : ''}`,
+  ]
+}
+
+export const withRequestText = (text: string, notice: RequestNotice): string => `${text}\n\n${requestText(notice).join('\n')}`
+
 export function calloutPanel(brand: EmailBrand, title: string, headlineHtml: string, bodyHtml = ''): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="em-well" style="margin:24px 0 0;background-color:${LIGHT.well};border:1px solid ${LIGHT.line};border-radius:12px;">
     <tr><td style="padding:18px 20px;">
@@ -137,6 +171,7 @@ export type EmailLayoutInput = {
   moduleHtml?: string
   cta?: EmailCta
   noteHtml?: string
+  request?: RequestNotice
   recipient?: string
   reason?: string
 }
@@ -188,6 +223,7 @@ export function emailLayout(input: EmailLayoutInput): string {
               <div class="em-dim" style="font-family:${BODY_FONT};font-size:15.5px;line-height:1.65;color:${LIGHT.dim};">${input.bodyHtml}</div>
               ${input.moduleHtml ?? ''}
               ${input.cta ? button(brand, input.cta) : ''}
+              ${input.request ? requestPanel(input.request) : ''}
               ${input.noteHtml ? `<div class="em-quiet em-line" style="margin:30px 0 0;padding:18px 0 0;border-top:1px solid ${LIGHT.line};font-family:${BODY_FONT};font-size:13px;line-height:1.6;color:${LIGHT.quiet};">${input.noteHtml}</div>` : ''}
             </td></tr>
           </table>
@@ -211,6 +247,7 @@ export function emailText(input: {
   details?: Array<[string, string]>
   cta?: EmailCta
   note?: string[]
+  request?: RequestNotice
 }): string {
   const details = (input.details ?? []).filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`)
   return [
@@ -219,6 +256,7 @@ export function emailText(input: {
     ...input.paragraphs.flatMap(paragraph => [paragraph, '']),
     ...(details.length ? [...details, ''] : []),
     ...(input.cta ? [`${input.cta.label}:`, input.cta.url, ''] : []),
+    ...(input.request ? [...requestText(input.request), ''] : []),
     ...(input.note?.length ? [...input.note, ''] : []),
     '—',
     `${input.brand.name} · ${input.brand.tagline} · ${input.brand.site}`,

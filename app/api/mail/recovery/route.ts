@@ -5,9 +5,10 @@ import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { createResetToken, getAccount, recordSentMeta, setRecoveryEmail } from '@/lib/mailbox'
 import { sendMail } from '@/lib/mail-provider'
-import { renderActionEmail } from '@/lib/emails'
+import { renderActionEmail, withRequestText } from '@/lib/emails'
 import { publicOrigin } from '@/lib/public-url'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
+import { requestNotice } from '@/lib/signin'
 
 export const runtime = 'nodejs'
 
@@ -64,6 +65,9 @@ export async function POST(req: Request) {
   await createResetToken(identity.email, token, Date.now() + VERIFY_TTL_MS, 'verify-recovery')
   const verifyUrl = `${publicOrigin(req)}/api/mail/recovery/verify?token=${token}`
   const from = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
+  const request = requestNotice(req, {
+    wasntYou: `Ignore this email if you don't know ${identity.email}. If that account is yours and you didn't add this address, someone may be signed in to it: reset your password with Forgot password on the sign-in page, or ask your mailbox admin to lock the account:`,
+  })
 
   try {
     const { id } = await sendMail({
@@ -71,7 +75,7 @@ export async function POST(req: Request) {
       fromName: `${BRAND.name} Mail`,
       to: [recovery],
       subject: `Confirm this address for ${BRAND.name} Mail recovery`,
-      text: `${identity.email} listed this address as the recovery address for their ${BRAND.name} Mail account.\n\nConfirm it: ${verifyUrl}\n\nThe link expires in 24 hours. Until it is used, no reset can be sent here.`,
+      text: withRequestText(`${identity.email} listed this address as the recovery address for their ${BRAND.name} Mail account.\n\nConfirm it: ${verifyUrl}\n\nThe link expires in 24 hours. Until it is used, no reset can be sent here.`, request),
       html: renderActionEmail({
         eyebrow: `${BRAND.name} · Mail`,
         accent: BRAND.colors.accent,
@@ -81,6 +85,7 @@ export async function POST(req: Request) {
         actionUrl: verifyUrl,
         expiry: 'This link expires in 24 hours.',
         footer: "Didn't expect this? Ignore it — nothing is sent here until the link is used.",
+        request,
       }),
     })
     if (id) await recordSentMeta(id, null, true).catch(() => {})

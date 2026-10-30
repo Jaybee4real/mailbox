@@ -3,9 +3,10 @@ import { BRAND, ADDRESS_DOMAINS as BRAND_ADDRESS_DOMAINS } from '@/lib/brand'
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { sendMail } from '@/lib/mail-provider'
-import { renderActionEmail } from '@/lib/emails'
+import { renderActionEmail, withRequestText } from '@/lib/emails'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { publicOrigin } from '@/lib/public-url'
+import { requestNotice } from '@/lib/signin'
 import {
   listAccounts,
   getAccount,
@@ -124,13 +125,17 @@ export async function POST(req: Request) {
   const from = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
   const origin = publicOrigin(req)
   const inviteUrl = `${origin}/mail/reset?token=${token}&invite=1`
+  const request = requestNotice(req, {
+    wasntYou: `Weren't expecting this invite? Ignore it and no account opens, or ask ${inviter.email}, the mailbox admin who sent it.`,
+    link: false,
+  })
   try {
     const { id } = await sendMail({
       from,
       fromName: `${BRAND.name} Mail`,
       to: [sendTo],
       subject: `You've been invited to ${BRAND.name} Mail`,
-      text: `${inviter.email} invited you to ${BRAND.name} Mail${separateSignIn ? ` with the mailbox ${address}, which you sign in with` : ''}.\n\nSet your password to get started: ${inviteUrl}\n\nThis link expires in 7 days.`,
+      text: withRequestText(`${inviter.email} invited you to ${BRAND.name} Mail${separateSignIn ? ` with the mailbox ${address}, which you sign in with` : ''}.\n\nSet your password to get started: ${inviteUrl}\n\nThis link expires in 7 days.`, request),
       html: renderActionEmail({
         eyebrow: `${BRAND.name} · Mail`,
         accent: BRAND.colors.accent,
@@ -140,6 +145,7 @@ export async function POST(req: Request) {
         actionUrl: inviteUrl,
         expiry: 'This invite link expires in 7 days.',
         footer: `You are receiving this because ${inviter.email} invited you.`,
+        request,
       }),
     })
     if (id) await recordSentMeta(id, null, true).catch(() => {})
