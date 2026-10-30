@@ -25,8 +25,8 @@ export function GET() {
 export async function POST(req: Request) {
   const { body, refused } = await signInBody(req)
   if (refused) return refused
-  const email = (typeof body?.email === 'string' ? body.email : req.headers.get('x-dev-email') ?? '').trim().toLowerCase()
-  const password = typeof body?.password === 'string' ? body.password : req.headers.get('x-dev-password') ?? ''
+  const email = (typeof body?.email === 'string' ? body.email : '').trim().toLowerCase()
+  const password = typeof body?.password === 'string' ? body.password : ''
   const turnstile = typeof body?.turnstile === 'string' ? body.turnstile : req.headers.get('x-turnstile')
 
   if (!email || !password || email.length > MAX_EMAIL_LENGTH || password.length > MAX_PASSWORD_LENGTH) {

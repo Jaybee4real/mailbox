@@ -1,13 +1,5 @@
 import { BRAND } from './brand'
-/**
- * Shared dev backdoor auth utilities.
- *
- * On localhost: everything is allowed (for local development).
- * On production: requires x-dev-email and x-dev-password headers
- * whose SHA-256 hashes match DEV_ADMIN_EMAIL_HASH / DEV_ADMIN_PASSWORD_HASH.
- */
-
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { getAccount, getAccountByAddress, getAccountPasswordHash, setAccountPassword, MAIL_SEATS, type MailRole } from '@/lib/mailbox'
 import { hashPassword, verifyPassword, isLegacyHash } from '@/lib/password'
@@ -75,42 +67,8 @@ function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex')
 }
 
-export function verifyDevAuth(req: Request): { ok: boolean; error?: string } {
-  // Localhost is always allowed
-  if (isLocalOrigin(req)) return { ok: true }
-
-  const emailHashEnv = process.env.DEV_ADMIN_EMAIL_HASH ?? ''
-  const passwordHashEnv = process.env.DEV_ADMIN_PASSWORD_HASH ?? ''
-
-  // If hashes are not configured, backdoor is disabled on production
-  if (!emailHashEnv || !passwordHashEnv) {
-    return { ok: false, error: 'Backdoor disabled' }
-  }
-
-  const email = req.headers.get('x-dev-email') ?? ''
-  const password = req.headers.get('x-dev-password') ?? ''
-
-  if (!email || !password) {
-    return { ok: false, error: 'Authentication required' }
-  }
-
-  const emailHash = sha256(email)
-  const passwordHash = sha256(password)
-
-  if (emailHash !== emailHashEnv || passwordHash !== passwordHashEnv) {
-    return { ok: false, error: 'Invalid credentials' }
-  }
-
-  return { ok: true }
-}
-
-/** Handy wrapper for route handlers. */
-export function devAuthGuard(req: Request): NextResponse | null {
-  const result = verifyDevAuth(req)
-  if (!result.ok) {
-    return NextResponse.json({ ok: false, error: result.error }, { status: 403 })
-  }
-  return null
+function sameDigest(left: string, right: string): boolean {
+  return left.length === right.length && timingSafeEqual(Buffer.from(left), Buffer.from(right))
 }
 
 let decoyHash: Promise<string> | null = null
@@ -135,7 +93,7 @@ export async function verifyMailAuth(
   const emailHashEnv = process.env.DEV_ADMIN_EMAIL_HASH ?? ''
   const passwordHashEnv = process.env.DEV_ADMIN_PASSWORD_HASH ?? ''
   if (emailHashEnv && passwordHashEnv) {
-    if (sha256(email) === emailHashEnv && sha256(password) === passwordHashEnv) {
+    if (sameDigest(sha256(email), emailHashEnv) && sameDigest(sha256(password), passwordHashEnv)) {
       // The env pair is a password, not an identity: it opens an address this deployment
       // actually hosts, never an arbitrary one. The same pair installed on two tenants
       // would otherwise be one key to both mailboxes.
@@ -201,11 +159,6 @@ async function sessionIdentity(req: Request): Promise<string | null> {
   return session.email
 }
 
-/**
- * The authenticated address for a request: the session cookie first, then the credential
- * headers. The header path is kept so an already-open tab keeps working across the deploy
- * that introduced sessions, and for the localhost dev bypass.
- */
 // Only the sign-in route takes a password, and it is the one that counts attempts. Accepting
 // one on every request let anybody guess against any endpoint without ever being slowed down.
 export async function authenticate(req: Request): Promise<string | null> {
@@ -239,7 +192,7 @@ export async function signedInAs(req: Request, email: string | null): Promise<bo
   return Boolean(viewer && viewer.toLowerCase() === email.toLowerCase())
 }
 
-/** Guard for mail routes: a valid session or credential headers, localhost included. */
+/** Guard for mail routes: a valid session or mobile token. */
 export async function mailAuthGuard(req: Request): Promise<NextResponse | null> {
   if (await authenticate(req)) return null
   return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 403 })

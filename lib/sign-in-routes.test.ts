@@ -74,18 +74,19 @@ test('login takes the credentials from a JSON body, still honours the legacy hea
   assert.ok(viaBody.headers.get('set-cookie'), 'a browser gets the session cookie')
   assert.ok(!bodyText.includes(PASSWORD) && !(viaBody.headers.get('set-cookie') ?? '').includes(PASSWORD))
 
-  const legacyBrowser = await login(post('/api/mail/login', {
+  const headerOnly = await login(post('/api/mail/login', {
     ip: freshIp(),
     headers: { ...BROWSER, 'content-type': 'application/json', 'x-dev-email': 'body@example.com', 'x-dev-password': PASSWORD, 'x-turnstile': 'pass' },
   }))
-  assert.equal(legacyBrowser.status, 200, 'the web build already in open tabs still signs in')
+  assert.equal(headerOnly.status, 400, 'credentials in headers are not read')
 
-  const legacyNative = await login(post('/api/mail/login', {
+  const native = await login(post('/api/mail/login', {
     ip: freshIp(),
-    headers: { ...NATIVE, 'x-dev-email': 'body@example.com', 'x-dev-password': PASSWORD, 'x-mail-device': 'Vela Mail on ios' },
+    headers: { ...NATIVE, 'x-mail-device': 'Vela Mail on ios' },
+    body: { email: 'body@example.com', password: PASSWORD },
   }))
-  const nativeData = await legacyNative.json()
-  assert.equal(legacyNative.status, 200, 'installed Vela builds still sign in with headers')
+  const nativeData = await native.json()
+  assert.equal(native.status, 200, 'Vela builds sign in with the body')
   assert.match(nativeData.token, /^vm_/)
   assert.ok(!JSON.stringify(nativeData).includes(PASSWORD))
 

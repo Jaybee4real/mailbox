@@ -1956,15 +1956,7 @@ export default function DevMailPage() {
   const replyFileRef = useRef<HTMLInputElement>(null)
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  // The password rides along only for the tab that typed it, and only until the session
-  // cookie set by /api/mail/login takes over. It is never persisted.
-  const apiHeaders = useCallback(
-    (): Record<string, string> => ({
-      'Content-Type': 'application/json',
-      'x-dev-email': email,
-    }),
-    [email],
-  )
+  const apiHeaders = useCallback((): Record<string, string> => ({ 'Content-Type': 'application/json' }), [])
   const [mailboxes, setMailboxes] = useState<{ address: string; name: string }[]>([])
   const [mailboxAll, setMailboxAll] = useState(false)
 
