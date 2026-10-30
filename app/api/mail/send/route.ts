@@ -77,7 +77,7 @@ export async function POST(req: Request) {
   const owner = actingAddress ?? account.address
 
   const fromAddress =
-    actingAddress ?? account.address ?? process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail
+    actingAddress ?? account.address ?? process.env.MAIL_FROM ?? BRAND.supportEmail
 
   // Sending to your own address loops the message back through the inbound
   // webhook and lands it in the mailbox it came from, which reads as a delivery

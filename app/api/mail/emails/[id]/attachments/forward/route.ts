@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { mayReadSent } from '@/lib/sent-access'
 import { getSentAttachments } from '@/lib/mailbox'
-import { providerBase } from '@/lib/provider-base'
+import { velaApiBase, velaApiKey } from '@/lib/vela'
 import { getObject, putObject } from '@/lib/r2'
 
 export const runtime = 'nodejs'
@@ -42,10 +42,10 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   if (copied.length) return NextResponse.json({ ok: true, attachments: copied })
 
   // Nothing of ours recorded: this predates that, so fall back to the provider.
-  const apiKey = process.env.RESEND_API_KEY
+  const apiKey = velaApiKey()
   if (!apiKey) return NextResponse.json({ ok: true, attachments: [] })
 
-  const listing = await fetch(`${providerBase()}/emails/${encodeURIComponent(id)}/attachments`, {
+  const listing = await fetch(`${velaApiBase()}/emails/${encodeURIComponent(id)}/attachments`, {
     headers: { authorization: `Bearer ${apiKey}` },
   }).catch(() => null)
   if (!listing?.ok) return NextResponse.json({ ok: true, attachments: [] })

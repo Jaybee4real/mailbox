@@ -81,10 +81,13 @@ upload with it.
 
 ## Sending
 
-`MAIL_PROVIDER` picks `ses`, `resend` or `brevo` behind one seam, so switching
-providers is an environment change rather than a code change. SES is signed
-in-process, with no SDK. Adding a fourth provider means one send function and one case in
-`lib/mail-provider.ts`.
+Every message goes through Vela, read from `VELA_API_URL` and `VELA_API_KEY` and nothing
+else; Vela holds the provider credentials. Account email (sign-in and enrol codes, resets,
+recovery confirmations, invites) carries the requester's IP, device, account and user agent
+so Vela can pause a requester who asks too often, and password sign-in, code entry, PIN entry
+and passkey sign-in ask Vela's guard first. A pause reaches the client as a 429 with `scope`,
+`retry_after` and `blocked_until`; a recipient still cooling down is answered as a success
+with `throttled: true`.
 
 ## Mobile discovery
 

@@ -1,17 +1,28 @@
 import { NextResponse } from 'next/server'
-import { Resend } from 'resend'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { mayReadSent } from '@/lib/sent-access'
 import { getSentAttachments, readSentMessage } from '@/lib/mailbox'
-import { providerBase } from '@/lib/provider-base'
+import { velaApiBase, velaApiKey } from '@/lib/vela'
 import { inlineImageTicket } from '@/lib/share-ticket'
 import { bareContentId, inlineImageUrls } from '@/lib/attachments'
 
 export const runtime = 'nodejs'
 
-function getResend(): Resend | null {
-  const apiKey = process.env.RESEND_API_KEY
-  return apiKey ? new Resend(apiKey, { baseUrl: providerBase() }) : null
+type VelaAnswer = { data: Record<string, unknown> | null; error: { message: string } | null }
+
+async function velaEmails(apiKey: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<VelaAnswer> {
+  try {
+    const response = await fetch(`${velaApiBase()}/emails/${path}`, {
+      method: init.method ?? 'GET',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    })
+    const parsed = (await response.json().catch(() => ({}))) as Record<string, unknown>
+    if (!response.ok) return { data: null, error: { message: typeof parsed.message === 'string' ? parsed.message : `HTTP ${response.status}` } }
+    return { data: parsed, error: null }
+  } catch (err) {
+    return { data: null, error: { message: (err as Error).message } }
+  }
 }
 
 /**
@@ -72,15 +83,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (guard) return guard
   const { id } = await params
   if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
-  const resend = getResend()
+  const apiKey = velaApiKey()
 
-  if (id.startsWith('mbox-') || !resend) {
+  if (id.startsWith('mbox-') || !apiKey) {
     const archived = await fromArchive(id)
     if (archived) return archived
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
 
-  const { data, error } = await resend.emails.get(id)
+  const { data, error } = await velaEmails(apiKey, encodeURIComponent(id))
   if (error) {
     const archived = await fromArchive(id)
     if (archived) return archived
@@ -90,12 +101,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const stored = await getSentAttachments(id).catch(() => [])
   const rawAttachments = stored.some(entry => entry.key)
     ? stored
-    : ((await resend.emails.attachments.list({ emailId: id }).catch(() => null))?.data as unknown as {
-        data?: Array<Record<string, unknown>>
-      })?.data ?? []
+    : ((await velaEmails(apiKey, `${encodeURIComponent(id)}/attachments`)).data?.data as Array<Record<string, unknown>> | undefined) ?? []
   const attachments = attachmentList(id, rawAttachments as Array<Record<string, unknown>>)
 
-  const item = data as unknown as Record<string, unknown>
+  const item = data ?? {}
   return NextResponse.json({
     ok: true,
     email: {
@@ -120,11 +129,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
-  const resend = getResend()
-  // Rescheduling and cancelling live in Resend's API; there is no equivalent to call on
-  // another provider, so this is a missing feature rather than a missing key.
-  if (!resend) {
-    return NextResponse.json({ ok: false, error: 'Scheduled mail can only be changed on the Resend provider' }, { status: 501 })
+  const apiKey = velaApiKey()
+  if (!apiKey) {
+    return NextResponse.json({ ok: false, error: 'Scheduled mail can only be changed when Vela is configured' }, { status: 501 })
   }
 
   const { id } = await params
@@ -139,7 +146,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ ok: false, error: 'scheduledAt is required' }, { status: 400 })
   }
 
-  const { error } = await resend.emails.update({ id, scheduledAt: body.scheduledAt })
+  const { error } = await velaEmails(apiKey, encodeURIComponent(id), { method: 'PATCH', body: { scheduled_at: body.scheduledAt } })
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 502 })
   return NextResponse.json({ ok: true })
 }
@@ -147,16 +154,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
-  const resend = getResend()
-  // Rescheduling and cancelling live in Resend's API; there is no equivalent to call on
-  // another provider, so this is a missing feature rather than a missing key.
-  if (!resend) {
-    return NextResponse.json({ ok: false, error: 'Scheduled mail can only be changed on the Resend provider' }, { status: 501 })
+  const apiKey = velaApiKey()
+  if (!apiKey) {
+    return NextResponse.json({ ok: false, error: 'Scheduled mail can only be changed when Vela is configured' }, { status: 501 })
   }
 
   const { id } = await params
   if (!(await mayReadSent(await resolveAccount(req), id))) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
-  const { error } = await resend.emails.cancel(id)
+  const { error } = await velaEmails(apiKey, `${encodeURIComponent(id)}/cancel`, { method: 'POST' })
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 502 })
   return NextResponse.json({ ok: true })
 }

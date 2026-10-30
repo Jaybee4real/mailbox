@@ -1,82 +1,85 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
-import { activeProvider, providerConfigProblem } from './mail-provider.ts'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import test, { after } from 'node:test'
+import { providerConfigProblem, velaSendBody } from './mail-provider.ts'
 
-test('a deployment that chose SES is not refused for missing a Resend key', () => {
-  process.env.MAIL_PROVIDER = 'ses'
-  process.env.SES_ACCESS_KEY_ID = 'AKIAEXAMPLE'
-  process.env.SES_SECRET_ACCESS_KEY = 'secret'
-  delete process.env.RESEND_API_KEY
-  assert.equal(activeProvider(), 'ses')
+const directory = mkdtempSync(join(tmpdir(), 'provider-test-'))
+process.env.DATABASE_URL = `file:${directory}/test.sqlite`
+after(() => rmSync(directory, { recursive: true, force: true }))
+
+test('sending is configured by VELA_API_URL and VELA_API_KEY alone', () => {
+  delete process.env.VELA_API_URL
+  delete process.env.VELA_API_KEY
+  assert.match(providerConfigProblem() ?? '', /VELA_API_URL/)
+  process.env.VELA_API_URL = 'https://vela.example.com'
+  assert.match(providerConfigProblem() ?? '', /VELA_API_KEY/)
+  process.env.VELA_API_KEY = 'vela_test'
   assert.equal(providerConfigProblem(), null)
 })
 
-test('each provider reports its own missing configuration', () => {
-  process.env.MAIL_PROVIDER = 'ses'
-  delete process.env.SES_ACCESS_KEY_ID
-  delete process.env.SES_SECRET_ACCESS_KEY
-  assert.match(providerConfigProblem() ?? '', /SES_ACCESS_KEY_ID/)
-
-  process.env.MAIL_PROVIDER = 'resend'
-  delete process.env.RESEND_API_KEY
-  assert.match(providerConfigProblem() ?? '', /RESEND_API_KEY/)
+test('the Vela body carries attachments, inline parts, headers and the request context', () => {
+  const body = velaSendBody({
+    from: 'info@example.com',
+    fromName: 'Example <Mail>',
+    to: ['ada@example.org'],
+    cc: ['ops@example.org'],
+    replyTo: 'reply@example.com',
+    subject: 'Hello',
+    html: '<p>Hi <img src="cid:logo@example"></p>',
+    text: 'Hi',
+    headers: { 'In-Reply-To': '<abc@example.com>' },
+    attachments: [
+      { filename: 'report.pdf', content: 'JVBE\nRi0=', contentType: 'application/pdf' },
+      { filename: 'logo.png', content: 'iVBORw0KGgo=', contentType: 'image/png', contentId: '<logo@example>' },
+    ],
+    context: { purpose: 'login_code', ip: '198.51.100.9', device: 'web:abcdefghijklmnop', account: 'ada@example.com', user_agent: null },
+  })
+  assert.equal(body.from, 'Example Mail <info@example.com>')
+  assert.equal(body.reply_to, 'reply@example.com')
+  assert.deepEqual(body.headers, { 'In-Reply-To': '<abc@example.com>' })
+  assert.deepEqual(body.attachments, [
+    { filename: 'report.pdf', content: 'JVBERi0=', content_type: 'application/pdf' },
+    { filename: 'logo.png', content: 'iVBORw0KGgo=', content_type: 'image/png', content_id: 'logo@example' },
+  ])
+  assert.deepEqual(body.context, { purpose: 'login_code', ip: '198.51.100.9', device: 'web:abcdefghijklmnop', account: 'ada@example.com' })
+  assert.equal(velaSendBody({ from: 'a@example.com', to: ['b@example.com'], subject: 's', text: '' }).text, ' ')
 })
 
-test('the SES message carries every attachment, byte for byte', async () => {
-  const { rawMimeFor } = await import('./mail-provider.ts')
-  const pdf = Buffer.from('%PDF-1.4 a small but real-looking file '.repeat(40))
-  const photo = Buffer.from(Array.from({ length: 3000 }, (_, index) => index % 256))
-  const raw = rawMimeFor({
-    from: 'info@example.com',
-    to: ['client@example.org'],
-    subject: 'Renewal',
-    html: '<p>Attached.</p>',
-    text: 'Attached.',
-    attachments: [
-      { filename: 'Renewal note.pdf', content: pdf.toString('base64') },
-      { filename: 'Pièce jointe.jpeg', content: photo.toString('base64') },
-    ],
-  })
-  assert.match(raw, /Content-Type: multipart\/mixed; boundary="(nc_[0-9a-f]+)"/)
-  assert.match(raw, /Content-Type: application\/pdf; name="Renewal note.pdf"/)
-  assert.match(raw, /Content-Disposition: attachment; filename="Renewal note.pdf"/)
-  assert.match(raw, /filename\*=UTF-8''Pi%C3%A8ce%20jointe\.jpeg/)
-  assert.ok(raw.split('\r\n').every(line => line.length <= 998), 'no line longer than the mail limit')
-  const parts = raw.split(/--nc_[0-9a-f]+/)
-  const decoded = (name: string) => {
-    const part = parts.find(chunk => chunk.includes(`filename="${name}"`))!
-    return Buffer.from(part.split('\r\n\r\n').slice(1).join('').replace(/\s+/g, ''), 'base64')
+test('sendMail posts to Vela and reads throttled and rate-limited answers', async () => {
+  process.env.VELA_API_URL = 'https://vela.example.com/api/v1/'
+  process.env.VELA_API_KEY = 'vela_test'
+  const { sendMail } = await import('./mail-provider.ts')
+  const { VelaRateLimitError } = await import('./vela.ts')
+  let answer: Response = new Response(JSON.stringify({ id: 'msg_1' }))
+  const seen: string[] = []
+  globalThis.fetch = async (input, init) => {
+    const url = String(input)
+    if (url.endsWith('/suppressions/check')) return new Response(JSON.stringify({ data: [] }))
+    seen.push(url)
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer vela_test')
+    return answer.clone()
   }
-  assert.deepEqual(decoded('Renewal note.pdf'), pdf)
-  assert.deepEqual(decoded('Pi_ce jointe.jpeg'), photo)
-  assert.doesNotMatch(rawMimeFor({ from: 'a@b.c', to: ['d@e.f'], subject: 's', text: 't' }), /multipart\/mixed/)
-})
+  const payload = { from: 'info@example.com', to: ['ada@example.org'], subject: 'Code', text: '123 456' }
+  assert.deepEqual(await sendMail(payload), { id: 'msg_1' })
+  assert.deepEqual(seen, ['https://vela.example.com/api/v1/emails'])
 
-test('inline images ride in multipart/related beside the body, files stay in multipart/mixed', async () => {
-  const { rawMimeFor } = await import('./mail-provider.ts')
-  const logo = Buffer.from('logo-bytes').toString('base64')
-  const raw = rawMimeFor({
-    from: 'info@example.com',
-    to: ['client@example.org'],
-    subject: 'Fwd: Renewal',
-    html: '<p>See below</p><img src="cid:431e9fb0@x">',
-    text: 'See below',
-    attachments: [
-      { filename: 'image.png', content: logo, contentType: 'image/png', contentId: '<431e9fb0@x>' },
-      { filename: 'note.pdf', content: Buffer.from('%PDF').toString('base64') },
-    ],
-  })
-  const mixed = raw.indexOf('multipart/mixed')
-  const related = raw.indexOf('multipart/related')
-  const alternative = raw.indexOf('multipart/alternative')
-  assert.ok(mixed > 0 && related > mixed && alternative > related, 'mixed > related > alternative')
-  assert.match(raw, /Content-Disposition: inline; filename="image.png"\r\nContent-ID: <431e9fb0@x>/)
-  assert.ok(raw.indexOf('Content-ID: <431e9fb0@x>') < raw.indexOf('filename="note.pdf"'), 'the logo sits inside related, before the file')
+  answer = new Response(JSON.stringify({ id: null, throttled: true, reason: 'recipient_cooldown', retry_after: 45 }))
+  assert.deepEqual(await sendMail(payload), { id: null, throttled: true, retryAfter: 45 })
 
-  const onlyInline = rawMimeFor({
-    from: 'a@b.c', to: ['d@e.f'], subject: 's', html: '<img src="cid:a@b">',
-    attachments: [{ filename: 'a.png', content: logo, contentId: 'a@b' }],
+  answer = new Response(
+    JSON.stringify({ name: 'rate_limited', message: 'Too many requests. Try again in 4 minutes.', scope: 'ip', retry_after: 240, blocked_until: '2026-10-30T12:04:00.000Z' }),
+    { status: 429, headers: { 'retry-after': '240' } },
+  )
+  await assert.rejects(sendMail(payload), (err: unknown) => {
+    assert.ok(err instanceof VelaRateLimitError)
+    assert.equal(err.scope, 'ip')
+    assert.equal(err.retryAfter, 240)
+    assert.equal(err.blockedUntil, '2026-10-30T12:04:00.000Z')
+    return true
   })
-  assert.match(onlyInline, /multipart\/related/)
-  assert.doesNotMatch(onlyInline, /multipart\/mixed/, 'no mixed wrapper when nothing is attached')
+
+  answer = new Response(JSON.stringify({ name: 'rate_limit_exceeded', message: 'Key quota reached' }), { status: 429 })
+  await assert.rejects(sendMail(payload), /Key quota reached/, "a key's own quota is a send failure, not a requester block")
 })

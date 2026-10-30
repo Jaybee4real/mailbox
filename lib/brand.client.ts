@@ -60,6 +60,7 @@ export const CLIENT_BRAND = {
   },
   addressDomains: list('MAIL_ADDRESS_DOMAINS'),
   addresses: list('MAIL_ADDRESSES'),
+  supportEmail: read('MAIL_SUPPORT_EMAIL') || `info@${domain}`,
 } as const
 
 export const LS = (key: string) => `${CLIENT_BRAND.slug}_mail_${key}`

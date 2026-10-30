@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { clientIp } from './client-context'
+import { rateLimitedJson } from './vela'
 
 type Bucket = { count: number; resetAt: number }
 
@@ -17,10 +18,12 @@ export function clientKey(req: Request, scope: string): string {
 const boundedKey = (key: string) => (key.length > 200 ? createHash('sha256').update(key).digest('hex') : key)
 
 function throttled(resetAt: number, now: number): NextResponse {
-  return NextResponse.json(
-    { ok: false, error: 'Too many attempts. Try again shortly.' },
-    { status: 429, headers: { 'Retry-After': String(Math.ceil((resetAt - now) / 1000)) } },
-  )
+  return rateLimitedJson({
+    message: 'Too many attempts. Try again shortly.',
+    scope: 'ip',
+    retryAfter: (resetAt - now) / 1000,
+    blockedUntil: new Date(resetAt).toISOString(),
+  })
 }
 
 /** The 429 rateLimit would give once this key is over its limit, without counting this call. */

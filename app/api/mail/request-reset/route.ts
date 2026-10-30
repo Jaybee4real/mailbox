@@ -8,7 +8,8 @@ import { sendMail } from '@/lib/mail-provider'
 import { renderActionEmail, withRequestText } from '@/lib/emails'
 import { publicOrigin } from '@/lib/public-url'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
-import { requestNotice, signInBody } from '@/lib/signin'
+import { requestNotice, sendContext, signInBody, withDeviceCookie } from '@/lib/signin'
+import { VelaRateLimitError, rateLimitedResponse } from '@/lib/vela'
 import { chargeNative, humanCheck } from '@/lib/turnstile'
 
 export const runtime = 'nodejs'
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
   const token = randomBytes(32).toString('hex')
   await createResetToken(email, token, Date.now() + RESET_TTL_MS)
 
-  const from = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail)
+  const from = (process.env.MAIL_FROM ?? BRAND.supportEmail)
     .replace(/^.*<|>$/g, '')
     .trim()
   const resetUrl = `${publicOrigin(req)}/mail/reset?token=${token}`
@@ -81,8 +82,9 @@ export async function POST(req: Request) {
     wasntYou: 'Ignore this email and your password will not change. If more of these arrive, tell your mailbox admin.',
     link: false,
   })
+  let throttledFor = 0
   try {
-    const { id } = await sendMail({
+    const sent = await sendMail({
       from,
       fromName: `${BRAND.name} Mail`,
       to: [destination],
@@ -99,9 +101,12 @@ export async function POST(req: Request) {
         footer: "Didn't request this? Ignore this email — your password will not change.",
         request,
       }),
+      context: sendContext(req, 'password_reset', seatKey),
     })
-    if (id) await recordSentMeta(id, null, true).catch(() => {})
+    if (sent.throttled) throttledFor = sent.retryAfter ?? 60
+    if (sent.id) await recordSentMeta(sent.id, null, true).catch(() => {})
   } catch (err) {
+    if (err instanceof VelaRateLimitError) return withDeviceCookie(req, rateLimitedResponse(err))
     // A reset that silently sends nothing is indistinguishable from one that worked.
     console.error('[mail] reset email failed:', err)
     const error = err instanceof BlockedRecipientsError
@@ -110,5 +115,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error }, { status: 502 })
   }
 
-  return NextResponse.json({ ok: true, message: `Reset link sent to ${mask(destination)}.` })
+  if (throttledFor) {
+    return withDeviceCookie(req, NextResponse.json({
+      ok: true,
+      throttled: true,
+      retry_after: throttledFor,
+      sentTo: mask(destination),
+      message: `We've just sent a reset link to ${mask(destination)}. It can take a minute to arrive, so check spam too.`,
+    }))
+  }
+  return withDeviceCookie(req, NextResponse.json({ ok: true, sentTo: mask(destination), message: `Reset link sent to ${mask(destination)}.` }))
 }

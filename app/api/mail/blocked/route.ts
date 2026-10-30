@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { bareAddress, blockAddress, listBlocked, unblockAddress } from '@/lib/blocked'
-import { sesConfigured, sesUnsuppress } from '@/lib/ses-send'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -38,14 +37,6 @@ export async function DELETE(req: Request) {
   if (guard) return guard
   const input = await adminBody(req)
   if (input instanceof NextResponse) return input
-  let warning = await unblockAddress(input.address)
-  if (!warning && sesConfigured()) {
-    try {
-      await sesUnsuppress(input.address)
-    } catch (err) {
-      console.error('[mail] SES unblock failed:', err)
-      warning = `Unblocked here, but Amazon SES still has ${input.address} on its own blocked list and may drop mail to it until that is cleared too.`
-    }
-  }
+  const warning = await unblockAddress(input.address)
   return NextResponse.json({ ok: true, warning, blocked: await listBlocked() })
 }

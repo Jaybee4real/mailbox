@@ -69,6 +69,8 @@ import HumanCheck from './HumanCheck'
 import PeopleList, { type Person } from './PeopleList'
 import PasskeySettings from './PasskeySettings'
 import PasskeySignIn from './PasskeySignIn'
+import RequestPause, { PauseAnnouncer, useCountdown, usePause } from './RequestPause'
+import { formatWait, readPause, readThrottle } from './pause'
 import LinkSettings, { defaultLinkSettings, linkSettingsFromShare, linkSettingsPayload, linkSummary, linkTerms, type LinkSettingsValue } from './LinkSettings'
 import { shareGate, type ShareAccess } from '@/lib/share-policy'
 
@@ -389,6 +391,8 @@ type SecondStep = {
   method: 'authenticator' | 'email'
   emailHint: string | null
   emailSent: boolean
+  resendAt: number | null
+  throttled: boolean
 }
 
 type SecurityInfo = {
@@ -1622,6 +1626,12 @@ export default function DevMailPage() {
   const [resetBusy, setResetBusy] = useState(false)
   const [humanKey, setHumanKey] = useState<string | null>(null)
   const [humanToken, setHumanToken] = useState('')
+  const { pause: signinPaused, start: pauseSignin, end: endSigninPause, announcement: signinAnnouncement } = usePause('signin')
+  const { pause: codePaused, start: pauseCode, end: endCodePause, announcement: codeAnnouncement } = usePause('code')
+  const { pause: resetPaused, start: pauseReset, end: endResetPause, announcement: resetAnnouncement } = usePause('reset')
+  const [resetAgainAt, setResetAgainAt] = useState<number | null>(null)
+  const resendIn = useCountdown(secondStep?.resendAt ?? null)
+  const resetAgainIn = useCountdown(resetAgainAt)
   const [humanRound, setHumanRound] = useState(0)
   const [showPassword, setShowPassword] = useState(false)
   const [loginDomain, setLoginDomain] = useState(DEFAULT_MAIL_DOMAIN)
@@ -2328,8 +2338,13 @@ export default function DevMailPage() {
               method: data.methods[0],
               emailHint: data.emailHint ?? null,
               emailSent: false,
+              resendAt: null,
+              throttled: false,
             })
           }
+        } else if (response.status === 429 && !silent) {
+          setLoginError('')
+          pauseSignin(readPause(429, response.headers.get('retry-after'), data)!)
         } else if (!silent) {
           // Say what actually happened — a 500 is not a wrong password.
           if (response.status === 401 || response.status === 403) {
@@ -2353,7 +2368,7 @@ export default function DevMailPage() {
         setLoginBusy(false)
       }
     },
-    [humanToken],
+    [humanToken, pauseSignin],
   )
 
   useEffect(() => {
@@ -2382,14 +2397,19 @@ export default function DevMailPage() {
         body: JSON.stringify({ challenge: secondStep.challenge }),
       })
       const data = await response.json().catch(() => null)
-      if (data?.ok) setSecondStep(current => (current ? { ...current, method: 'email', emailSent: true, emailHint: data.sentTo ?? current.emailHint } : current))
-      else secondStepFailed(data, 'The code could not be sent. Try again.')
+      const paused = readPause(response.status, response.headers.get('retry-after'), data)
+      if (paused) pauseCode(paused)
+      else if (data?.ok) {
+        setSecondStep(current => (current
+          ? { ...current, method: 'email', emailSent: true, emailHint: data.sentTo ?? current.emailHint, resendAt: readThrottle(data), throttled: data.throttled === true }
+          : current))
+      } else secondStepFailed(data, 'The code could not be sent. Try again.')
     } catch {
       setLoginError('Couldn’t reach the server. Check your connection and try again.')
     } finally {
       setLoginBusy(false)
     }
-  }, [secondStep, secondStepFailed])
+  }, [secondStep, secondStepFailed, pauseCode])
 
   const finishSecondStep = useCallback(async () => {
     if (!secondStep) return
@@ -2402,7 +2422,10 @@ export default function DevMailPage() {
         body: JSON.stringify({ challenge: secondStep.challenge, method: secondStep.method, code: secondCode }),
       })
       const data = await response.json().catch(() => null)
-      if (data?.ok) {
+      const paused = readPause(response.status, response.headers.get('retry-after'), data)
+      if (paused) {
+        pauseCode(paused)
+      } else if (data?.ok) {
         localStorage.setItem(LS_EMAIL_KEY, JSON.stringify(secondStep.email))
         setSecondStep(null)
         setSecondCode('')
@@ -2416,7 +2439,7 @@ export default function DevMailPage() {
     } finally {
       setLoginBusy(false)
     }
-  }, [secondStep, secondCode, secondStepFailed])
+  }, [secondStep, secondCode, secondStepFailed, pauseCode])
 
   // Staying signed in is the session cookie's job now, so the check is "does the cookie
   // still work", not "replay the password we saved".
@@ -6367,11 +6390,17 @@ export default function DevMailPage() {
       setHumanRound(round => round + 1)
       setHumanToken('')
       const data = await response.json().catch(() => ({}))
+      const paused = readPause(response.status, response.headers.get('retry-after'), data)
+      if (paused) {
+        pauseReset(paused)
+        return
+      }
       if (!response.ok || data.ok === false) {
         setLoginError(typeof data.error === 'string' ? data.error : 'The reset link could not be sent. Try again.')
         return
       }
       setResetMessage(typeof data.message === 'string' ? data.message : '')
+      setResetAgainAt(data.throttled === true ? readThrottle(data) : null)
       setResetSent(true)
     } catch {
       setLoginError('Network error — try again')
@@ -6414,7 +6443,8 @@ export default function DevMailPage() {
                     ? resetMessage
                     : `If ${email} is an account, a reset link is on its way.`}
                 </p>
-                <button className={styles.loginBtn} onClick={() => { setResetMode(false); setResetSent(false); setResetMessage('') }}>
+                {resetAgainIn > 0 && <p className={styles.codeSentNote}>You can ask for a new one in {formatWait(resetAgainIn)}.</p>}
+                <button className={styles.loginBtn} onClick={() => { setResetMode(false); setResetSent(false); setResetMessage(''); setResetAgainAt(null) }}>
                   Back to sign in
                 </button>
               </>
@@ -6426,15 +6456,22 @@ export default function DevMailPage() {
                   <input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="username" />
                 </label>
                 {loginError && <p className={styles.loginError}>{loginError}</p>}
-                {humanKey && <HumanCheck key={humanRound} siteKey={humanKey} onToken={setHumanToken} />}
-                <button className={styles.loginBtn} onClick={requestReset} disabled={resetBusy || (Boolean(humanKey) && !humanToken)}>
-                  {resetBusy ? 'Sending…' : 'Send reset link'}
-                </button>
+                {resetPaused ? (
+                  <RequestPause pause={resetPaused} onEnd={endResetPause} />
+                ) : (
+                  <>
+                    {humanKey && <HumanCheck key={humanRound} siteKey={humanKey} onToken={setHumanToken} />}
+                    <button className={styles.loginBtn} onClick={requestReset} disabled={resetBusy || (Boolean(humanKey) && !humanToken)}>
+                      {resetBusy ? 'Sending…' : 'Send reset link'}
+                    </button>
+                  </>
+                )}
                 <button className={styles.loginTextLink} onClick={() => { setResetMode(false); setLoginError('') }}>
                   ← Back to sign in
                 </button>
               </>
             )}
+            <PauseAnnouncer text={resetAnnouncement} />
           </div>
         </LoginShell>
       )
@@ -6462,6 +6499,12 @@ export default function DevMailPage() {
                   ? `Enter the 6-digit code sent to ${secondStep.emailHint ?? 'your alternate email'}.`
                   : `We will email a code to ${secondStep.emailHint ?? 'your alternate email'}.`}
             </p>
+            {byEmail && secondStep.emailSent && secondStep.throttled && (
+              <p className={styles.codeSentNote} role="status">
+                We&apos;ve just sent a code to {secondStep.emailHint ?? 'your alternate email'}. It can take a minute to arrive, so check spam too.
+                {resendIn > 0 && <> You can ask for a new one in {formatWait(resendIn)}.</>}
+              </p>
+            )}
             {(!byEmail || secondStep.emailSent) && (
               <label className={styles.loginField}>
                 <span>Code</span>
@@ -6482,14 +6525,18 @@ export default function DevMailPage() {
                 <p className={styles.loginError}>{loginError}</p>
               </div>
             )}
-            <button type="submit" className={styles.loginBtn} disabled={loginBusy || ((!byEmail || secondStep.emailSent) && secondCode.replace(/\s/g, '').length !== 6)}>
-              {loginBusy
-                ? <><span className={styles.loginSpinner} aria-hidden />{byEmail && !secondStep.emailSent ? 'Sending…' : 'Checking…'}</>
-                : byEmail && !secondStep.emailSent ? 'Email me a code' : 'Sign in'}
-            </button>
-            {byEmail && secondStep.emailSent && (
-              <button type="button" className={styles.loginTextLink} disabled={loginBusy} onClick={() => void sendLoginEmailCode()}>
-                Send another code
+            {codePaused ? (
+              <RequestPause pause={codePaused} onEnd={endCodePause} />
+            ) : (
+              <button type="submit" className={styles.loginBtn} disabled={loginBusy || ((!byEmail || secondStep.emailSent) && secondCode.replace(/\s/g, '').length !== 6)}>
+                {loginBusy
+                  ? <><span className={styles.loginSpinner} aria-hidden />{byEmail && !secondStep.emailSent ? 'Sending…' : 'Checking…'}</>
+                  : byEmail && !secondStep.emailSent ? 'Email me a code' : 'Sign in'}
+              </button>
+            )}
+            {byEmail && secondStep.emailSent && !codePaused && (
+              <button type="button" className={styles.loginTextLink} disabled={loginBusy || resendIn > 0} onClick={() => void sendLoginEmailCode()}>
+                {resendIn > 0 ? `Send another code in ${formatWait(resendIn)}` : 'Send another code'}
               </button>
             )}
             {other && (
@@ -6512,6 +6559,7 @@ export default function DevMailPage() {
             >
               ← Back to sign in
             </button>
+            <PauseAnnouncer text={codeAnnouncement} />
           </form>
         </LoginShell>
       )
@@ -6652,10 +6700,16 @@ export default function DevMailPage() {
               )}
             </div>
           )}
-          {humanKey && <HumanCheck key={humanRound} siteKey={humanKey} onToken={setHumanToken} />}
-          <button type="submit" className={styles.loginBtn} disabled={loginBusy || (Boolean(humanKey) && !humanToken)}>
-            {loginBusy ? <><span className={styles.loginSpinner} aria-hidden />Signing in…</> : 'Sign in'}
-          </button>
+          {signinPaused ? (
+            <RequestPause pause={signinPaused} onEnd={endSigninPause} />
+          ) : (
+            <>
+              {humanKey && <HumanCheck key={humanRound} siteKey={humanKey} onToken={setHumanToken} />}
+              <button type="submit" className={styles.loginBtn} disabled={loginBusy || (Boolean(humanKey) && !humanToken)}>
+                {loginBusy ? <><span className={styles.loginSpinner} aria-hidden />Signing in…</> : 'Sign in'}
+              </button>
+            </>
+          )}
           <PasskeySignIn
             disabled={loginBusy}
             onSignedIn={signedInEmail => {
@@ -6664,7 +6718,9 @@ export default function DevMailPage() {
               localStorage.setItem(LS_EMAIL_KEY, JSON.stringify(signedInEmail))
             }}
             onError={message => { setLoginError(message); setLoginDetail('') }}
+            onPaused={paused => { setLoginError(''); pauseSignin(paused) }}
           />
+          <PauseAnnouncer text={signinAnnouncement} />
         </form>
       </LoginShell>
     )

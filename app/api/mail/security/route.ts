@@ -9,6 +9,7 @@ import {
 } from '@/lib/mailbox'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
 import { sendEmailCode } from '@/lib/signin'
+import { VelaRateLimitError, rateLimitedResponse } from '@/lib/vela'
 import {
   CHALLENGE_TTL_MS, EMAIL_CODE_TTL_MS, EMAIL_RESEND_MS, MAX_CODE_ATTEMPTS, describeDevice, hashEmailCode, maskEmail,
   newChallengeId, newTotpSecret, otpauthUri, verifyTotp,
@@ -79,13 +80,22 @@ export async function POST(req: Request) {
     if (!factors.recoveryVerified || !factors.recoveryEmail) return fail('Confirm an alternate email first. The codes are sent there.')
     const challenge = newChallengeId()
     await createLoginChallenge(challenge, email, 'enroll-email', CHALLENGE_TTL_MS)
+    let retryAfter = 0
     try {
-      await sendEmailCode(req, challenge, factors.recoveryEmail, 'enroll')
+      const sent = await sendEmailCode(req, challenge, factors.recoveryEmail, 'enroll', email)
+      retryAfter = sent.throttled ? sent.retryAfter ?? 60 : 0
     } catch (err) {
+      if (err instanceof VelaRateLimitError) return rateLimitedResponse(err)
       console.error('[mail] enrolment code failed:', err)
       return fail(err instanceof BlockedRecipientsError ? `The code was not sent. ${err.message}` : 'The code could not be sent. Try again.', 502)
     }
-    return NextResponse.json({ ok: true, challenge, sentTo: maskEmail(factors.recoveryEmail), resendAfterMs: EMAIL_RESEND_MS })
+    return NextResponse.json({
+      ok: true,
+      challenge,
+      sentTo: maskEmail(factors.recoveryEmail),
+      resendAfterMs: retryAfter ? retryAfter * 1000 : EMAIL_RESEND_MS,
+      ...(retryAfter ? { throttled: true, retry_after: retryAfter } : {}),
+    })
   }
 
   if (body.action === 'email-confirm') {

@@ -8,7 +8,8 @@ import { sendMail } from '@/lib/mail-provider'
 import { renderActionEmail, withRequestText } from '@/lib/emails'
 import { publicOrigin } from '@/lib/public-url'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
-import { requestNotice } from '@/lib/signin'
+import { requestNotice, sendContext } from '@/lib/signin'
+import { VelaRateLimitError, rateLimitedResponse } from '@/lib/vela'
 
 export const runtime = 'nodejs'
 
@@ -64,13 +65,14 @@ export async function POST(req: Request) {
   const token = randomBytes(32).toString('hex')
   await createResetToken(identity.email, token, Date.now() + VERIFY_TTL_MS, 'verify-recovery')
   const verifyUrl = `${publicOrigin(req)}/api/mail/recovery/verify?token=${token}`
-  const from = (process.env.MAIL_FROM ?? process.env.RESEND_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
+  const from = (process.env.MAIL_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
   const request = requestNotice(req, {
     wasntYou: `Ignore this email if you don't know ${identity.email}. If that account is yours and you didn't add this address, someone may be signed in to it: reset your password with Forgot password on the sign-in page, or ask your mailbox admin to lock the account:`,
   })
 
+  let throttledFor = 0
   try {
-    const { id } = await sendMail({
+    const sent = await sendMail({
       from,
       fromName: `${BRAND.name} Mail`,
       to: [recovery],
@@ -87,9 +89,12 @@ export async function POST(req: Request) {
         footer: "Didn't expect this? Ignore it — nothing is sent here until the link is used.",
         request,
       }),
+      context: sendContext(req, 'verification', identity.email),
     })
-    if (id) await recordSentMeta(id, null, true).catch(() => {})
+    if (sent.throttled) throttledFor = sent.retryAfter ?? 60
+    if (sent.id) await recordSentMeta(sent.id, null, true).catch(() => {})
   } catch (err) {
+    if (err instanceof VelaRateLimitError) return rateLimitedResponse(err)
     console.error('[mail] recovery verification email failed:', err)
     return NextResponse.json(
       { ok: false, error: err instanceof BlockedRecipientsError ? `Saved, but the confirmation email was not sent. ${err.message}` : 'Saved, but the confirmation email could not be sent', recoveryEmail: recovery, verified: false },
@@ -97,5 +102,5 @@ export async function POST(req: Request) {
     )
   }
 
-  return NextResponse.json({ ok: true, recoveryEmail: recovery, verified: false })
+  return NextResponse.json({ ok: true, recoveryEmail: recovery, verified: false, ...(throttledFor ? { throttled: true, retry_after: throttledFor } : {}) })
 }
