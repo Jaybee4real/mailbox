@@ -1,4 +1,5 @@
 import { db, ensureMailSchema } from './mailbox'
+import { sesConfigured, sesSuppressed } from './ses-send'
 
 export type BlockReason = 'bounce' | 'complaint' | 'manual'
 
@@ -81,7 +82,49 @@ export async function blockedAmong(recipients: string[]): Promise<BlockedAddress
     await remember(learned)
     found.push(learned)
   }
+  const unchecked = unknown.filter(address => !found.some(entry => entry.address === address))
+  for (const learned of await sesBlocked(unchecked)) {
+    await blockAddress(learned.address, learned.reason, learned.detail, learned.createdAt)
+    found.push(learned)
+  }
   return found
+}
+
+const SES_LIST_TTL_MS = 10 * 60 * 1000
+type SesEntry = { reason: string; at: string }
+let sesList: { loadedAt: number; entries: Map<string, SesEntry> } | null = null
+let sesLoading: Promise<Map<string, SesEntry>> | null = null
+
+async function sesSuppressedMap(): Promise<Map<string, SesEntry>> {
+  if (sesList && Date.now() - sesList.loadedAt < SES_LIST_TTL_MS) return sesList.entries
+  sesLoading ??= sesSuppressed()
+    .then(entries => {
+      sesList = { loadedAt: Date.now(), entries: new Map(entries.map(entry => [bareAddress(entry.address), { reason: entry.reason, at: entry.at }])) }
+      return sesList.entries
+    })
+    .catch(err => {
+      console.error('[mail] SES suppression list unreadable:', err)
+      return sesList?.entries ?? new Map<string, SesEntry>()
+    })
+    .finally(() => {
+      sesLoading = null
+    })
+  return sesLoading
+}
+
+async function sesBlocked(addresses: string[]): Promise<BlockedAddress[]> {
+  if (!addresses.length || !sesConfigured()) return []
+  const suppressed = await sesSuppressedMap()
+  return addresses.flatMap(address => {
+    const entry = suppressed.get(address)
+    if (!entry) return []
+    return [{
+      address,
+      reason: entry.reason === 'COMPLAINT' ? 'complaint' : 'bounce',
+      detail: 'On Amazon SES suppression list',
+      createdAt: entry.at,
+    } satisfies BlockedAddress]
+  })
 }
 
 async function remember(entry: BlockedAddress): Promise<void> {
@@ -117,6 +160,7 @@ export async function blockAddress(
 /** Returns a warning when Vela's shared list still holds the address, so mail to it is still refused. */
 export async function unblockAddress(address: string): Promise<string | null> {
   const clean = bareAddress(address)
+  sesList?.entries.delete(clean)
   await ensureMailSchema()
   await db()`DELETE FROM mail_blocked WHERE address = ${clean}`
   const lifted = await velaCall<{ still_blocked?: VelaEntry | null }>('DELETE', `/suppressions?address=${encodeURIComponent(clean)}`)
