@@ -46,23 +46,3 @@ test('every check can be switched off', () => {
   const off = { ...WRITING_DEFAULTS, checkAttachment: false, checkEmptyBody: false, checkPlaceholders: false, checkGreeting: false, checkExternal: false }
   assert.deepEqual(kinds('Dear {x} Okafor, attached', {}, off), [])
 })
-
-test('a reply that brings in a company the replied-to message did not have is flagged', () => {
-  const recipients = [
-    { email: 'chinedu@coronationinsurance.com.ng' },
-    { email: 'muhammed.musa@prudentialzenith.com' },
-    { email: 'eokpata.metroperil@gmail.com' },
-    { email: 'info@metroperilinsbrokers.com' },
-  ]
-  const issues = sendIssues({ ...base, recipients, body: 'Dear Chinedu,\nNoted with thanks.', replyingToParties: ['coronationinsurance.com.ng'] }, WRITING_DEFAULTS)
-  const flagged = issues.find(issue => issue.kind === 'other-company')
-  assert.ok(flagged)
-  assert.match(flagged.message, /prudentialzenith\.com/)
-  assert.doesNotMatch(flagged.message, /gmail|metroperil/)
-  const sameCompany = sendIssues({ ...base, recipients: recipients.slice(0, 1), body: 'Dear Chinedu,\nNoted.', replyingToParties: ['coronationinsurance.com.ng'] }, WRITING_DEFAULTS)
-  assert.equal(sameCompany.some(issue => issue.kind === 'other-company'), false)
-  const coInsurance = sendIssues({ ...base, recipients, body: 'Dear Chinedu,\nNoted.', replyingToParties: ['coronationinsurance.com.ng', 'prudentialzenith.com'] }, WRITING_DEFAULTS)
-  assert.equal(coInsurance.some(issue => issue.kind === 'other-company'), false, 'both companies were already on the message')
-  const fresh = sendIssues({ ...base, recipients, body: 'Dear Chinedu,\nNoted.' }, WRITING_DEFAULTS)
-  assert.equal(fresh.some(issue => issue.kind === 'other-company'), false, 'a new message is not a reply')
-})

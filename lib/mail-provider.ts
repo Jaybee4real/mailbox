@@ -1,4 +1,5 @@
 import { BlockedRecipientsError, blockedAmong } from './blocked'
+import { sesLocalPart } from './threads'
 import { readRateLimit, velaApiBase, velaApiKey, velaConfigProblem, type RequesterContext, type RequestPurpose } from './vela'
 
 export type SendAttachment = { filename: string; content: string; contentType?: string; contentId?: string }
@@ -23,7 +24,7 @@ export type SendPayload = {
   context?: SendContext
 }
 
-export type SendResult = { id: string | null; throttled?: boolean; retryAfter?: number }
+export type SendResult = { id: string | null; providerId?: string | null; throttled?: boolean; retryAfter?: number }
 
 export const providerConfigProblem = velaConfigProblem
 
@@ -66,13 +67,14 @@ async function sendViaVela(payload: SendPayload): Promise<SendResult> {
   })
   const blocked = await readRateLimit(response)
   if (blocked) throw blocked
-  const result = (await response.json().catch(() => ({}))) as { id?: unknown; throttled?: unknown; retry_after?: unknown; message?: unknown }
+  const result = (await response.json().catch(() => ({}))) as { id?: unknown; message_id?: unknown; throttled?: unknown; retry_after?: unknown; message?: unknown }
   if (!response.ok) throw new Error(typeof result.message === 'string' ? result.message : `Vela send failed (HTTP ${response.status})`)
   if (result.throttled === true) {
     const seconds = Number(result.retry_after)
     return { id: null, throttled: true, retryAfter: Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 60 }
   }
-  return { id: result.id ? String(result.id) : null }
+  const providerId = typeof result.message_id === 'string' && result.message_id.trim() ? sesLocalPart(result.message_id) : null
+  return { id: result.id ? String(result.id) : null, ...(providerId ? { providerId } : {}) }
 }
 
 /**

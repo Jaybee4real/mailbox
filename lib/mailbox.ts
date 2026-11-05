@@ -1,4 +1,4 @@
-import { ADDRESS_ALIASES, ADDRESS_DOMAINS, MAIL_SEATS, type MailRole } from './brand'
+import { ADDRESS_ALIASES, MAIL_SEATS, type MailRole } from './brand'
 /**
  * Durable mail state on libSQL (SQLite). Inbox, delivery events, account
  * credentials, reset tokens, and a per-account stash for drafts + saved templates.
@@ -14,7 +14,7 @@ import { hashPassword } from './password'
 import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
 import { bodyCacheEnabled, bodyCacheFull, cachedBody, isBodyCached, storeBody } from './body-cache'
-import { sharesParty, subjectKey, threadIdFor, threadParties, THREAD_GAP_MS } from './threads'
+import { referencedIds, sesLocalPart, subjectKey, threadIdFor } from './threads'
 import { inboxFiltersSql, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters'
 import { impersonationReasons, judgeMessage, raiseRisk, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
 import type { ShareAccess, ShareSettings } from './share-policy'
@@ -479,6 +479,10 @@ export function ensureMailSchema(): Promise<void> {
       await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_thread_idx ON mail_inbox (lower(owner), thread_id, received_at DESC, id DESC)').catch(() => {})
       await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_unread_thread_idx ON mail_inbox (thread_id) WHERE read = 0').catch(() => {})
       await sqlRaw('CREATE INDEX IF NOT EXISTS mail_inbox_thread_any_idx ON mail_inbox (thread_id, received_at DESC, id DESC)').catch(() => {})
+      await sqlRaw(`CREATE INDEX IF NOT EXISTS mail_inbox_message_id_idx ON mail_inbox (json_extract(thread_meta, '$."message-id"'))`).catch(() => {})
+      await sqlRaw('ALTER TABLE mail_sent ADD COLUMN provider_id TEXT').catch(() => {})
+      await sqlRaw('CREATE INDEX IF NOT EXISTS mail_sent_provider_idx ON mail_sent (provider_id)').catch(() => {})
+      await sqlRaw("UPDATE mail_sent SET provider_id = id WHERE provider_id IS NULL AND provider = 'ses'").catch(() => {})
 
       // Snooze. An ISO timestamp in the future means "not now": the message is out of the
       // inbox until then and comes back on its own, because every folder decides from this
@@ -1016,37 +1020,34 @@ export type ThreadRow = {
 }
 
 /**
- * Pick or create the thread for a message. A thread is the same normalised subject within
- * a thirty-day silence; the lookup is one indexed read on (owner, subject_key).
+ * Pick or create the thread for a message, the way Gmail does: a message joins the
+ * conversation it answers, found through its In-Reply-To and References headers, and only
+ * while the subject stays the same. A customer's reply usually names only our outgoing
+ * message, so a reference to one of our sends is followed to the message that send answered.
  */
 export async function assignThread(row: { id: string; owner: string; subject: string; receivedAt: string }): Promise<string> {
   const sql = db()
   const owner = row.owner.toLowerCase()
   const key = subjectKey(row.subject ?? '')
-  if (!key) return threadIdFor('', row.receivedAt, row.id)
-  const at = Date.parse(row.receivedAt)
-  const candidates = await sql`
-    SELECT thread_id, first_at, latest_at FROM mail_threads
-    WHERE owner = ${owner} AND subject_key = ${key}
-    ORDER BY latest_at DESC LIMIT 10`
-  const partiesOf = (rows: Array<Record<string, unknown>>) =>
-    threadParties(
-      rows.flatMap(member => [String(member.from_addr ?? ''), ...parseArray(member.to_addrs), ...parseArray(member.cc)]),
-      ADDRESS_DOMAINS,
-    )
-  const own = partiesOf(await sql`SELECT from_addr, to_addrs, cc FROM mail_inbox WHERE id = ${row.id}`)
-  for (const candidate of candidates) {
-    const first = Date.parse(String(candidate.first_at))
-    const latest = Date.parse(String(candidate.latest_at))
-    // Within the gap after the newest, or (backfill arriving out of order) before the oldest.
-    const inWindow = (at >= first && at - latest <= THREAD_GAP_MS) || (at < first && first - at <= THREAD_GAP_MS)
-    if (!inWindow) continue
-    const members = await sql`
-      SELECT from_addr, to_addrs, cc FROM mail_inbox
-      WHERE lower(owner) = ${owner} AND thread_id = ${String(candidate.thread_id)} AND id != ${row.id}
-      LIMIT 100`
-    if (!members.length || sharesParty(own, partiesOf(members))) return String(candidate.thread_id)
+  const own = await sql`SELECT thread_meta FROM mail_inbox WHERE id = ${row.id}`
+  const refs = referencedIds(own[0]?.thread_meta)
+  if (refs.length) {
+    const viaSent = await sql`
+      SELECT m.in_reply_to FROM mail_sent s JOIN mail_sent_meta m ON m.email_id = s.id
+      WHERE s.provider_id IN (SELECT value FROM json_each(${JSON.stringify(refs.map(sesLocalPart))}))
+        AND m.in_reply_to IS NOT NULL`
+    const answered = viaSent.map(entry => String(entry.in_reply_to).replace(/[<>]/g, '').trim()).filter(Boolean)
+    const wanted = [...new Set([...refs, ...answered])]
+    const parents = await sql`
+      SELECT thread_id, subject, received_at FROM mail_inbox
+      WHERE lower(owner) = ${owner} AND thread_id IS NOT NULL AND id != ${row.id}
+        AND (json_extract(thread_meta, '$."message-id"') IN (SELECT '<' || value || '>' FROM json_each(${JSON.stringify(wanted)}))
+          OR id IN (SELECT value FROM json_each(${JSON.stringify(wanted)})))
+      ORDER BY received_at DESC LIMIT 20`
+    const parent = parents.find(entry => subjectKey(String(entry.subject ?? '')) === key)
+    if (parent) return String(parent.thread_id)
   }
+  if (!key) return threadIdFor('', row.receivedAt, row.id)
   const fresh = threadIdFor(key, row.receivedAt, row.id)
   const taken = await sql`SELECT 1 FROM mail_threads WHERE owner = ${owner} AND thread_id = ${fresh} LIMIT 1`
   return taken.length ? `${fresh}#${row.id}` : fresh
@@ -2261,6 +2262,8 @@ export type SentMessage = {
   attachmentCount?: number
   /** Sent by the app itself — an invite, a reset, an auto-reply — rather than by a person. */
   isAuto?: boolean
+  /** The id the sending service gave it, which is the local part of its Message-ID. */
+  providerId?: string | null
 }
 
 export async function recordSentMessage(message: SentMessage): Promise<void> {
@@ -2268,9 +2271,9 @@ export async function recordSentMessage(message: SentMessage): Promise<void> {
   await ensureMailSchema()
   const sql = db()
   await sql`
-    INSERT INTO mail_sent (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, created_at, last_event, provider, archived_at, attachments)
-    VALUES (${message.id}, ${message.from}, ${JSON.stringify(message.to)}, ${JSON.stringify(message.cc)}, ${JSON.stringify(message.bcc)}, ${JSON.stringify(message.replyTo)}, ${message.subject}, ${message.html}, ${message.text}, ${message.createdAt}, ${message.lastEvent ?? null}, ${'vela'}, ${nowIso()}, ${JSON.stringify(message.attachments ?? [])})
-    ON CONFLICT (id) DO NOTHING`
+    INSERT INTO mail_sent (id, from_addr, to_addrs, cc, bcc, reply_to, subject, html, body_text, created_at, last_event, provider, archived_at, attachments, provider_id)
+    VALUES (${message.id}, ${message.from}, ${JSON.stringify(message.to)}, ${JSON.stringify(message.cc)}, ${JSON.stringify(message.bcc)}, ${JSON.stringify(message.replyTo)}, ${message.subject}, ${message.html}, ${message.text}, ${message.createdAt}, ${message.lastEvent ?? null}, ${'vela'}, ${nowIso()}, ${JSON.stringify(message.attachments ?? [])}, ${message.providerId ?? null})
+    ON CONFLICT (id) DO UPDATE SET provider_id = COALESCE(mail_sent.provider_id, excluded.provider_id)`
 }
 
 /**
@@ -2382,7 +2385,7 @@ export async function readSentArchive(options: {
   const textColumn = options.query ? "substr(coalesce(s.body_text, ''), 1, 4000)" : 'NULL'
   const rows = await tagged(
     sql,
-    `SELECT s.id, s.from_addr, s.to_addrs, s.cc, s.bcc, s.reply_to, s.subject, s.created_at, s.last_event,
+    `SELECT s.id, s.from_addr, s.to_addrs, s.cc, s.bcc, s.reply_to, s.subject, s.created_at, s.last_event, s.provider_id,
             json_array_length(CASE WHEN json_valid(s.attachments) THEN s.attachments ELSE '[]' END) AS attach_count,
             coalesce(m.is_auto, 0) AS is_auto,
             ${textColumn} AS text
@@ -2405,6 +2408,7 @@ export async function readSentArchive(options: {
     lastEvent: (row.last_event as string) ?? null,
     attachmentCount: Number(row.attach_count ?? 0),
     isAuto: Boolean(Number(row.is_auto ?? 0)),
+    providerId: row.provider_id == null ? null : String(row.provider_id),
   }))
 }
 

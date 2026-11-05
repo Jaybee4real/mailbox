@@ -6,62 +6,22 @@ export function normalizeSubject(subject: string): string {
     .toLowerCase()
 }
 
-export const THREAD_GAP_MS = 30 * 24 * 60 * 60 * 1000
-
 export function subjectKey(subject: string): string {
   return normalizeSubject(subject)
 }
 
-const PERSONAL_DOMAINS = new Set([
-  'gmail.com',
-  'googlemail.com',
-  'yahoo.com',
-  'yahoo.co.uk',
-  'ymail.com',
-  'hotmail.com',
-  'outlook.com',
-  'live.com',
-  'msn.com',
-  'icloud.com',
-  'me.com',
-  'aol.com',
-  'proton.me',
-  'protonmail.com',
-])
-
-/**
- * Who a message is with, outside our own domains: a company by its domain, a person on a
- * free-mail domain by their address. A title is reused for every insurer a quote goes to, so
- * the title alone does not make two messages one conversation; the title and the party do.
- */
-export function threadParties(addresses: string[], ownDomains: string[]): string[] {
-  const own = new Set(ownDomains.map(domain => domain.toLowerCase()))
-  const companies = new Set<string>()
-  const people = new Set<string>()
-  for (const raw of addresses) {
-    const address = (raw.match(/<([^>]+)>/)?.[1] ?? raw).trim().toLowerCase()
-    const at = address.lastIndexOf('@')
-    if (at < 1) continue
-    const domain = address.slice(at + 1)
-    if (own.has(domain)) continue
-    if (PERSONAL_DOMAINS.has(domain)) people.add(address)
-    else companies.add(domain)
+export function referencedIds(threadMeta: unknown): string[] {
+  let meta: Record<string, unknown> = {}
+  try {
+    meta = typeof threadMeta === 'string' ? JSON.parse(threadMeta) : ((threadMeta ?? {}) as Record<string, unknown>)
+  } catch {
+    meta = {}
   }
-  return companies.size ? [...companies] : [...people]
+  const tokens = `${String(meta['in-reply-to'] ?? '')} ${String(meta.references ?? '')}`.match(/<[^<>\s]+>|[^\s<>,]+@[^\s<>,]+/g) ?? []
+  return [...new Set(tokens.map(token => token.replace(/[<>]/g, '').trim()).filter(Boolean))]
 }
 
-export const isPersonalDomain = (domain: string): boolean => PERSONAL_DOMAINS.has(domain.trim().toLowerCase())
-
-export function sharesParty(left: string[], right: string[]): boolean {
-  if (!left.length || !right.length) return !left.length && !right.length
-  return left.some(party => right.includes(party))
-}
-
-export function subjectSignals(subject: string, parties: string[]): string[] {
-  const key = normalizeSubject(subject)
-  if (!key) return []
-  return parties.length ? parties.map(party => `subj:${key}|${party}`) : [`subj:${key}|internal`]
-}
+export const sesLocalPart = (messageId: string): string => messageId.replace(/[<>]/g, '').trim().split('@')[0]
 
 /** Readable and deterministic: the normalised subject plus the day the thread began. */
 export function threadIdFor(key: string, firstAt: string, messageId: string): string {

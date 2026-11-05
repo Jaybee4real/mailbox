@@ -233,7 +233,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, id: scheduledId, scheduled: true, scheduledAt: dueAt.toISOString() })
   }
 
-  let data: { id: string | null }
+  let data: { id: string | null; providerId?: string | null }
   try {
     data = await sendMail({
       from: fromEmail,
@@ -277,6 +277,7 @@ export async function POST(req: Request) {
           html: outgoingHtml,
           text: body.text ?? null,
           createdAt: new Date().toISOString(),
+          providerId: data.providerId ?? null,
           // Recorded so the Sent folder and a forward read our own bucket rather than
           // the provider's, which keeps these only as long as it chooses to.
           attachments: rawAttachments

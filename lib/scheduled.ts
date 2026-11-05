@@ -90,7 +90,7 @@ export async function cancelScheduled(id: string, owner: string | null): Promise
 }
 
 /** The bookkeeping an immediate send does, so a delayed one lands in the same places. */
-export async function recordSend(send: ScheduledSend, id: string | null): Promise<void> {
+export async function recordSend(send: ScheduledSend, id: string | null, providerId: string | null = null): Promise<void> {
   await Promise.all([
     ...[...send.recipients, ...send.cc, ...send.bcc].map(address => recordContact(address, null).catch(() => {})),
     send.pixelId && id
@@ -110,6 +110,7 @@ export async function recordSend(send: ScheduledSend, id: string | null): Promis
           text: send.payload.text ?? null,
           createdAt: new Date().toISOString(),
           attachments: send.storedAttachments,
+          providerId,
         }).catch(() => {})
       : Promise.resolve(),
   ])
@@ -158,7 +159,7 @@ async function dispatchRow(row: Record<string, unknown>): Promise<'sent' | 'fail
       ...(payload.html ? { ...payload, html: absoluteUrls(payload.html, BRAND.publicUrl) } : payload),
       skipArchive: true,
     })
-    await recordSend(send, result?.id ?? null)
+    await recordSend(send, result?.id ?? null, result?.providerId ?? null)
     if (result?.id) {
       await sql`
         INSERT INTO mail_sent_origin (email_id, owner, at, ip, user_agent, device, country, region, city, timezone, language)
