@@ -43,8 +43,9 @@ export async function GET(req: Request) {
   // Read our own archive rather than the provider's list: the history stays ours across
   // a provider switch, and every send is written here at send time.
   // Meta is looked up only for the archive rows being returned, so fetch those first.
+  const ownerScope = scopeFor(account, new URL(req.url).searchParams.get('mailbox'))
   const archive = await readSentArchive({
-    ownerAddress: account.address ?? null,
+    ownerAddress: ownerScope,
     sharedAddress: SHARED_ADDRESS,
     query,
     limit: query ? SEARCH_LIMIT : 500,
@@ -74,7 +75,6 @@ export async function GET(req: Request) {
 
   // Sent mail is scoped the same way the inbox is, including the one address a
   // deployment may name as able to read every account.
-  const ownerScope = scopeFor(account, new URL(req.url).searchParams.get('mailbox'))
 
   // Ownership is the sender identity: the `from` address if it's an accessor's, else the
   // shared inbox (admin). This attributes historical sends (all from hello@) correctly.

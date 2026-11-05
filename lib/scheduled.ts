@@ -22,6 +22,8 @@ export type ScheduledSend = {
   replyTo: string[]
   inReplyTo: string | null
   storedAttachments: Array<{ filename: string; key: string }>
+  /** Held for the send delay rather than for a date someone picked. */
+  delayed?: boolean
 }
 
 export type ScheduledRow = {
@@ -33,6 +35,7 @@ export type ScheduledRow = {
   to: string[]
   createdAt: string
   lastError: string | null
+  delayed: boolean | null
 }
 
 const parse = (value: unknown): ScheduledSend | null => {
@@ -69,6 +72,7 @@ export async function listScheduled(owner: string | null): Promise<ScheduledRow[
       to: send?.recipients ?? [],
       createdAt: String(row.created_at),
       lastError: row.last_error == null ? null : String(row.last_error),
+      delayed: typeof send?.delayed === 'boolean' ? send.delayed : null,
     }
   })
 }

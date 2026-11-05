@@ -26,6 +26,7 @@ type SendBody = {
   html?: string
   text?: string
   scheduledAt?: string
+  delayed?: boolean
   inReplyTo?: string
   track?: boolean
   /** Admin only: the mailbox to send on behalf of. */
@@ -214,6 +215,7 @@ export async function POST(req: Request) {
       replyTo: replyTo ? [replyTo] : [],
       inReplyTo: body.inReplyTo ?? null,
       storedAttachments: [],
+      delayed: body.delayed === true,
       payload: {
         from: fromEmail,
         fromName: fromName || undefined,

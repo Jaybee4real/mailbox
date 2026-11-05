@@ -211,6 +211,8 @@ type SentEmail = {
   inReplyTo?: string | null
   /** Sent by the app itself — an invite, a reset, an auto-reply. */
   isAuto?: boolean
+  /** Waiting out the send delay; it belongs in Sent with a countdown, not in Scheduled. */
+  delayed?: boolean
   origin?: { device: string | null; location: string | null; ip: string | null } | null
 }
 
@@ -568,6 +570,7 @@ const DELAY_OPTIONS = [
   { key: '3600', label: 'Delay 1 hour' },
   { key: 'custom', label: 'Pick date & time' },
 ]
+const LONGEST_DELAY_MS = Math.max(...DELAY_OPTIONS.map(option => Number(option.key) || 0)) * 1000 + 60_000
 
 
 /** The copy with the brand colour in its pixels; the site's own mark is alpha-only. */
@@ -2585,9 +2588,10 @@ export default function DevMailPage() {
       const response = await fetch(`/api/mail/scheduled${mailboxQuery}`, { headers: apiHeaders() })
       const data = await response.json()
       if (!data.ok) return
-      type Waiting = { id: string; subject: string; to: string[]; sendAfter: string; createdAt: string; owner: string }
+      type Waiting = { id: string; subject: string; to: string[]; sendAfter: string; createdAt: string; owner: string; delayed: boolean | null }
       setQueuedSends(
         (data.scheduled as Waiting[]).map(entry => ({
+          delayed: entry.delayed ?? Date.parse(entry.sendAfter) - Date.parse(entry.createdAt) <= LONGEST_DELAY_MS,
           id: entry.id,
           from: entry.owner,
           to: entry.to,
@@ -2920,7 +2924,8 @@ export default function DevMailPage() {
   // is an endless request loop. The effect therefore depends only on the cursor, and
   // reaches the current loader through a ref.
   const usingThreads = threads.length > 0 && !search.trim()
-  const moreCursor = usingThreads ? threadsCursor : inboxCursor
+  const pagedFolder = folder !== 'sent' && folder !== 'scheduled' && folder !== 'drafts'
+  const moreCursor = pagedFolder ? (usingThreads ? threadsCursor : inboxCursor) : null
   const loadMoreRef = useRef(loadMoreInbox)
   useEffect(() => { loadMoreRef.current = usingThreads ? loadMoreThreads : loadMoreInbox }, [usingThreads, loadMoreThreads, loadMoreInbox])
 
@@ -3583,8 +3588,8 @@ export default function DevMailPage() {
   const scheduledEmails = useMemo(() => {
     // The app's own queue, plus anything a provider is still holding from before this was
     // ours to keep. Matched on id so one message cannot appear twice.
-    const waiting = [...queuedSends]
-    const seen = new Set(waiting.map(entry => entry.id))
+    const waiting = queuedSends.filter(entry => !entry.delayed)
+    const seen = new Set(queuedSends.map(entry => entry.id))
     for (const entry of sentEmails) {
       if (seen.has(entry.id)) continue
       if (entry.lastEvent === 'scheduled' || (entry.scheduledAt && new Date(entry.scheduledAt).getTime() > now)) {
@@ -3596,9 +3601,25 @@ export default function DevMailPage() {
     )
   }, [queuedSends, sentEmails, now])
   const deliveredEmails = useMemo(
-    () => sentEmails.filter(entry => !scheduledEmails.some(scheduled => scheduled.id === entry.id)),
-    [sentEmails, scheduledEmails],
+    () => [
+      ...queuedSends
+        .filter(entry => entry.delayed)
+        .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
+      ...sentEmails.filter(entry => !scheduledEmails.some(scheduled => scheduled.id === entry.id)),
+    ],
+    [queuedSends, sentEmails, scheduledEmails],
   )
+  const delayedOverdue = queuedSends.some(entry => entry.delayed && entry.scheduledAt && Date.parse(entry.scheduledAt) < now - 5000)
+  useEffect(() => {
+    if (!delayedOverdue) return
+    const refresh = () => {
+      loadQueued()
+      loadSent()
+    }
+    const timer = window.setInterval(refresh, 15_000)
+    refresh()
+    return () => window.clearInterval(timer)
+  }, [delayedOverdue, loadQueued, loadSent])
 
   // Must match the list's own visibility rules, or hidden mail (forwards, which the inbox
   // filters out) leaves an unread badge the user has no way to clear.
@@ -3934,13 +3955,15 @@ export default function DevMailPage() {
       addressed: 'direct' as const,
       risk: 'clean' as const,
       time:
-        folder === 'scheduled' && entry.scheduledAt
-          ? `in ${formatCountdown(new Date(entry.scheduledAt).getTime() - now)}`
+        (folder === 'scheduled' || entry.delayed) && entry.scheduledAt
+          ? new Date(entry.scheduledAt).getTime() > now
+            ? `in ${formatCountdown(new Date(entry.scheduledAt).getTime() - now)}`
+            : 'sending…'
           : formatRelative(entry.createdAt, now),
       unread: false,
       starred: entry.starred,
       hasAttachment: (entry.attachmentCount ?? 0) > 0,
-      chip: (folder === 'scheduled' ? 'scheduled' : entry.isAuto ? 'automated' : null) as string | null,
+      chip: (folder === 'scheduled' ? 'scheduled' : entry.delayed ? 'sending' : entry.isAuto ? 'automated' : null) as string | null,
       threadCount: 1,
       latestAt: new Date(entry.createdAt).getTime(),
       labels: [] as string[],
@@ -5344,6 +5367,7 @@ export default function DevMailPage() {
           html,
           text,
           scheduledAt: scheduledAt ?? undefined,
+          delayed: scheduledAt && compose.delayKey !== 'custom' ? true : undefined,
           inReplyTo: compose.inReplyTo || undefined,
           track: composeTracked,
           actAs: sendAs?.address ?? actingAs ?? undefined,
@@ -5371,6 +5395,7 @@ export default function DevMailPage() {
       setDraftId(null)
       if (data.scheduled && data.id) {
         setUndo({ id: data.id, sendAt: new Date(data.scheduledAt ?? scheduledAt).getTime(), snapshot, attachments: sentAttachments })
+        loadQueued()
       } else {
         setSentFlash('Sent')
         window.setTimeout(() => setSentFlash(''), 2500)
@@ -8364,7 +8389,7 @@ export default function DevMailPage() {
       )
     }
     if (selectedSent) {
-      const isScheduled = scheduledEmails.some(entry => entry.id === selectedSent.id)
+      const isScheduled = Boolean(selectedSent.delayed) || scheduledEmails.some(entry => entry.id === selectedSent.id)
       return (
         <>
           <div className={styles.readerHead}>
@@ -9395,7 +9420,7 @@ export default function DevMailPage() {
                   {item.chip && (
                     <span
                       className={`${styles.chip} ${
-                        item.chip === 'scheduled'
+                        item.chip === 'scheduled' || item.chip === 'sending'
                           ? styles.chipScheduled
                           : item.chip === 'delivered' || item.chip.startsWith('opened') || item.chip.startsWith('clicked')
                             ? styles.chipDelivered
@@ -11398,11 +11423,18 @@ export default function DevMailPage() {
       )}
 
       {undo && (
-        <div className={styles.toast}>
-          Sending <span className={styles.toastCount}>{formatCountdown(undo.sendAt - now)}</span>
-          <button className={styles.toastUndo} onClick={undoSend} type="button">
-            Undo
-          </button>
+        <div className={styles.sendingCard} role="status">
+          <div className={styles.sendingHead}>
+            <span>
+              Sending <span className={styles.toastCount}>{formatCountdown(undo.sendAt - now)}</span>
+            </span>
+            <button className={styles.toastUndo} onClick={undoSend} type="button">
+              Undo
+            </button>
+          </div>
+          <span className={styles.sendingPreview}>
+            {[undo.snapshot.to.map(parseAddress).join(', '), undo.snapshot.subject || '(no subject)'].filter(Boolean).join(' · ')}
+          </span>
         </div>
       )}
       {sentFlash && !undo && (

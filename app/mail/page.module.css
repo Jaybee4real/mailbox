@@ -4012,6 +4012,44 @@
 }
 .toastUndo:hover { color: var(--nc-violet-200); }
 .toastOk { color: var(--nc-success); }
+.sendingCard {
+  position: fixed;
+  left: calc(var(--rail-w, 236px) + 12px);
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  width: 208px;
+  min-height: 50px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 10px;
+  border: 1px solid var(--nc-line-2);
+  border-radius: 12px;
+  background: var(--nc-ink-2);
+  box-shadow: 0 18px 40px -18px rgba(0,0,0,.7);
+  z-index: 440;
+  color: var(--nc-fg-1);
+  transition: left .38s cubic-bezier(.32, .72, 0, 1);
+}
+.sendingHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font: 600 13px/1.25 var(--nc-font-sans);
+}
+.sendingHead .toastCount { min-width: 0; }
+.sendingHead .toastUndo { padding: 2px 4px; font-size: 13px; }
+.sendingPreview {
+  font: 400 11px/1.3 var(--nc-font-mono);
+  color: var(--nc-fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .sendingCard { left: 12px; }
+}
 
 /* ── Login ───────────────────────────────────────────────── */
 .loginWrap {
@@ -5029,6 +5067,7 @@
 .composeScrim { animation: ncScrimIn .3s var(--nc-ease-out) backwards; }
 .compose:not(.composeExpanded) { animation: ncComposeIn .42s var(--nc-ease-spring) backwards; }
 .toast { animation: ncToastIn .45s var(--nc-ease-spring) backwards; }
+.sendingCard { animation: ncSlideLeft .4s var(--nc-ease-spring) backwards; }
 
 /* ── Email body loading skeleton ─────────────────────────── */
 .bodySkeleton {
