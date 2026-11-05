@@ -2473,6 +2473,14 @@ export default function DevMailPage() {
     }
   }, [secondStep, secondStepFailed, pauseCode])
 
+  const autoSentChallengeRef = useRef('')
+  useEffect(() => {
+    if (!secondStep || secondStep.method !== 'email' || secondStep.emailSent) return
+    if (autoSentChallengeRef.current === secondStep.challenge) return
+    autoSentChallengeRef.current = secondStep.challenge
+    void sendLoginEmailCode()
+  }, [secondStep, sendLoginEmailCode])
+
   const finishSecondStep = useCallback(async () => {
     if (!secondStep) return
     setLoginBusy(true)
@@ -6567,8 +6575,7 @@ export default function DevMailPage() {
             className={styles.loginCard}
             onSubmit={event => {
               event.preventDefault()
-              if (byEmail && !secondStep.emailSent) void sendLoginEmailCode()
-              else void finishSecondStep()
+              if (secondCode.replace(/\s/g, '').length === 6) void finishSecondStep()
             }}
           >
             <div className={styles.loginBrand}>
@@ -6579,7 +6586,9 @@ export default function DevMailPage() {
                 ? 'Enter the 6-digit code from your authenticator app.'
                 : secondStep.emailSent
                   ? `Enter the 6-digit code sent to ${secondStep.emailHint ?? 'your alternate email'}.`
-                  : `We will email a code to ${secondStep.emailHint ?? 'your alternate email'}.`}
+                  : loginBusy
+                    ? `Sending a 6-digit code to ${secondStep.emailHint ?? 'your alternate email'}…`
+                    : `Your 6-digit code goes to ${secondStep.emailHint ?? 'your alternate email'}.`}
             </p>
             {byEmail && secondStep.emailSent && secondStep.throttled && (
               <p className={styles.codeSentNote} role="status">
@@ -6587,21 +6596,19 @@ export default function DevMailPage() {
                 {resendIn > 0 && <> You can ask for a new one in {formatWait(resendIn)}.</>}
               </p>
             )}
-            {(!byEmail || secondStep.emailSent) && (
-              <label className={styles.loginField}>
-                <span>Code</span>
-                <input
-                  className={styles.codeInput}
-                  value={secondCode}
-                  onChange={event => setSecondCode(event.target.value.replace(/[^\d ]/g, '').slice(0, 7))}
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  placeholder="123 456"
-                  autoFocus
-                  required
-                />
-              </label>
-            )}
+            <label className={styles.loginField}>
+              <span>Code</span>
+              <input
+                className={styles.codeInput}
+                value={secondCode}
+                onChange={event => setSecondCode(event.target.value.replace(/[^\d ]/g, '').slice(0, 7))}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="123 456"
+                autoFocus
+                required
+              />
+            </label>
             {loginError && (
               <div className={styles.loginErrorBox} role="alert">
                 <p className={styles.loginError}>{loginError}</p>
@@ -6610,15 +6617,15 @@ export default function DevMailPage() {
             {codePaused ? (
               <RequestPause pause={codePaused} onEnd={endCodePause} />
             ) : (
-              <button type="submit" className={styles.loginBtn} disabled={loginBusy || ((!byEmail || secondStep.emailSent) && secondCode.replace(/\s/g, '').length !== 6)}>
+              <button type="submit" className={styles.loginBtn} disabled={loginBusy || secondCode.replace(/\s/g, '').length !== 6}>
                 {loginBusy
                   ? <><span className={styles.loginSpinner} aria-hidden />{byEmail && !secondStep.emailSent ? 'Sending…' : 'Checking…'}</>
-                  : byEmail && !secondStep.emailSent ? 'Email me a code' : 'Sign in'}
+                  : 'Sign in'}
               </button>
             )}
-            {byEmail && secondStep.emailSent && !codePaused && (
+            {byEmail && !codePaused && (
               <button type="button" className={styles.loginTextLink} disabled={loginBusy || resendIn > 0} onClick={() => void sendLoginEmailCode()}>
-                {resendIn > 0 ? `Send another code in ${formatWait(resendIn)}` : 'Send another code'}
+                {!secondStep.emailSent ? 'Send a code' : resendIn > 0 ? `Send another code in ${formatWait(resendIn)}` : 'Send another code'}
               </button>
             )}
             {other && (
