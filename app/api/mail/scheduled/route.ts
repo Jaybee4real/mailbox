@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
-import { scopeFor } from '@/lib/scope'
+import { inboxScope, scopeFor } from '@/lib/scope'
 import { listScheduled, cancelScheduled, dispatchNow, rescheduleSend } from '@/lib/scheduled'
 
 export const runtime = 'nodejs'
@@ -20,7 +20,7 @@ export async function DELETE(req: Request) {
   const account = await resolveAccount(req)
   const id = new URL(req.url).searchParams.get('id') ?? ''
   if (!id) return NextResponse.json({ ok: false, error: 'id is required' }, { status: 400 })
-  const cancelled = await cancelScheduled(id, account.address ?? '')
+  const cancelled = await cancelScheduled(id, inboxScope(account))
   if (!cancelled) {
     return NextResponse.json({ ok: false, error: 'That message is not waiting to be sent' }, { status: 404 })
   }
@@ -40,7 +40,7 @@ export async function PATCH(req: Request) {
   if (when.getTime() <= Date.now()) {
     return NextResponse.json({ ok: false, error: 'Pick a time in the future' }, { status: 400 })
   }
-  const moved = await rescheduleSend(id, account.address ?? '', when.toISOString())
+  const moved = await rescheduleSend(id, inboxScope(account), when.toISOString())
   if (!moved) {
     return NextResponse.json({ ok: false, error: 'That message is not waiting to be sent' }, { status: 404 })
   }
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as { id?: string } | null
   const id = body?.id ?? ''
   if (!id) return NextResponse.json({ ok: false, error: 'id is required' }, { status: 400 })
-  const outcome = await dispatchNow(id, account.address ?? '')
+  const outcome = await dispatchNow(id, inboxScope(account))
   if (outcome === 'sent' || outcome === 'already-sent') return NextResponse.json({ ok: true, outcome })
   const status = outcome === 'missing' ? 404 : outcome === 'not-due' ? 409 : 502
   return NextResponse.json({ ok: false, outcome }, { status })

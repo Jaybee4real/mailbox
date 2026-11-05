@@ -11,7 +11,7 @@ import { outgoingBody, shouldTrackOpens } from '@/lib/email-html'
 import { adaptiveEmail } from '@/lib/color-scheme'
 import { publicOrigin } from '@/lib/public-url'
 import { readsAllInboxes } from '@/lib/scope'
-import { BlockedRecipientsError, blockedAmong } from '@/lib/blocked'
+import { BlockedRecipientsError, bareAddress as addressKey, blockedAmong } from '@/lib/blocked'
 import { bareContentId, dropMissingCidImages, outgoingInlineParts } from '@/lib/attachments'
 
 export const runtime = 'nodejs'
@@ -46,7 +46,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const recipients = (body.to ?? []).filter(Boolean)
+  const seen = new Set<string>()
+  const distinct = (list: string[] | undefined) =>
+    (list ?? []).filter(entry => {
+      const key = entry ? addressKey(String(entry)) : ''
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  body.to = distinct(body.to)
+  body.cc = distinct(body.cc)
+  body.bcc = distinct(body.bcc)
+  const recipients = body.to
 
   const blocked = await blockedAmong([...recipients, ...(body.cc ?? []), ...(body.bcc ?? [])])
   if (blocked.length) {

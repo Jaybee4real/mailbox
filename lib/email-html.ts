@@ -60,6 +60,11 @@ export function inlineEmailStyles(html: string, base?: { family?: string; size?:
   })
 }
 
+/** The editor records a blank line as an empty paragraph, which mail clients and print draw at no height. */
+export function keepBlankLines(html: string): string {
+  return html.replace(/<p(\s[^>]*)?>(\s|&nbsp;)*<\/p>/gi, (_match, attrs = '') => `<p${attrs}><br></p>`)
+}
+
 /**
  * A plain-text fallback. Every message carries one: some clients prefer it, and a message
  * with no text part is markedly more likely to be filed as spam.

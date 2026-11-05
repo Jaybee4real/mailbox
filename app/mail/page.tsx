@@ -12,7 +12,7 @@ import { subscribePush, unsubscribePush, useInstall, useNotifications } from './
 import { InstallGuide } from './InstallGuide'
 import RichEditor from './RichEditor'
 import type { Editor } from '@tiptap/react'
-import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, outlookSafeImages, stripOwnPixel, healGooglePrivateImages } from '@/lib/email-html'
+import { inlineEmailStyles, htmlToPlainText, dropUnreachableImages, keepBlankLines, outlookSafeImages, stripOwnPixel, healGooglePrivateImages } from '@/lib/email-html'
 import { designsForDark, pinColorScheme } from '@/lib/color-scheme'
 import { BUILTIN_FONTS, DEFAULT_LINE_SPACING, EMPTY_FONT, FONT_SIZES, LINE_SPACINGS, fontFaceCss, fontStack, lineSpacingOf, type BaseFont, type CustomFont, paragraphGap } from '@/lib/fonts'
 import MailSelect, { GLYPH } from './MailSelect'
@@ -60,7 +60,7 @@ import qrcode from 'qrcode-generator'
 import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
 import { splitQuotedTail, splitQuotedText } from './quoted'
 import { isEmbedded, referencedCids, resolveInlineImages } from '@/lib/attachments'
-import { applyThreadFlagDeltas, normalizeSubject } from '@/lib/threads'
+import { applyThreadFlagDeltas, normalizeSubject, sharesParty, subjectSignals, threadParties } from '@/lib/threads'
 import { matchesInboxFilters, normalizeInboxFilters, type InboxFilter } from '@/lib/inbox-filters'
 import { FIRST_MESSAGE_REASON, isLookalikeReason } from '@/lib/risk'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
@@ -707,7 +707,7 @@ function buildEmailHtml(
   const body = data.bodyHtml.trim() ? data.bodyHtml : markdownToHtml(data.markdown)
   const inner = body + linksHtml + (data.useSignature ? signatureHtml : '')
   const fonts = fontCss ? `<style>${fontCss}</style>` : ''
-  return `${fonts}<div style="font-family:${fontStack(base.family)};font-size:${base.size || '15px'};line-height:${lineSpacingOf(base)};color:#030712;">${outlookSafeImages(inlineEmailStyles(inner, base))}</div>${data.quoteHtml ?? ''}`
+  return `${fonts}<div style="font-family:${fontStack(base.family)};font-size:${base.size || '15px'};line-height:${lineSpacingOf(base)};color:#030712;">${outlookSafeImages(inlineEmailStyles(keepBlankLines(inner), base))}</div>${data.quoteHtml ?? ''}`
 }
 
 function buildEmailText(data: ComposeData, signatureText: string, linksText = ''): string {
@@ -845,6 +845,16 @@ function cleanBubbleText(html: string | null, text: string | null): string {
 function parseAddress(raw: string): string {
   const match = raw.match(/<([^>]+)>/)
   return (match ? match[1] : raw).trim()
+}
+
+function uniqueAddresses(addresses: string[]): string[] {
+  const seen = new Set<string>()
+  return addresses.filter(address => {
+    const key = address.toLowerCase()
+    if (!address || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 
@@ -1230,6 +1240,9 @@ function messageTokens(email: InboundEmail): string[] {
   return ids.map(id => id.replace(/[<>]/g, '').trim()).filter(Boolean)
 }
 
+const emailParties = (email: { from: string; to: string[]; cc?: string[] }): string[] =>
+  threadParties([email.from, ...email.to, ...(email.cc ?? [])], LOGIN_DOMAINS)
+
 // Union-find grouping: two emails share a thread when their message-id chains
 // intersect, or (fallback for header-less clients) when their subjects match.
 function computeThreadKeys(emails: InboundEmail[]): Map<string, string> {
@@ -1252,9 +1265,10 @@ function computeThreadKeys(emails: InboundEmail[]): Map<string, string> {
   }
   const signalOwner = new Map<string, string>()
   for (const email of emails) {
-    const signals = messageTokens(email).map(token => `mid:${token}`)
-    const subject = normalizeSubject(email.subject)
-    if (subject) signals.push(`subj:${subject}`)
+    const signals = [
+      ...messageTokens(email).map(token => `mid:${token}`),
+      ...subjectSignals(email.subject, emailParties(email)),
+    ]
     for (const signal of signals) {
       const owner = signalOwner.get(signal)
       if (owner) union(email.id, owner)
@@ -3842,17 +3856,19 @@ export default function DevMailPage() {
       if (!members.length) return []
       const messageIds = new Set<string>()
       const subjects = new Set<string>()
+      const parties = new Set<string>()
       for (const member of members) {
         for (const token of messageTokens(member)) messageIds.add(token)
         const own = headerValue(member, 'message-id').replace(/[<>]/g, '').trim()
         if (own) messageIds.add(own)
         subjects.add(normalizeSubject(member.subject))
+        emailParties(member).forEach(party => parties.add(party))
       }
       return sentEmails.filter(sent => {
         if (sent.trashed) return false
         const inReplyTo = (sent.inReplyTo ?? '').replace(/[<>]/g, '').trim()
         if (inReplyTo && messageIds.has(inReplyTo)) return true
-        return subjects.has(normalizeSubject(sent.subject))
+        return subjects.has(normalizeSubject(sent.subject)) && sharesParty([...parties], emailParties(sent))
       })
     },
     [threadMembers, sentEmails],
@@ -5353,8 +5369,8 @@ export default function DevMailPage() {
       setCompose(EMPTY_COMPOSE)
       setAttachments([])
       setDraftId(null)
-      if (scheduledAt && data.id) {
-        setUndo({ id: data.id, sendAt: new Date(scheduledAt).getTime(), snapshot, attachments: sentAttachments })
+      if (data.scheduled && data.id) {
+        setUndo({ id: data.id, sendAt: new Date(data.scheduledAt ?? scheduledAt).getTime(), snapshot, attachments: sentAttachments })
       } else {
         setSentFlash('Sent')
         window.setTimeout(() => setSentFlash(''), 2500)
@@ -5372,7 +5388,7 @@ export default function DevMailPage() {
     const { id, snapshot, attachments: restoredAttachments } = undo
     setUndo(null)
     try {
-      const response = await fetch(`/api/mail/emails/${id}`, { method: 'DELETE', headers: apiHeaders() })
+      const response = await fetch(`/api/mail/scheduled?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: apiHeaders() })
       const data = await response.json()
       if (data.ok) {
         setCompose(snapshot)
@@ -5383,7 +5399,7 @@ export default function DevMailPage() {
         loadSent()
         loadQueued()
       } else {
-        setSentFlash(data.error?.includes('cancel') ? 'Too late — already sent' : `Could not cancel: ${data.error}`)
+        setSentFlash(response.status === 404 ? 'Too late — already sent' : `Could not cancel: ${data.error}`)
         window.setTimeout(() => setSentFlash(''), 3000)
       }
     } catch {
@@ -5497,8 +5513,9 @@ export default function DevMailPage() {
       direct.push(parseAddress(member.from), ...member.to.map(parseAddress))
       ccPool.push(...member.cc.map(parseAddress))
     }
-    const to = Array.from(new Set([primary, ...direct])).filter(notSelf)
-    const cc = Array.from(new Set(ccPool)).filter(address => notSelf(address) && !to.includes(address))
+    const to = uniqueAddresses([primary, ...direct]).filter(notSelf)
+    const taken = new Set(to.map(address => address.toLowerCase()))
+    const cc = uniqueAddresses(ccPool).filter(address => notSelf(address) && !taken.has(address.toLowerCase()))
     return { to, cc }
   }
 
@@ -5593,7 +5610,7 @@ export default function DevMailPage() {
   // what will happen rather than an empty box.
   const toggleReplyRecips = (entry: InboundEmail) => {
     setReplyRecipsOpen(open => {
-      if (!open && !replyToList.length) {
+      if (!open && !replyToList.length && replyBar !== 'forward') {
         const sender = defaultReplyRecipient(entry)
         const { to, cc } = settings.replyAllDefault ? replyAllRecipients(entry) : { to: [], cc: [] }
         setReplyToList(to.length ? to : sender ? [sender] : [])
@@ -5967,12 +5984,22 @@ export default function DevMailPage() {
     // print-color-adjust keeps the mark from being dropped by "background graphics off".
     const printCss = `<style>
       @page { margin: 14mm; }
-      body { margin: 0; line-height: ${readerSpacing}; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      body { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #111; line-height: ${readerSpacing}; word-break: break-word; overflow-wrap: anywhere; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       p { margin: 0 0 ${paragraphGap(readerSpacing)}; }
-      img { max-width: 100%; }
+      img { max-width: 100%; height: auto; }
+      table { max-width: 100%; }
+      .nc-earlier { margin-top: 28px; padding-top: 12px; border-top: 1px solid #ccc; }
+      .nc-earlier-label { font-size: 12px; color: #666; margin: 0 0 12px; }
     </style>`
+    let content = `<pre style="font-family:Arial,sans-serif;white-space:pre-wrap;margin:0;">${escapeHtml(text?.trim() || html || '')}</pre>`
+    if (html && hasMarkup(html)) {
+      const split = splitQuotedTail(keepBlankLines(stripOwnPixel(pinColorScheme(html, false))))
+      content = split.tail
+        ? `${split.head}<div class="nc-earlier"><div class="nc-earlier-label">Earlier messages</div>${split.tail}</div>`
+        : split.head
+    }
     doc.open()
-    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title>${printCss}</head><body>${meta}${hasMarkup(html) ? stripOwnPixel(pinColorScheme(html, false)) : `<pre style="font-family:Arial,sans-serif;white-space:pre-wrap;">${escapeHtml(text?.trim() || html || '')}</pre>`}</body></html>`)
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title>${printCss}</head><body>${meta}${content}</body></html>`)
     doc.close()
     frame.contentWindow?.focus()
     window.setTimeout(() => {

@@ -1,4 +1,4 @@
-import { ADDRESS_ALIASES, MAIL_SEATS, type MailRole } from './brand'
+import { ADDRESS_ALIASES, ADDRESS_DOMAINS, MAIL_SEATS, type MailRole } from './brand'
 /**
  * Durable mail state on libSQL (SQLite). Inbox, delivery events, account
  * credentials, reset tokens, and a per-account stash for drafts + saved templates.
@@ -14,7 +14,7 @@ import { hashPassword } from './password'
 import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
 import { bodyCacheEnabled, bodyCacheFull, cachedBody, isBodyCached, storeBody } from './body-cache'
-import { subjectKey, threadIdFor, THREAD_GAP_MS } from './threads'
+import { sharesParty, subjectKey, threadIdFor, threadParties, THREAD_GAP_MS } from './threads'
 import { inboxFiltersSql, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters'
 import { impersonationReasons, judgeMessage, raiseRisk, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
 import type { ShareAccess, ShareSettings } from './share-policy'
@@ -1028,16 +1028,28 @@ export async function assignThread(row: { id: string; owner: string; subject: st
   const candidates = await sql`
     SELECT thread_id, first_at, latest_at FROM mail_threads
     WHERE owner = ${owner} AND subject_key = ${key}
-    ORDER BY latest_at DESC LIMIT 3`
+    ORDER BY latest_at DESC LIMIT 10`
+  const partiesOf = (rows: Array<Record<string, unknown>>) =>
+    threadParties(
+      rows.flatMap(member => [String(member.from_addr ?? ''), ...parseArray(member.to_addrs), ...parseArray(member.cc)]),
+      ADDRESS_DOMAINS,
+    )
+  const own = partiesOf(await sql`SELECT from_addr, to_addrs, cc FROM mail_inbox WHERE id = ${row.id}`)
   for (const candidate of candidates) {
     const first = Date.parse(String(candidate.first_at))
     const latest = Date.parse(String(candidate.latest_at))
     // Within the gap after the newest, or (backfill arriving out of order) before the oldest.
-    if ((at >= first && at - latest <= THREAD_GAP_MS) || (at < first && first - at <= THREAD_GAP_MS)) {
-      return String(candidate.thread_id)
-    }
+    const inWindow = (at >= first && at - latest <= THREAD_GAP_MS) || (at < first && first - at <= THREAD_GAP_MS)
+    if (!inWindow) continue
+    const members = await sql`
+      SELECT from_addr, to_addrs, cc FROM mail_inbox
+      WHERE lower(owner) = ${owner} AND thread_id = ${String(candidate.thread_id)} AND id != ${row.id}
+      LIMIT 100`
+    if (!members.length || sharesParty(own, partiesOf(members))) return String(candidate.thread_id)
   }
-  return threadIdFor(key, row.receivedAt, row.id)
+  const fresh = threadIdFor(key, row.receivedAt, row.id)
+  const taken = await sql`SELECT 1 FROM mail_threads WHERE owner = ${owner} AND thread_id = ${fresh} LIMIT 1`
+  return taken.length ? `${fresh}#${row.id}` : fresh
 }
 
 /** Recompute one thread's summary from its members. Idempotent, so every write path can call it. */

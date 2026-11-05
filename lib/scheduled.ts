@@ -74,12 +74,14 @@ export async function listScheduled(owner: string | null): Promise<ScheduledRow[
 }
 
 /** Cancelling is only ever the owner's to do, and only while it is still waiting. */
-export async function cancelScheduled(id: string, owner: string): Promise<boolean> {
+export async function cancelScheduled(id: string, owner: string | null): Promise<boolean> {
   await ensureMailSchema()
-  const rows = await db()`
-    UPDATE mail_scheduled SET status = 'cancelled'
-    WHERE id = ${id} AND lower(owner) = ${owner.toLowerCase()} AND status = 'pending'
-    RETURNING id`
+  const rows = owner === null
+    ? await db()`UPDATE mail_scheduled SET status = 'cancelled' WHERE id = ${id} AND status = 'pending' RETURNING id`
+    : await db()`
+        UPDATE mail_scheduled SET status = 'cancelled'
+        WHERE id = ${id} AND lower(owner) = ${owner.toLowerCase()} AND status = 'pending'
+        RETURNING id`
   return rows.length > 0
 }
 
@@ -110,12 +112,14 @@ export async function recordSend(send: ScheduledSend, id: string | null): Promis
 }
 
 /** Moving the time is only the owner's to do, and only while it is still waiting. */
-export async function rescheduleSend(id: string, owner: string, sendAfter: string): Promise<boolean> {
+export async function rescheduleSend(id: string, owner: string | null, sendAfter: string): Promise<boolean> {
   await ensureMailSchema()
-  const rows = await db()`
-    UPDATE mail_scheduled SET send_after = ${sendAfter}
-    WHERE id = ${id} AND lower(owner) = ${owner.toLowerCase()} AND status = 'pending'
-    RETURNING id`
+  const rows = owner === null
+    ? await db()`UPDATE mail_scheduled SET send_after = ${sendAfter} WHERE id = ${id} AND status = 'pending' RETURNING id`
+    : await db()`
+        UPDATE mail_scheduled SET send_after = ${sendAfter}
+        WHERE id = ${id} AND lower(owner) = ${owner.toLowerCase()} AND status = 'pending'
+        RETURNING id`
   return rows.length > 0
 }
 
@@ -200,11 +204,13 @@ const EARLY_TOLERANCE_MS = 30_000
  * minute cron, is what makes "Sent" true when the page says it. Already sent counts as
  * sent: the cron may have got there first.
  */
-export async function dispatchNow(id: string, owner: string): Promise<'sent' | 'already-sent' | 'not-due' | 'failed' | 'missing'> {
+export async function dispatchNow(id: string, owner: string | null): Promise<'sent' | 'already-sent' | 'not-due' | 'failed' | 'missing'> {
   await ensureMailSchema()
-  const rows = await db()`
-    SELECT id, payload, attempts, status, send_after FROM mail_scheduled
-    WHERE id = ${id} AND lower(owner) = ${owner.toLowerCase()}`
+  const rows = owner === null
+    ? await db()`SELECT id, payload, attempts, status, send_after FROM mail_scheduled WHERE id = ${id}`
+    : await db()`
+        SELECT id, payload, attempts, status, send_after FROM mail_scheduled
+        WHERE id = ${id} AND lower(owner) = ${owner.toLowerCase()}`
   const row = rows[0]
   if (!row) return 'missing'
   if (row.status === 'sent' || row.status === 'sending') return 'already-sent'

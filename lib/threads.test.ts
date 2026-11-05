@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { applyThreadFlagDeltas } from './threads.ts'
+import { applyThreadFlagDeltas, sharesParty, subjectSignals, threadParties } from './threads.ts'
 
 type Counts = {
   threadId: string
@@ -92,5 +92,21 @@ const rows = [thread()]
 assert.equal(applyThreadFlagDeltas(rows, [message('a', { threadId: 't2' })], ['a'], { read: true })[0], rows[0])
 assert.equal(applyThreadFlagDeltas(rows, [message('a', { threadId: null })], ['a'], { read: true })[0], rows[0])
 assert.equal(applyThreadFlagDeltas(rows, [message('b')], ['a'], { read: true })[0], rows[0])
+
+// One title sent to two insurers is two conversations, so the title alone joins nothing.
+const own = ['example.com']
+const zenith = threadParties(['Agent <agent@example.com>', 'quotes@zenith.example.net', 'me.copy@gmail.com'], own)
+const coronation = threadParties(['agent@example.com', 'Underwriting <UW@coronation.example.org>'], own)
+assert.deepEqual(zenith, ['zenith.example.net', 'me.copy@gmail.com'])
+assert.deepEqual(coronation, ['coronation.example.org'])
+assert.equal(sharesParty(zenith, coronation), false)
+assert.equal(sharesParty(coronation, threadParties(['other.person@coronation.example.org'], own)), true)
+assert.equal(sharesParty([], []), true)
+assert.equal(sharesParty([], coronation), false)
+const signalsA = subjectSignals('CREDIT LIFE QUOTE', zenith)
+const signalsB = subjectSignals('Re: credit life quote', coronation)
+assert.equal(signalsA.some(signal => signalsB.includes(signal)), false)
+assert.deepEqual(subjectSignals('Re: Renewal', []), ['subj:renewal|internal'])
+assert.deepEqual(subjectSignals('', zenith), [])
 
 console.log('threads: ok')

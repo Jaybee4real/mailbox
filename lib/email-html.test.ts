@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { absoluteUrls, inlineEmailStyles, htmlToPlainText, safeHref, dropUnreachableImages, outlookSafeImages, healGooglePrivateImages, outgoingBody, OWN_PIXEL } from './email-html.ts'
+import { absoluteUrls, inlineEmailStyles, keepBlankLines, htmlToPlainText, safeHref, dropUnreachableImages, outlookSafeImages, healGooglePrivateImages, outgoingBody, OWN_PIXEL } from './email-html.ts'
 
 // A paragraph with no styling of its own gets the base inline style.
 assert.match(inlineEmailStyles('<p>Hello</p>'), /<p style="font-family:Arial[^"]*">Hello<\/p>/)
@@ -117,3 +117,8 @@ assert.equal(tracked.match(OWN_PIXEL)?.length, 1, 'a tracked send carries exactl
 assert.ok(tracked.includes('/api/mail/pixel/fresh'), 'and it is the pixel for this send')
 assert.equal(outgoingBody(resent, 'https://mail.example.com', null).match(OWN_PIXEL), null, 'an untracked send carries no pixel, not even one it was handed')
 assert.equal(outgoingBody('<p>Hi</p>', 'https://mail.example.com', null), '<p>Hi</p>', 'an untracked send is otherwise unchanged')
+
+assert.equal(keepBlankLines('<p>One</p><p></p><p>Two</p>'), '<p>One</p><p><br></p><p>Two</p>')
+assert.equal(keepBlankLines('<p style="margin:0"> &nbsp; </p>'), '<p style="margin:0"><br></p>')
+assert.equal(keepBlankLines('<p>Kept</p>'), '<p>Kept</p>')
+assert.match(htmlToPlainText(keepBlankLines('<p>One</p><p></p><p>Two</p>')), /One\n\n+Two/)
