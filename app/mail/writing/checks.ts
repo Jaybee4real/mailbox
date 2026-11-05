@@ -1,4 +1,5 @@
 import type { WritingSettings } from './settings'
+import { isPersonalDomain } from '@/lib/threads'
 
 export type SendCheckInput = {
   /** What the sender wrote: no signature, no quoted message. */
@@ -6,9 +7,10 @@ export type SendCheckInput = {
   recipients: Array<{ email: string; name?: string | null }>
   attachmentCount: number
   ownDomains: string[]
+  replyingToParties?: string[]
 }
 
-export type SendIssue = { kind: 'attachment' | 'empty' | 'placeholder' | 'greeting' | 'external'; message: string }
+export type SendIssue = { kind: 'attachment' | 'empty' | 'placeholder' | 'greeting' | 'external' | 'other-company'; message: string }
 
 const PROMISES_ATTACHMENT =
   /\b(attached|attachments?|enclosed|enclosing|herewith|I(?:'ve| have) (?:also )?(?:included|added) the (?:file|document|schedule|form|quote|policy|invoice))\b/i
@@ -45,6 +47,19 @@ export function sendIssues(input: SendCheckInput, settings: WritingSettings): Se
       if (!matches && input.recipients.length) {
         issues.push({ kind: 'greeting', message: `The greeting names “${greeted}”, but no recipient looks like ${greeted}.` })
       }
+    }
+  }
+  const repliedCompanies = (input.replyingToParties ?? []).filter(party => !party.includes('@'))
+  if (repliedCompanies.length) {
+    const own = new Set(input.ownDomains.map(domain => domain.toLowerCase()))
+    const added = [...new Set(input.recipients.map(recipient => domainOf(recipient.email)))]
+      .filter(domain => domain && !own.has(domain) && !isPersonalDomain(domain) && !repliedCompanies.includes(domain))
+    if (added.length) {
+      const named = added.length === 1 ? added[0] : `${added.slice(0, -1).join(', ')} and ${added[added.length - 1]}`
+      issues.push({
+        kind: 'other-company',
+        message: `This reply also goes to ${named}, which ${added.length === 1 ? 'was' : 'were'} not on the message you are replying to. Check it should see this conversation.`,
+      })
     }
   }
   if (settings.checkExternal) {

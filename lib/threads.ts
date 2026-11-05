@@ -36,17 +36,21 @@ const PERSONAL_DOMAINS = new Set([
  */
 export function threadParties(addresses: string[], ownDomains: string[]): string[] {
   const own = new Set(ownDomains.map(domain => domain.toLowerCase()))
-  const parties = new Set<string>()
+  const companies = new Set<string>()
+  const people = new Set<string>()
   for (const raw of addresses) {
     const address = (raw.match(/<([^>]+)>/)?.[1] ?? raw).trim().toLowerCase()
     const at = address.lastIndexOf('@')
     if (at < 1) continue
     const domain = address.slice(at + 1)
     if (own.has(domain)) continue
-    parties.add(PERSONAL_DOMAINS.has(domain) ? address : domain)
+    if (PERSONAL_DOMAINS.has(domain)) people.add(address)
+    else companies.add(domain)
   }
-  return [...parties]
+  return companies.size ? [...companies] : [...people]
 }
+
+export const isPersonalDomain = (domain: string): boolean => PERSONAL_DOMAINS.has(domain.trim().toLowerCase())
 
 export function sharesParty(left: string[], right: string[]): boolean {
   if (!left.length || !right.length) return !left.length && !right.length

@@ -97,7 +97,7 @@ assert.equal(applyThreadFlagDeltas(rows, [message('b')], ['a'], { read: true })[
 const own = ['example.com']
 const zenith = threadParties(['Agent <agent@example.com>', 'quotes@zenith.example.net', 'me.copy@gmail.com'], own)
 const coronation = threadParties(['agent@example.com', 'Underwriting <UW@coronation.example.org>'], own)
-assert.deepEqual(zenith, ['zenith.example.net', 'me.copy@gmail.com'])
+assert.deepEqual(zenith, ['zenith.example.net'], "a staffer's own Gmail copy is not a party once a company is on the message")
 assert.deepEqual(coronation, ['coronation.example.org'])
 assert.equal(sharesParty(zenith, coronation), false)
 assert.equal(sharesParty(coronation, threadParties(['other.person@coronation.example.org'], own)), true)
@@ -108,5 +108,14 @@ const signalsB = subjectSignals('Re: credit life quote', coronation)
 assert.equal(signalsA.some(signal => signalsB.includes(signal)), false)
 assert.deepEqual(subjectSignals('Re: Renewal', []), ['subj:renewal|internal'])
 assert.deepEqual(subjectSignals('', zenith), [])
+
+const copiedToBoth = threadParties(['quotes@coronation.example.org', 'me.copy@gmail.com'], own)
+assert.equal(sharesParty(zenith, copiedToBoth), false, 'the same personal copy on quotes to two insurers does not join them')
+const privateClient = threadParties(['agent@example.com', 'Ada <ada.client@gmail.com>'], own)
+assert.deepEqual(privateClient, ['ada.client@gmail.com'], 'a person on free mail is the party when no company is on the message')
+assert.equal(sharesParty(privateClient, threadParties(['bola.client@yahoo.com'], own)), false)
+assert.equal(sharesParty(privateClient, threadParties(['ADA.CLIENT@gmail.com'], own)), true)
+const coInsurance = threadParties(['uw@zenith.example.net', 'uw@coronation.example.org'], own)
+assert.equal(sharesParty(coInsurance, zenith) && sharesParty(coInsurance, coronation), true, 'a message to both companies belongs with either')
 
 console.log('threads: ok')

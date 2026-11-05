@@ -4753,6 +4753,18 @@ export default function DevMailPage() {
     },
     [apiHeaders],
   )
+  const repliedParties = useCallback(
+    (inReplyTo: string | null | undefined): string[] => {
+      const wanted = (inReplyTo ?? '').replace(/[<>]/g, '').trim()
+      if (!wanted) return []
+      const inbound = inboxEmails.find(message => message.id === wanted || headerValue(message, 'message-id').replace(/[<>]/g, '').trim() === wanted)
+      if (inbound) return emailParties(inbound)
+      const sent = sentEmails.find(message => message.id === wanted)
+      return sent ? emailParties(sent) : []
+    },
+    [inboxEmails, sentEmails],
+  )
+
   const confirmIssues = useCallback(
     async (issues: SendIssue[]) =>
       issues.length === 0 ||
@@ -5335,6 +5347,7 @@ export default function DevMailPage() {
         recipients: [...compose.to, ...compose.cc, ...compose.bcc].map(address => ({ email: address })),
         attachmentCount: attachments.length,
         ownDomains: LOGIN_DOMAINS,
+        replyingToParties: repliedParties(compose.inReplyTo),
       },
       writingSettings,
     )
@@ -5682,6 +5695,7 @@ export default function DevMailPage() {
         recipients: [...draft.to, ...draft.cc, ...draft.bcc].map(address => ({ email: address })),
         attachmentCount: attachments.length,
         ownDomains: LOGIN_DOMAINS,
+        replyingToParties: replyBar === 'forward' ? [] : repliedParties(draft.inReplyTo),
       },
       { ...writingSettings, checkEmptyBody: writingSettings.checkEmptyBody && replyBar !== 'forward' },
     )
