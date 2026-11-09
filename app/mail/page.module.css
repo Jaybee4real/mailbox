@@ -738,6 +738,71 @@
   opacity: .45;
   cursor: default;
 }
+.filterShow {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--nc-line-1);
+  border-radius: 9px;
+  background: var(--nc-ink-1);
+}
+.filterShowOption {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nc-fg-2);
+  font: 500 12px/1 var(--nc-font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.filterShowOption:hover { color: var(--nc-fg-1); }
+.filterShowOptionOn,
+.filterShowOptionOn:hover {
+  background: var(--nc-violet-500);
+  color: #fff;
+}
+.filterShowOption:focus-visible,
+.filterAdvancedToggle:focus-visible { outline: 2px solid var(--nc-violet-500); outline-offset: 1px; }
+.filterAdvancedToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px 4px;
+  border: none;
+  border-top: 1px solid var(--nc-line-1);
+  background: transparent;
+  color: var(--nc-fg-2);
+  font: 600 12px/1 var(--nc-font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+.filterAdvancedToggle:hover { color: var(--nc-fg-1); }
+.filterAdvancedCaret {
+  display: inline-block;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform .16s var(--nc-ease-out);
+}
+.filterAdvancedCaretOpen { transform: rotate(90deg); }
+.filterAdvancedCount {
+  margin-left: auto;
+  color: var(--nc-fg-3);
+  font: 500 11px/1 var(--nc-font-mono);
+}
+.filterAdvanced {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 0 2px;
+}
+.filterAdvanced > .filterMenuHint { padding: 0 6px; }
+@media (prefers-reduced-motion: reduce) {
+  .filterAdvancedCaret { transition: none; }
+}
 .listHead { container-type: inline-size; }
 @container (max-width: 440px) {
   .filterChipLabel { display: none; }

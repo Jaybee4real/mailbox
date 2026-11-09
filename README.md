@@ -101,6 +101,10 @@ Decisions the owner has made (2026-11-05):
 - **Send delay** stays at 20 seconds by default (longer than Gmail's 5, within its 5 to 30 range), so Undo works.
 - **No recipient warnings**: whoever is typed into To, Cc or Bcc gets the mail, as in Gmail and Outlook.
 
+Decisions the owner has made (2026-11-09):
+- **Large attachments**: a file over 20MB goes out as a download link, as before. Once the files riding along on a message come to more than 25MB together, every one of them goes out as a download link, not only the files past the limit as Gmail does. Vela refuses more than 28MB of attachments, so this keeps a send from failing after the files have uploaded.
+- **Filter rules**: the filter menu has a Show choice (All, Unread, Has attachments) that narrows the Inbox on the server, as Gmail's `is:unread` and `has:attachment` do. Rules can be Advanced; the DMARC report rule is one. Mail an advanced rule holds out never counts as unread in the Inbox (neither the badge nor the Filtered chip), but stays unread inside Filtered and is never marked read.
+
 ## Mobile discovery
 
 Vela Mail requires the backend's mobile session support and public

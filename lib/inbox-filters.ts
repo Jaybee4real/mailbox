@@ -1,5 +1,11 @@
 export type InboxFilterKind = 'senderPrefix' | 'senderDomain' | 'subjectPrefix' | 'subjectContains' | 'messagePrefix'
-export type InboxFilter = { kind: InboxFilterKind; value: string }
+/**
+ * `advanced` rules sit behind Advanced in the filter menu, and the mail they catch never counts
+ * as unread in the Inbox: not in the badge beside it, not on the Filtered chip. It stays unread
+ * inside Filtered, and nothing is marked read. The owner's choice on 2026-11-09, for machine
+ * mail such as DMARC reports that nobody reads but that arrives every day.
+ */
+export type InboxFilter = { kind: InboxFilterKind; value: string; advanced?: boolean }
 
 export const INBOX_FILTER_KINDS: Array<{ kind: InboxFilterKind; label: string; placeholder: string }> = [
   { kind: 'senderPrefix', label: 'Sender starts with', placeholder: 'dmarcreport' },
@@ -9,7 +15,30 @@ export const INBOX_FILTER_KINDS: Array<{ kind: InboxFilterKind; label: string; p
   { kind: 'messagePrefix', label: 'Message starts with', placeholder: 'This is an automated' },
 ]
 
-export const DEFAULT_INBOX_FILTERS: InboxFilter[] = [{ kind: 'senderPrefix', value: 'dmarcreport' }]
+export const DEFAULT_INBOX_FILTERS: InboxFilter[] = [{ kind: 'senderPrefix', value: 'dmarcreport', advanced: true }]
+
+/** A default rule saved before rules could be advanced is still advanced. */
+const isDefaultAdvanced = (kind: InboxFilterKind, value: string) =>
+  DEFAULT_INBOX_FILTERS.some(rule => rule.advanced && rule.kind === kind && rule.value.toLowerCase() === value.toLowerCase())
+
+export const advancedFilters = (filters: InboxFilter[]): InboxFilter[] => filters.filter(filter => filter.advanced)
+
+/**
+ * What the Inbox list shows, chosen in the filter menu: every conversation, only those with
+ * unread mail, or only those carrying files. Read over a mail_threads row.
+ */
+export type ListShow = 'all' | 'unread' | 'attachments'
+export const LIST_SHOWS: Array<{ show: ListShow; label: string }> = [
+  { show: 'all', label: 'All' },
+  { show: 'unread', label: 'Unread' },
+  { show: 'attachments', label: 'Has attachments' },
+]
+export const readListShow = (raw: unknown): ListShow => LIST_SHOWS.find(option => option.show === raw)?.show ?? 'all'
+export function listShowSql(show: ListShow): string | null {
+  if (show === 'unread') return 'unread_count > 0'
+  if (show === 'attachments') return 'attach_count > 0'
+  return null
+}
 
 const MAX_FILTERS = 40
 const MAX_VALUE = 200
@@ -28,7 +57,9 @@ export function normalizeInboxFilters(raw: unknown): InboxFilter[] {
     const key = `${kind}:${value.toLowerCase()}`
     if (!value || seen.has(key)) continue
     seen.add(key)
-    filters.push({ kind, value })
+    const flagged = (entry as InboxFilter).advanced
+    const advanced = typeof flagged === 'boolean' ? flagged : isDefaultAdvanced(kind, value)
+    filters.push(advanced ? { kind, value, advanced } : { kind, value })
     if (filters.length === MAX_FILTERS) break
   }
   return filters

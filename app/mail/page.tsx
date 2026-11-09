@@ -59,9 +59,9 @@ import InboxFilters from './InboxFilters'
 import qrcode from 'qrcode-generator'
 import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
 import { splitQuotedTail, splitQuotedText } from './quoted'
-import { isEmbedded, referencedCids, resolveInlineImages } from '@/lib/attachments'
+import { ATTACH_TOTAL_LIMIT_BYTES, carriedBytes, isEmbedded, overAttachmentTotal, referencedCids, resolveInlineImages } from '@/lib/attachments'
 import { applyThreadFlagDeltas, normalizeSubject, sesLocalPart } from '@/lib/threads'
-import { matchesInboxFilters, normalizeInboxFilters, type InboxFilter } from '@/lib/inbox-filters'
+import { matchesInboxFilters, normalizeInboxFilters, type InboxFilter, type ListShow } from '@/lib/inbox-filters'
 import { FIRST_MESSAGE_REASON, isLookalikeReason } from '@/lib/risk'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
@@ -1665,6 +1665,9 @@ export default function DevMailPage() {
 
   const [folder, setFolder] = useState<Folder>('inbox')
   const [showFiltered, setShowFiltered] = useState(false)
+  // The filter menu's Show choice. It narrows the Inbox (and Filtered) on the server, so it
+  // covers the whole mailbox rather than only the conversations already loaded.
+  const [listShow, setListShow] = useState<ListShow>('all')
   const showFilteredRef = useRef(false)
   useEffect(() => { showFilteredRef.current = showFiltered }, [showFiltered])
   const [search, setSearch] = useState('')
@@ -2099,7 +2102,8 @@ export default function DevMailPage() {
   const THREAD_PAGE = 500
   // The key carries the mailbox as well as the folder: switching tabs has to refetch, and
   // the guard would otherwise treat the other mailbox's list as already loaded.
-  const threadKey = `${mailboxQuery}|${threadFolder}`
+  const threadShow: ListShow = threadFolder === 'inbox' || threadFolder === 'filtered' ? listShow : 'all'
+  const threadKey = `${mailboxQuery}|${threadFolder}|${threadShow}`
 
   useEffect(() => {
     setThreads([])
@@ -2119,6 +2123,7 @@ export default function DevMailPage() {
       params.set('folder', threadFolder)
       params.set('limit', String(THREAD_PAGE))
       const priorityParams = new URLSearchParams(params)
+      if (threadShow !== 'all') params.set('show', threadShow)
       priorityParams.set('folder', 'priority')
       priorityParams.set('limit', '50')
       const [data, priorityData] = await Promise.all([
@@ -2127,7 +2132,10 @@ export default function DevMailPage() {
           ? fetch(`/api/mail/threads?${priorityParams.toString()}`, { headers: apiHeaders() }).then(response => response.json()).catch(() => null)
           : null,
       ])
-      const pinned = priorityData?.ok && Array.isArray(priorityData.threads) ? (priorityData.threads as ConversationRow[]) : null
+      // Priority conversations are unread by definition; under Has attachments only those with files stay.
+      const pinned = priorityData?.ok && Array.isArray(priorityData.threads)
+        ? (priorityData.threads as ConversationRow[]).filter(thread => threadShow !== 'attachments' || thread.attachCount > 0)
+        : null
       if (pinned) setPriorityIds(new Set(pinned.map(thread => thread.threadId)))
       if (data?.ok && Array.isArray(data.threads)) {
         const listed = data.threads as ConversationRow[]
@@ -2148,7 +2156,7 @@ export default function DevMailPage() {
       if (threadsFetch.current === threadKey) threadsFetch.current = null
       setThreadsResolved(true)
     }
-  }, [isLoggedIn, threadFolder, threadKey, mailboxQuery, apiHeaders])
+  }, [isLoggedIn, threadFolder, threadKey, threadShow, mailboxQuery, apiHeaders])
 
   const threadPageInFlight = useRef(false)
   const loadMoreThreads = useCallback(async () => {
@@ -2160,6 +2168,7 @@ export default function DevMailPage() {
       moreParams.set('folder', threadFolder)
       moreParams.set('limit', String(THREAD_PAGE))
       moreParams.set('cursor', threadsCursor)
+      if (threadShow !== 'all') moreParams.set('show', threadShow)
       const response = await fetch(`/api/mail/threads?${moreParams.toString()}`, { headers: apiHeaders() })
       const data = await response.json().catch(() => null)
       if (!data?.ok || !Array.isArray(data.threads)) return
@@ -2174,7 +2183,7 @@ export default function DevMailPage() {
       threadPageInFlight.current = false
       setLoadingMore(false)
     }
-  }, [threadsCursor, threadFolder, mailboxQuery, apiHeaders])
+  }, [threadsCursor, threadFolder, threadShow, mailboxQuery, apiHeaders])
 
   useEffect(() => {
     setThreadsResolved(false)
@@ -3681,9 +3690,12 @@ export default function DevMailPage() {
     if (folder === 'starred') return tally.starred
     if (folder === 'snoozed') return tally.snoozed
     if (folder === 'spam') return tally.spam
+    if (folder === 'inbox' && listShow === 'unread' && !showFiltered) return tally.unread
+    // Has attachments, and Unread inside Filtered, have no server figure; the list counts itself.
+    if (folder === 'inbox' && listShow !== 'all') return null
     if (folder === 'inbox') return showFiltered ? serverCounts?.filtered?.total ?? null : tally.inbox
     return null
-  }, [serverCounts, search, folder, showFiltered])
+  }, [serverCounts, search, folder, showFiltered, listShow])
 
   const eventsByEmail = useMemo(() => {
     const map: Record<string, MailEvent[]> = {}
@@ -3962,6 +3974,9 @@ export default function DevMailPage() {
           folder !== 'inbox' || Boolean(search.trim()) ||
           matchesInboxFilters(inboxFilters, { senders: [entry.from], subject: entry.subject, text: entry.text }) === showFiltered,
         )
+        .filter(entry =>
+          folder !== 'inbox' || listShow === 'all' || (listShow === 'unread' ? !entry.read : entry.attachments.length > 0),
+        )
       const groups = new Map<string, InboundEmail[]>()
       for (const entry of visible) {
         const key = threadKeys.get(entry.id) ?? entry.id
@@ -4089,7 +4104,7 @@ export default function DevMailPage() {
       .filter(entry => searched || matches(`${entry.to.join(' ')} ${entry.subject}`))
       .filter(entry => !(folder === 'sent' && (entry.archived || entry.trashed)))
       .map(entry => sentToItem(entry))
-  }, [folder, isInboundFolder, inboxEmails, drafts, mailboxAll, mailbox, mailboxes, scheduledEmails, deliveredEmails, sentSearchResults, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, now, hideForwarded, threadSentMembers, detailCache, threads, search, inboxFilters, showFiltered, priorityIds, selectedId])
+  }, [folder, isInboundFolder, inboxEmails, drafts, mailboxAll, mailbox, mailboxes, scheduledEmails, deliveredEmails, sentSearchResults, matches, matchesInbound, matchesSent, inboxFolderPredicate, threadKeys, now, hideForwarded, threadSentMembers, detailCache, threads, search, inboxFilters, showFiltered, listShow, priorityIds, selectedId])
 
   const listSettling = searching || sentSearching || ((mailboxLoading || !threadsResolved) && listItems.length === 0)
   const listRefreshing = !listSettling && (mailboxStale || mailboxLoading || !threadsResolved)
@@ -5163,10 +5178,9 @@ export default function DevMailPage() {
    * exactly as the first one did rather than following a second, less-tested path.
    */
   const runUpload = useCallback(
-    async (file: File, uid: string) => {
+    async (file: File, uid: string, asLink = file.size > ATTACH_LIMIT_BYTES) => {
       try {
-        const finished =
-          file.size > ATTACH_LIMIT_BYTES ? await uploadAsShare(file, uid) : await uploadToBucket(file, uid)
+        const finished = asLink ? await uploadAsShare(file, uid) : await uploadToBucket(file, uid)
         // The file is kept: a message can sit in the composer for a while, and a
         // send that fails later should still be retryable without re-picking it.
         setAttachments(current =>
@@ -5218,6 +5232,10 @@ export default function DevMailPage() {
   const onPickFiles = async (files: FileList | null) => {
     if (!files?.length) return
     setComposeError('')
+    // What the message already carries, so a file that would take it past the total ceiling
+    // goes straight up as a link instead of uploading twice. The ones already attached are
+    // turned into links by the effect below.
+    let carried = carriedBytes(attachments, [...(compose.inlineParts ?? []), ...replyInline])
     for (const file of Array.from(files)) {
       if (file.size > 2 * 1024 * 1024 * 1024) {
         setComposeError(`${file.name} is larger than 2GB`)
@@ -5233,9 +5251,64 @@ export default function DevMailPage() {
         ...current,
         { uid, filename: file.name, url: '', size: file.size, uploading: true, progress: 0, file, preview },
       ])
-      await runUpload(file, uid)
+      const asLink = file.size > ATTACH_LIMIT_BYTES || carried + file.size > ATTACH_TOTAL_LIMIT_BYTES
+      if (!asLink) carried += file.size
+      await runUpload(file, uid, asLink)
     }
   }
+
+  /**
+   * Once the files on a message come to more than the total ceiling, every one of them goes
+   * out as a download link, not just the one that tipped it over. Files already in the bucket
+   * are copied into share storage on the server, so nothing is uploaded from the browser again,
+   * and forwarded files (which never had a local copy) are covered too.
+   */
+  const linkingAll = useRef(false)
+  const linkEveryAttachment = useCallback(
+    async (targets: Attachment[]) => {
+      const uids = new Set(targets.map(entry => entry.uid))
+      setAttachments(current => current.map(entry => (uids.has(entry.uid) ? { ...entry, uploading: true, progress: 0 } : entry)))
+      for (const target of targets) {
+        const link = defaultLinkSettings(target.filename)
+        try {
+          const response = await fetch('/api/mail/share', {
+            method: 'POST',
+            headers: { ...apiHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: target.filename, size: target.size, key: target.key, ...linkSettingsPayload(link) }),
+          })
+          const data = await response.json().catch(() => null)
+          if (!response.ok || !data?.ok) throw new Error(data?.error ?? `Could not turn ${target.filename} into a link.`)
+          setAttachments(current =>
+            current.map(entry =>
+              entry.uid === target.uid
+                ? { ...entry, uploading: false, progress: 0, shareId: data.id as string, shareUrl: `${window.location.origin}/share/${data.id}`, link }
+                : entry,
+            ),
+          )
+        } catch (err) {
+          setAttachments(current =>
+            current.map(entry =>
+              entry.uid === target.uid
+                ? { ...entry, uploading: false, progress: 0, error: err instanceof Error ? err.message : 'Could not turn it into a link.' }
+                : entry,
+            ),
+          )
+        }
+      }
+    },
+    [apiHeaders],
+  )
+
+  useEffect(() => {
+    if (linkingAll.current || attachments.some(entry => entry.uploading)) return
+    if (!overAttachmentTotal(attachments, [...(compose.inlineParts ?? []), ...replyInline])) return
+    const targets = attachments.filter(entry => entry.uid && entry.key && !entry.shareId && !entry.error)
+    if (!targets.length) return
+    linkingAll.current = true
+    void linkEveryAttachment(targets).finally(() => {
+      linkingAll.current = false
+    })
+  }, [attachments, compose.inlineParts, replyInline, linkEveryAttachment])
 
 
 
@@ -8969,6 +9042,8 @@ export default function DevMailPage() {
               showing={showFiltered}
               onShowingChange={setShowFiltered}
               onFiltersChange={changeInboxFilters}
+              show={listShow}
+              onShowChange={setListShow}
             />
           )}
           <button
@@ -9893,7 +9968,7 @@ export default function DevMailPage() {
                       ))}
                   </div>
                   {attachments.some(entry => entry.shareId || entry.size > ATTACH_LIMIT_BYTES) && (
-                    <span className={styles.attachNote}>large files (&gt;20MB) and files sent as links go out as download links</span>
+                    <span className={styles.attachNote}>files over 20MB, or over 25MB together, and files sent as links go out as download links</span>
                   )}
                   {attachments.every(entry => !entry.shareId && entry.size <= ATTACH_LIMIT_BYTES) && (
                     <span className={styles.attachNoteMuted}>attachments send immediately (no delay)</span>

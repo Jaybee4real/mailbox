@@ -12,7 +12,7 @@ import { adaptiveEmail } from '@/lib/color-scheme'
 import { publicOrigin } from '@/lib/public-url'
 import { readsAllInboxes } from '@/lib/scope'
 import { BlockedRecipientsError, bareAddress as addressKey, blockedAmong } from '@/lib/blocked'
-import { bareContentId, dropMissingCidImages, outgoingInlineParts } from '@/lib/attachments'
+import { OUTGOING_KEY, bareContentId, dropMissingCidImages, outgoingInlineParts } from '@/lib/attachments'
 
 export const runtime = 'nodejs'
 
@@ -153,7 +153,7 @@ export async function POST(req: Request) {
         // URL from the client, so a caller cannot point this at somewhere it should not read.
         let source: URL
         if (entry.key) {
-          if (!/^outgoing\/[a-f0-9]{18}\/[\w.\- ]{1,120}$/.test(entry.key)) {
+          if (!OUTGOING_KEY.test(entry.key)) {
             throw new Error(`Unsupported attachment source for ${entry.filename}`)
           }
           source = new URL(presign(entry.key, 'GET', 300))

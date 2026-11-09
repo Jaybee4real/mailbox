@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import styles from './page.module.css'
 import MailSelect from './MailSelect'
-import { INBOX_FILTER_KINDS, normalizeInboxFilters, type InboxFilter, type InboxFilterKind } from '@/lib/inbox-filters'
+import { INBOX_FILTER_KINDS, LIST_SHOWS, normalizeInboxFilters, type InboxFilter, type InboxFilterKind, type ListShow } from '@/lib/inbox-filters'
 
 const FILTER_ICON = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -13,22 +13,59 @@ const FILTER_ICON = (
 
 const labelOf = (kind: InboxFilterKind) => INBOX_FILTER_KINDS.find(option => option.kind === kind)?.label ?? kind
 
+/** One rule-adding row; the Advanced section has its own, so a rule lands where it was added. */
+function AddRule({ advanced, onAdd }: { advanced: boolean; onAdd: (rule: InboxFilter) => boolean }) {
+  const [kind, setKind] = useState<InboxFilterKind>('senderPrefix')
+  const [value, setValue] = useState('')
+  const placeholder = INBOX_FILTER_KINDS.find(option => option.kind === kind)?.placeholder ?? ''
+  return (
+    <form
+      className={styles.filterAdd}
+      onSubmit={event => {
+        event.preventDefault()
+        if (onAdd(advanced ? { kind, value, advanced } : { kind, value })) setValue('')
+      }}
+    >
+      <MailSelect
+        value={kind}
+        options={INBOX_FILTER_KINDS.map(option => ({ value: option.kind, label: option.label }))}
+        ariaLabel={advanced ? 'Advanced rule type' : 'Rule type'}
+        buttonClassName={styles.filterAddKind}
+        onChange={next => setKind(next as InboxFilterKind)}
+      />
+      <input
+        className={styles.filterAddValue}
+        value={value}
+        placeholder={placeholder}
+        aria-label={advanced ? 'Advanced rule value' : 'Rule value'}
+        onChange={event => setValue(event.target.value)}
+      />
+      <button type="submit" className={styles.filterAddBtn} disabled={!value.trim()}>
+        Add
+      </button>
+    </form>
+  )
+}
+
 export default function InboxFilters({
   filters,
   counts,
   showing,
   onShowingChange,
   onFiltersChange,
+  show,
+  onShowChange,
 }: {
   filters: InboxFilter[]
   counts: { total: number; unread: number } | null
   showing: boolean
   onShowingChange: (showing: boolean) => void
   onFiltersChange: (filters: InboxFilter[]) => void
+  show: ListShow
+  onShowChange: (show: ListShow) => void
 }) {
   const [open, setOpen] = useState(false)
-  const [kind, setKind] = useState<InboxFilterKind>('senderPrefix')
-  const [value, setValue] = useState('')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -51,14 +88,31 @@ export default function InboxFilters({
 
   const total = counts?.total ?? 0
   const unread = counts?.unread ?? 0
-  const placeholder = INBOX_FILTER_KINDS.find(option => option.kind === kind)?.placeholder ?? ''
+  const ordinary = filters.filter(filter => !filter.advanced)
+  const advanced = filters.filter(filter => filter.advanced)
+  const showLabel = LIST_SHOWS.find(option => option.show === show)?.label ?? 'All'
 
-  const addRule = () => {
-    const next = normalizeInboxFilters([...filters, { kind, value }])
-    if (next.length === filters.length) return
+  const addRule = (rule: InboxFilter) => {
+    const next = normalizeInboxFilters([...filters, rule])
+    if (next.length === filters.length) return false
     onFiltersChange(next)
-    setValue('')
+    return true
   }
+
+  const ruleRow = (filter: InboxFilter) => (
+    <div key={`${filter.kind}:${filter.value}`} className={styles.filterRule}>
+      <span className={styles.filterRuleKind}>{labelOf(filter.kind)}</span>
+      <span className={styles.filterRuleValue}>{filter.value}</span>
+      <button
+        type="button"
+        className={styles.filterRuleRemove}
+        aria-label={`Remove ${labelOf(filter.kind).toLowerCase()} ${filter.value}`}
+        onClick={() => onFiltersChange(filters.filter(entry => entry !== filter))}
+      >
+        ×
+      </button>
+    </div>
+  )
 
   const summary = total
     ? `${total.toLocaleString()} filtered out of your Inbox${unread ? `, ${unread.toLocaleString()} unread` : ''}`
@@ -68,14 +122,14 @@ export default function InboxFilters({
     <div className={styles.filterWrap} ref={wrapRef}>
       <button
         type="button"
-        className={`${styles.filterChip} ${showing ? styles.filterChipOn : ''}`}
+        className={`${styles.filterChip} ${showing || show !== 'all' ? styles.filterChipOn : ''}`}
         onClick={() => setOpen(current => !current)}
         aria-expanded={open}
         aria-label={summary}
         title={summary}
       >
         {FILTER_ICON}
-        <span className={styles.filterChipLabel}>Filtered</span>
+        <span className={styles.filterChipLabel}>{show === 'all' ? 'Filtered' : showLabel}</span>
         {total > 0 && (
           <span className={styles.filterChipCount}>
             {total.toLocaleString()}
@@ -85,6 +139,23 @@ export default function InboxFilters({
       </button>
       {open && (
         <div className={styles.filterMenu} role="dialog" aria-label="Filtered out of your Inbox">
+          <div className={styles.filterMenuHead}>
+            <span>Show</span>
+          </div>
+          <div className={styles.filterShow} role="radiogroup" aria-label="Show">
+            {LIST_SHOWS.map(option => (
+              <button
+                key={option.show}
+                type="button"
+                role="radio"
+                aria-checked={show === option.show}
+                className={`${styles.filterShowOption} ${show === option.show ? styles.filterShowOptionOn : ''}`}
+                onClick={() => onShowChange(option.show)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <div className={styles.filterMenuHead}>
             <span>Filtered out of your Inbox</span>
             <span className={styles.filterMenuHint}>Matching mail skips the Inbox and never notifies. Nothing is deleted.</span>
@@ -106,47 +177,36 @@ export default function InboxFilters({
             )}
           </button>
           <div className={styles.filterRules}>
-            {filters.length === 0 && <div className={styles.filterEmpty}>No rules. Everything reaches your Inbox.</div>}
-            {filters.map(filter => (
-              <div key={`${filter.kind}:${filter.value}`} className={styles.filterRule}>
-                <span className={styles.filterRuleKind}>{labelOf(filter.kind)}</span>
-                <span className={styles.filterRuleValue}>{filter.value}</span>
-                <button
-                  type="button"
-                  className={styles.filterRuleRemove}
-                  aria-label={`Remove ${labelOf(filter.kind).toLowerCase()} ${filter.value}`}
-                  onClick={() => onFiltersChange(filters.filter(entry => entry !== filter))}
-                >
-                  ×
-                </button>
+            {ordinary.length === 0 && (
+              <div className={styles.filterEmpty}>
+                {advanced.length ? 'No rules of your own. Only the Advanced ones apply.' : 'No rules. Everything reaches your Inbox.'}
               </div>
-            ))}
+            )}
+            {ordinary.map(ruleRow)}
           </div>
-          <form
-            className={styles.filterAdd}
-            onSubmit={event => {
-              event.preventDefault()
-              addRule()
-            }}
+          <AddRule advanced={false} onAdd={addRule} />
+          <button
+            type="button"
+            className={styles.filterAdvancedToggle}
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen(current => !current)}
           >
-            <MailSelect
-              value={kind}
-              options={INBOX_FILTER_KINDS.map(option => ({ value: option.kind, label: option.label }))}
-              ariaLabel="Rule type"
-              buttonClassName={styles.filterAddKind}
-              onChange={next => setKind(next as InboxFilterKind)}
-            />
-            <input
-              className={styles.filterAddValue}
-              value={value}
-              placeholder={placeholder}
-              aria-label="Rule value"
-              onChange={event => setValue(event.target.value)}
-            />
-            <button type="submit" className={styles.filterAddBtn} disabled={!value.trim()}>
-              Add
-            </button>
-          </form>
+            <span aria-hidden className={`${styles.filterAdvancedCaret} ${advancedOpen ? styles.filterAdvancedCaretOpen : ''}`}>›</span>
+            Advanced
+            {advanced.length > 0 && <span className={styles.filterAdvancedCount}>{advanced.length}</span>}
+          </button>
+          {advancedOpen && (
+            <div className={styles.filterAdvanced}>
+              <span className={styles.filterMenuHint}>
+                For machine mail like DMARC reports. It is filtered the same way and never counts as unread in your Inbox.
+              </span>
+              <div className={styles.filterRules}>
+                {advanced.length === 0 && <div className={styles.filterEmpty}>No advanced rules.</div>}
+                {advanced.map(ruleRow)}
+              </div>
+              <AddRule advanced onAdd={addRule} />
+            </div>
+          )}
         </div>
       )}
     </div>

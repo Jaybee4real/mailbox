@@ -15,7 +15,7 @@ import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
 import { bodyCacheEnabled, bodyCacheFull, cachedBody, isBodyCached, storeBody } from './body-cache'
 import { referencedIds, sesLocalPart, subjectKey, threadIdFor } from './threads'
-import { inboxFiltersSql, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters'
+import { advancedFilters, inboxFiltersSql, listShowSql, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter, type ListShow } from './inbox-filters'
 import { impersonationReasons, judgeMessage, raiseRisk, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding } from './risk'
 import type { ShareAccess, ShareSettings } from './share-policy'
 import { velaApiBase, velaApiKey } from './vela-config'
@@ -1158,6 +1158,7 @@ export async function listThreads(
   limit: number,
   cursorRaw?: string | null,
   filters: InboxFilter[] = [],
+  show: ListShow = 'all',
 ): Promise<ThreadPage> {
   await ensureMailSchema()
   const filterSql = folder === 'priority' ? prioritySql(prioritySenders(), ownerRaw === null ? null : 't.owner') : folder === 'inbox' || folder === 'filtered' ? inboxFiltersSql(filters) : null
@@ -1184,7 +1185,7 @@ export async function listThreads(
   // conversation back together. SQLite fills a bare column from whichever row matched the
   // MAX in the same select, which is how subject, snippet and senders come from the latest
   // message rather than an arbitrary one.
-  const outer = [filterClause, cursorClause].filter(Boolean).join(' AND ')
+  const outer = [filterClause, listShowSql(show), cursorClause].filter(Boolean).join(' AND ')
   const rows = owner === null
     ? await tagged(db(), `
         SELECT * FROM (
@@ -1242,25 +1243,61 @@ export async function listThreads(
   return { rows: mapped, nextCursor }
 }
 
-/** Inbox conversations the rules hold out, and how many of those have unread mail. */
-export async function countFilteredThreads(ownerRaw: string | null, filters: InboxFilter[]): Promise<{ total: number; unread: number }> {
+/**
+ * Inbox conversations the rules hold out. `unread` is the ones with unread mail that the Filtered
+ * chip reports; `quietUnread` is the ones held out by an advanced rule, which never count as
+ * unread in the Inbox. Together they are every held-out conversation with unread mail.
+ */
+export async function countFilteredThreads(
+  ownerRaw: string | null,
+  filters: InboxFilter[],
+): Promise<{ total: number; unread: number; quietUnread: number }> {
   const filterSql = inboxFiltersSql(filters)
-  if (!filterSql) return { total: 0, unread: 0 }
+  if (!filterSql) return { total: 0, unread: 0, quietUnread: 0 }
+  const quietSql = inboxFiltersSql(advancedFilters(filters))
   await ensureMailSchema()
   const nowIso = new Date().toISOString()
   const inbox = 'inbox_count > 0 AND (snoozed_until IS NULL OR snoozed_until <= ?)'
+  const quiet = quietSql?.sql ?? '0'
+  const quietArgs = quietSql?.args ?? []
+  const tally = `COUNT(*) AS total,
+    SUM(CASE WHEN unread_count > 0 AND NOT ${quiet} THEN 1 ELSE 0 END) AS unread,
+    SUM(CASE WHEN unread_count > 0 AND ${quiet} THEN 1 ELSE 0 END) AS quiet_unread`
   const rows = ownerRaw === null
     ? await tagged(db(), `
-        SELECT COUNT(*) AS total, SUM(CASE WHEN unread_count > 0 THEN 1 ELSE 0 END) AS unread FROM (
+        SELECT ${tally} FROM (
           SELECT thread_id, SUM(unread_count) AS unread_count, SUM(inbox_count) AS inbox_count, snoozed_until, senders, subject, snippet, MAX(latest_at)
           FROM mail_threads GROUP BY thread_id HAVING ${inbox}
         ) t WHERE ${filterSql.sql}`,
-        [nowIso, ...filterSql.args])
+        [...quietArgs, ...quietArgs, nowIso, ...filterSql.args])
     : await tagged(db(), `
-        SELECT COUNT(*) AS total, SUM(CASE WHEN unread_count > 0 THEN 1 ELSE 0 END) AS unread
+        SELECT ${tally}
         FROM mail_threads t WHERE owner = ? AND ${inbox} AND ${filterSql.sql}`,
-        [ownerRaw.toLowerCase(), nowIso, ...filterSql.args])
-  return { total: Number(rows[0]?.total ?? 0), unread: Number(rows[0]?.unread ?? 0) }
+        [...quietArgs, ...quietArgs, ownerRaw.toLowerCase(), nowIso, ...filterSql.args])
+  return {
+    total: Number(rows[0]?.total ?? 0),
+    unread: Number(rows[0]?.unread ?? 0),
+    quietUnread: Number(rows[0]?.quiet_unread ?? 0),
+  }
+}
+
+/**
+ * Unread Inbox messages in conversations an advanced rule holds out. The sidebar badge counts
+ * messages, not conversations, so this is what comes off it.
+ */
+export async function countQuietUnreadMessages(ownerRaw: string | null, filters: InboxFilter[]): Promise<number> {
+  const quietSql = inboxFiltersSql(advancedFilters(filters))
+  if (!quietSql) return 0
+  await ensureMailSchema()
+  const nowIso = new Date().toISOString()
+  const scope = ownerRaw === null ? '' : 'AND lower(m.owner) = ?'
+  const rows = await tagged(db(), `
+    SELECT COUNT(*) AS n
+    FROM mail_inbox m JOIN mail_threads t ON t.thread_id = m.thread_id AND t.owner = lower(m.owner)
+    WHERE m.read = 0 AND m.archived = 0 AND m.trashed = 0 AND m.spam = 0
+      AND (m.snoozed_until IS NULL OR m.snoozed_until <= ?) ${scope} AND ${quietSql.sql}`,
+    [nowIso, ...(ownerRaw === null ? [] : [ownerRaw.toLowerCase()]), ...quietSql.args])
+  return Number(rows[0]?.n ?? 0)
 }
 
 /**

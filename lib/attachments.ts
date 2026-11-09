@@ -172,3 +172,29 @@ export function attachmentHeaders(filename: string, inline: boolean): Record<str
     'x-content-type-options': 'nosniff',
   }
 }
+
+/**
+ * Where an outgoing file waits in the bucket before it is sent. Only keys of this shape are
+ * read back, so a caller cannot point a send or a share at somewhere else in the bucket.
+ */
+export const OUTGOING_KEY = /^outgoing\/[a-f0-9]{18}\/[\w.\- ]{1,120}$/
+
+/**
+ * The most a message carries as attachments. Vela refuses a send whose files come to more
+ * than 28MB, and the bytes ride as base64 inside the request, so this stays at Gmail's 25MB
+ * with room left for the message itself. Past it, every file goes out as a download link,
+ * not only the ones that tipped it over: the owner's choice on 2026-11-09, where Gmail links
+ * only the files past its limit.
+ */
+export const ATTACH_TOTAL_LIMIT_BYTES = 25 * 1024 * 1024
+
+type Carried = { size: number; shareId?: string; error?: string }
+
+/** Bytes that would travel on the message: files not already sent as links, plus inline images. */
+export function carriedBytes(files: Carried[], inline: Array<{ size: number }> = []): number {
+  return [...files.filter(file => !file.shareId && !file.error), ...inline]
+    .reduce((sum, file) => sum + (Number.isFinite(file.size) && file.size > 0 ? file.size : 0), 0)
+}
+
+export const overAttachmentTotal = (files: Carried[], inline: Array<{ size: number }> = []): boolean =>
+  carriedBytes(files, inline) > ATTACH_TOTAL_LIMIT_BYTES

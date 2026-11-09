@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { attachmentHeaders } from './attachments.ts'
+import { ATTACH_TOTAL_LIMIT_BYTES, OUTGOING_KEY, attachmentHeaders, carriedBytes, overAttachmentTotal } from './attachments.ts'
 
 const served = (filename: string, inline: boolean) => {
   const headers = attachmentHeaders(filename, inline)
@@ -32,3 +32,16 @@ assert.equal(curly['content-disposition'], "inline; filename=\"Driver's License 
 assert.doesNotThrow(() => new Headers(attachmentHeaders('\u0639\u0642\u062f \ud83d\ude97.pdf', false)), 'any script or emoji is safe')
 assert.equal(attachmentHeaders('plain.pdf', false)['content-disposition'], 'attachment; filename="plain.pdf"', 'a plain name stays plain')
 console.log('attachments: header filenames are always valid')
+
+const MB = 1024 * 1024
+assert.equal(ATTACH_TOTAL_LIMIT_BYTES, 25 * MB)
+assert.equal(carriedBytes([{ size: 10 * MB }, { size: 5 * MB, shareId: 'abc' }, { size: 7 * MB, error: 'failed' }]), 10 * MB, 'links and failed uploads do not travel')
+assert.equal(carriedBytes([{ size: 3 * MB }], [{ size: 2 * MB }]), 5 * MB, 'inline images travel too')
+assert.equal(overAttachmentTotal([{ size: 15 * MB }, { size: 10 * MB }]), false, 'exactly 25MB still attaches')
+assert.equal(overAttachmentTotal([{ size: 15 * MB }, { size: 10 * MB + 1 }]), true)
+assert.equal(overAttachmentTotal([{ size: 20 * MB }], [{ size: 6 * MB }]), true, 'inline images count toward the total')
+assert.equal(overAttachmentTotal([{ size: 20 * MB, shareId: 'x' }, { size: 20 * MB, shareId: 'y' }]), false, 'files already sent as links do not count')
+assert.equal(carriedBytes([{ size: Number.NaN }, { size: -4 }]), 0)
+assert.ok(OUTGOING_KEY.test('outgoing/0123456789abcdef01/Quarterly report.pdf'))
+assert.ok(!OUTGOING_KEY.test('shares/0123456789abcdef01/x.pdf'), 'only outgoing files are read')
+assert.ok(!OUTGOING_KEY.test('outgoing/0123456789abcdef01/../secret'), 'no path escapes')

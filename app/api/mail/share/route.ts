@@ -5,7 +5,8 @@ import { createShare, getShare, listAccounts, listShares, revokeShare, setShareP
 import { readsAllInboxes, scopeFor } from '@/lib/scope'
 import { hashPassword } from '@/lib/password'
 import { parseShareSettings } from '@/lib/share-policy'
-import { deleteObject, presign } from '@/lib/r2'
+import { deleteObject, getObject, presign, putObject } from '@/lib/r2'
+import { OUTGOING_KEY } from '@/lib/attachments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -41,6 +42,11 @@ async function actingOwner(account: { email: string | null; role?: string; addre
  * Registers a file and hands back a URL the browser can PUT straight to. The bytes
  * never pass through this server, so there is no request-body ceiling and a two
  * gigabyte upload costs us nothing but the signature.
+ *
+ * With `key`, the file is already in the bucket waiting to be attached (uploaded from the
+ * composer, or carried over from a forwarded message), and it is copied into share storage
+ * here instead. That is how a message whose attachments grew past the total ceiling turns
+ * every file into a link without asking the browser to upload them again.
  */
 export async function POST(req: Request) {
   const guard = await mailAuthGuard(req)
@@ -69,8 +75,47 @@ export async function POST(req: Request) {
   if (!parsed.settings) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 })
   const password = String(body.password ?? '').trim()
 
+  const sourceKey = body.key === undefined || body.key === null ? null : String(body.key)
+  if (sourceKey !== null && !OUTGOING_KEY.test(sourceKey)) {
+    return NextResponse.json({ ok: false, error: 'That file cannot be shared from here.' }, { status: 400 })
+  }
+
   const id = randomBytes(9).toString('base64url')
   const objectKey = objectKeyFor(filename)
+
+  if (sourceKey) {
+    const upstream = await getObject(sourceKey)
+    if (!upstream) {
+      return NextResponse.json({ ok: false, error: `${filename} is no longer stored. Attach it again.` }, { status: 404 })
+    }
+    const bytes = Buffer.from(await upstream.arrayBuffer())
+    if (bytes.length > MAX_SHARE_BYTES) {
+      return NextResponse.json({ ok: false, error: 'That file is larger than 2GB.' }, { status: 413 })
+    }
+    const contentType = body.contentType ? String(body.contentType) : upstream.headers.get('content-type') || 'application/octet-stream'
+    if (!(await putObject(objectKey, bytes, contentType))) {
+      return NextResponse.json({ ok: false, error: `Could not turn ${filename} into a link.` }, { status: 502 })
+    }
+    try {
+      await createShare({
+        id,
+        objectKey,
+        filename,
+        contentType,
+        size: bytes.length,
+        passwordHash: password ? await hashPassword(password) : null,
+        owner: account.email,
+        settings: parsed.settings,
+      })
+    } catch (err) {
+      await deleteObject(objectKey)
+      return NextResponse.json(
+        { ok: false, error: err instanceof Error ? err.message : `Could not turn ${filename} into a link.` },
+        { status: 500 },
+      )
+    }
+    return NextResponse.json({ ok: true, id, objectKey })
+  }
 
   try {
     await createShare({

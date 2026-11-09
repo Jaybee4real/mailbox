@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { DEFAULT_INBOX_FILTERS, inboxFiltersSql, matchesInboxFilters, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters.ts'
+import { DEFAULT_INBOX_FILTERS, advancedFilters, inboxFiltersSql, listShowSql, readListShow, matchesInboxFilters, normalizeInboxFilters, prioritySenders, prioritySql, type InboxFilter } from './inbox-filters.ts'
 
 assert.deepEqual(normalizeInboxFilters(undefined), DEFAULT_INBOX_FILTERS, 'untouched settings get the defaults')
 assert.deepEqual(normalizeInboxFilters([]), [], 'an emptied list stays empty')
@@ -73,3 +73,20 @@ assert.deepEqual(priority('hello@vendor.test'), [], 'one read message from the s
 assert.deepEqual(priority('@vendor.test'), ['ada@us.test:notice'], 'a domain covers its subdomains, and still needs an unread message')
 
 console.log('inbox-filters: ok')
+
+// Advanced rules: the DMARC default is one, including in lists saved before the flag existed.
+assert.deepEqual(DEFAULT_INBOX_FILTERS, [{ kind: 'senderPrefix', value: 'dmarcreport', advanced: true }])
+assert.deepEqual(normalizeInboxFilters([{ kind: 'senderPrefix', value: 'dmarcreport' }]), [{ kind: 'senderPrefix', value: 'dmarcreport', advanced: true }], 'a saved default rule moves under Advanced')
+assert.deepEqual(normalizeInboxFilters([{ kind: 'senderPrefix', value: 'dmarcreport', advanced: false }]), [{ kind: 'senderPrefix', value: 'dmarcreport' }], 'moved out of Advanced, it stays out')
+assert.deepEqual(normalizeInboxFilters([{ kind: 'subjectContains', value: 'Weekly digest', advanced: true }]), [{ kind: 'subjectContains', value: 'Weekly digest', advanced: true }])
+assert.deepEqual(normalizeInboxFilters([{ kind: 'senderDomain', value: 'example.com' }]), [{ kind: 'senderDomain', value: 'example.com' }], 'ordinary rules carry no flag')
+assert.deepEqual(advancedFilters(normalizeInboxFilters([{ kind: 'senderDomain', value: 'example.com' }, { kind: 'senderPrefix', value: 'dmarcreport' }])), DEFAULT_INBOX_FILTERS)
+
+// The list's Show choice.
+assert.equal(readListShow('unread'), 'unread')
+assert.equal(readListShow('attachments'), 'attachments')
+assert.equal(readListShow('everything'), 'all', 'anything unknown shows everything')
+assert.equal(readListShow(null), 'all')
+assert.equal(listShowSql('all'), null)
+assert.equal(listShowSql('unread'), 'unread_count > 0')
+assert.equal(listShowSql('attachments'), 'attach_count > 0')
