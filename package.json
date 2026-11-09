@@ -55,7 +55,7 @@
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
-    "next": "^16.4.2",
+    "next": "16.4.5",
     "nspell": "2.1.5",
     "qrcode-generator": "2.0.4",
     "react": "19.3.0",
@@ -70,7 +70,7 @@
     "@types/react-dom": "^19",
     "@types/web-push": "^3.6.4",
     "eslint": "9.39.5",
-    "eslint-config-next": "^16.4.2",
+    "eslint-config-next": "16.4.5",
     "typescript": "6.0.3"
   }
 }
