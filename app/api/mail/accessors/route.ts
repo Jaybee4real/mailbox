@@ -3,6 +3,7 @@ import { BRAND, ADDRESS_DOMAINS as BRAND_ADDRESS_DOMAINS } from '@/lib/brand'
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { sendMail } from '@/lib/mail-provider'
+import { DISPOSABLE_EMAIL_MESSAGE, isDisposableEmail } from '@/lib/disposable-email'
 import { renderActionEmail, withRequestText } from '@/lib/emails'
 import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { publicOrigin } from '@/lib/public-url'
@@ -109,6 +110,9 @@ export async function POST(req: Request) {
   const ownSignIn = sendTo === inviter.email.toLowerCase() || sendTo === inviter.address?.toLowerCase()
   const separateSignIn = ownSignIn || holderOfSendTo?.status === 'active'
   const existing = separateSignIn ? null : holderOfSendTo
+  if (!ownSignIn && !holderOfSendTo && isDisposableEmail(sendTo)) {
+    return NextResponse.json({ ok: false, error: DISPOSABLE_EMAIL_MESSAGE }, { status: 400 })
+  }
   // An invite has to reach somebody. Sending it to a mailbox on our own domain that nobody
   // can open yet — the very address this invite would create, most often — posts the link
   // into a box only the new person could read once they had already accepted it.
