@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { mailAuthGuard, isLocalOrigin, resolveAccount } from '@/lib/dev-auth'
+import { adminRefusal, isLocalOrigin, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
 import { blockAddress } from '@/lib/blocked'
 import { searchInbox, appendEvent, setInboundFlags, setInboundSpam, setInboundFlagsForThread, setInboundLabels, setThreadSnooze, setInboxOwner, readInbox, trustSenderOf, claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent, pruneWebhookEvents, type InboundFlags } from '@/lib/mailbox'
@@ -88,10 +88,8 @@ export async function PATCH(req: Request) {
   }
   // Reassigning inbound mail to a mailbox is admin-only.
   if (body.owner !== undefined) {
-    const account = await resolveAccount(req)
-    if (account.role !== 'admin') {
-      return NextResponse.json({ ok: false, error: 'Admin access required' }, { status: 403 })
-    }
+    const refused = await adminRefusal(await resolveAccount(req))
+    if (refused) return refused
     await Promise.all(ids.map(id => setInboxOwner(id, body.owner!)))
     return NextResponse.json({ ok: true })
   }

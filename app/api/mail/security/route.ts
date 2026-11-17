@@ -18,6 +18,8 @@ import {
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+const ADMIN_LAST_FACTOR = 'Admins need two-step sign-in. Turn on the other method before turning this one off.'
+
 const fail = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status })
 
 export async function GET(req: Request) {
@@ -118,6 +120,11 @@ export async function POST(req: Request) {
     // Someone at an unlocked screen should not be able to remove the lock.
     const confirmed = await verifyMailAuth(email, String(body.password ?? ''))
     if (!confirmed.ok) return fail('That is not your password.', 403)
+    if (account.role === 'admin') {
+      const factors = await twoFactorState(email)
+      const remaining = body.action === 'authenticator-off' ? factors.email : factors.authenticator
+      if (!remaining) return fail(ADMIN_LAST_FACTOR, 409)
+    }
     if (body.action === 'authenticator-off') await disableTotp(email)
     else await setEmailCodes(email, false)
     return NextResponse.json({ ok: true })

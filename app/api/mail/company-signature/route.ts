@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { adminRefusal, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { getSettings, setSettings } from '@/lib/mailbox'
 
 export const runtime = 'nodejs'
@@ -21,8 +21,8 @@ export async function GET(req: Request) {
 export async function PUT(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
-  const account = await resolveAccount(req)
-  if (account.role !== 'admin') return NextResponse.json({ ok: false, error: 'Admin access required' }, { status: 403 })
+  const refused = await adminRefusal(await resolveAccount(req))
+  if (refused) return refused
   let body: { signature?: unknown; logo?: unknown }
   try {
     body = await req.json()

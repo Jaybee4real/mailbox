@@ -1,7 +1,7 @@
 import { BRAND } from '@/lib/brand'
 import { NextResponse } from 'next/server'
 import { matchesQuery, parseQuery } from '@/app/mail/search'
-import { FORWARD_RECIPIENTS, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { adminRefusal, FORWARD_RECIPIENTS, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
 import { changeableSentIds } from '@/lib/sent-access'
 import { readSentFlags, setSentFlags, readPixelOpens, readSentMeta, readSentOrigins, setSentMetaOwner, listAccounts, readSentArchive, type SentFlags } from '@/lib/mailbox'
@@ -144,10 +144,8 @@ export async function PATCH(req: Request) {
 
   // Reassigning a message to a mailbox is admin-only.
   if (body.owner !== undefined) {
-    const account = await resolveAccount(req)
-    if (account.role !== 'admin') {
-      return NextResponse.json({ ok: false, error: 'Admin access required' }, { status: 403 })
-    }
+    const refused = await adminRefusal(await resolveAccount(req))
+    if (refused) return refused
     await Promise.all(ids.map(id => setSentMetaOwner(id, body.owner!)))
     return NextResponse.json({ ok: true })
   }

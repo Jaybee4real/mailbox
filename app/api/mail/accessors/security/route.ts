@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { adminRefusal, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { clearResetTokens, disableTotp, getAccount, recordSignin, setAccountPassword, setEmailCodes } from '@/lib/mailbox'
 import { hashPassword, passwordProblem } from '@/lib/password'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
@@ -12,7 +12,8 @@ export async function POST(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
   const actor = await resolveAccount(req)
-  if (actor.role !== 'admin') return NextResponse.json({ ok: false, error: 'Admin access required' }, { status: 403 })
+  const refused = await adminRefusal(actor)
+  if (refused) return refused
   const limited = rateLimit(clientKey(req, 'admin-security'), 30, 60 * 60 * 1000)
   if (limited) return limited
 

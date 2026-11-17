@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server'
 import { sendMail } from '@/lib/mail-provider'
 import { DISPOSABLE_EMAIL_MESSAGE, isDisposableEmail } from '@/lib/disposable-email'
 import { renderActionEmail, withRequestText } from '@/lib/emails'
-import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { adminRefusal, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { publicOrigin } from '@/lib/public-url'
 import { mobileDevicesByAccount } from '@/lib/mobile-session'
 import { requestNotice, sendContext } from '@/lib/signin'
@@ -45,11 +45,7 @@ function resolveDomain(requested?: string): string | null {
 async function requireAdmin(req: Request): Promise<NextResponse | null> {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
-  const account = await resolveAccount(req)
-  if (account.role !== 'admin') {
-    return NextResponse.json({ ok: false, error: 'Admin access required' }, { status: 403 })
-  }
-  return null
+  return adminRefusal(await resolveAccount(req))
 }
 
 function slugifyHandle(raw: string): string {

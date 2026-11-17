@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { adminRefusal, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { bareAddress, blockAddress, listBlocked, unblockAddress } from '@/lib/blocked'
 
 export const runtime = 'nodejs'
@@ -14,8 +14,8 @@ export async function GET(req: Request) {
 }
 
 async function adminBody(req: Request): Promise<{ address: string; note: string | null } | NextResponse> {
-  const account = await resolveAccount(req)
-  if (account.role !== 'admin') return NextResponse.json({ ok: false, error: 'Only an admin can change the blocked list' }, { status: 403 })
+  const refused = await adminRefusal(await resolveAccount(req), 'Only an admin can change the blocked list')
+  if (refused) return refused
   const body = (await req.json().catch(() => null)) as { address?: unknown; note?: unknown } | null
   const address = bareAddress(String(body?.address ?? ''))
   if (!EMAIL_RE.test(address)) return NextResponse.json({ ok: false, error: 'Enter a full email address' }, { status: 400 })

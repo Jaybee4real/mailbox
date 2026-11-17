@@ -23,6 +23,8 @@ test('an invite to a disposable address is refused before any account is created
   const { POST } = await import('../app/api/mail/accessors/route.ts')
 
   await mailbox.createAccount({ email: 'admin@example.com', address: 'admin@example.com', role: 'admin', status: 'active' })
+  await mailbox.setTotpPending('admin@example.com', 'JBSWY3DPEHPK3PXP')
+  await mailbox.activateTotp('admin@example.com')
   const cookie = `${SESSION_COOKIE}=${issueSession('admin@example.com', passwordFingerprint(undefined))}`
   const accountsBefore = (await mailbox.listAccounts()).length
 

@@ -185,7 +185,7 @@ function themeVars(accent: string, base: ThemeBase, custom: ThemeCustom): React.
   }
   return vars as React.CSSProperties
 }
-type MailAccountInfo = { email: string; address: string | null; name?: string | null; role: 'admin' | 'member'; defaultPassword?: boolean; passkeys?: number | null; trackOpens?: boolean }
+type MailAccountInfo = { email: string; address: string | null; name?: string | null; role: 'admin' | 'member'; defaultPassword?: boolean; passkeys?: number | null; twoStepRequired?: boolean; trackOpens?: boolean }
 type Accessor = Person
 
 type Folder = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'scheduled' | 'drafts' | 'archived' | 'spam' | 'trash'
@@ -1805,6 +1805,7 @@ export default function DevMailPage() {
   // Dismissed for this session only: it should come back next sign-in while the
   // password is still the one the mailbox was created with.
   const [pwNoticeHidden, setPwNoticeHidden] = useState(false)
+  const [twoStepNoticeHidden, setTwoStepNoticeHidden] = useState(false)
   const [notifyNoticeHidden, setNotifyNoticeHidden] = useState(true)
   useEffect(() => {
     try {
@@ -3553,7 +3554,7 @@ export default function DevMailPage() {
     fetch('/api/mail/me', { headers })
       .then(response => response.json())
       .then(data => {
-        if (data.ok) setAccount({ email: data.email, address: data.address ?? null, name: data.name ?? null, role: data.role, defaultPassword: Boolean(data.defaultPassword), passkeys: typeof data.passkeys === 'number' ? data.passkeys : null, trackOpens: data.trackOpens === true })
+        if (data.ok) setAccount({ email: data.email, address: data.address ?? null, name: data.name ?? null, role: data.role, defaultPassword: Boolean(data.defaultPassword), twoStepRequired: data.twoStepRequired === true, passkeys: typeof data.passkeys === 'number' ? data.passkeys : null, trackOpens: data.trackOpens === true })
       })
       .catch(() => {})
   }, [isLoggedIn, apiHeaders])
@@ -8732,6 +8733,22 @@ export default function DevMailPage() {
                   setSettingsTab('notifications')
                 }
               })()
+            },
+          })
+        }
+        const adminNeedsTwoStep = account?.role === 'admin' && (security ? !security.authenticator && !security.email : Boolean(account?.twoStepRequired))
+        if (adminNeedsTwoStep && !twoStepNoticeHidden) {
+          notices.unshift({
+            key: 'two-step',
+            title: 'Turn on two-step sign-in',
+            body: 'Admin tools stay locked until your account has an authenticator app or email codes. It takes a minute.',
+            dismiss: 'Not now',
+            action: 'Set it up',
+            onDismiss: () => setTwoStepNoticeHidden(true),
+            onAction: () => {
+              setSettingsOpen(true)
+              setSettingsTab('security')
+              setTwoStepNoticeHidden(true)
             },
           })
         }
