@@ -3,7 +3,7 @@ import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { clearResetTokens, disableTotp, getAccount, recordSignin, setAccountPassword, setEmailCodes } from '@/lib/mailbox'
 import { hashPassword, passwordProblem } from '@/lib/password'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
-import { requestContext } from '@/lib/signin'
+import { notifyAccountChange, requestContext } from '@/lib/signin'
 
 export const runtime = 'nodejs'
 
@@ -42,6 +42,7 @@ export async function POST(req: Request) {
     await setAccountPassword(email, await hashPassword(next))
     await clearResetTokens(email)
     await recordSignin(email, { ...context, method: `admin:${actor.email}`, outcome: 'admin-password' }).catch(() => {})
+    await notifyAccountChange(req, email, { kind: 'password', how: 'admin' })
     return NextResponse.json({ ok: true })
   }
 

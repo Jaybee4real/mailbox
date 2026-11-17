@@ -6017,6 +6017,7 @@ export default function DevMailPage() {
     frame.style.width = '0'
     frame.style.height = '0'
     frame.style.border = '0'
+    frame.setAttribute('sandbox', 'allow-same-origin allow-modals')
     document.body.appendChild(frame)
     const doc = frame.contentWindow?.document
     if (!doc) return
@@ -6057,7 +6058,7 @@ export default function DevMailPage() {
         : split.head
     }
     doc.open()
-    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title>${printCss}</head><body>${meta}${content}</body></html>`)
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * data: blob:; style-src 'unsafe-inline' *; font-src * data:"><title>${escapeHtml(subject)}</title>${printCss}</head><body>${meta}${content}</body></html>`)
     doc.close()
     frame.contentWindow?.focus()
     window.setTimeout(() => {

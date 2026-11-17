@@ -9,7 +9,7 @@ import { ADDRESS_ALIASES, MAIL_SEATS, type MailRole } from './brand'
  */
 
 import { stripCidPlaceholders } from './email-html'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { hashPassword } from './password'
 import { duration, type ParsedQuery } from '@/app/mail/search'
 import { turso, tursoBatch, tursoQuery } from './turso'
@@ -463,6 +463,11 @@ export function ensureMailSchema(): Promise<void> {
       await sqlRaw('ALTER TABLE mail_accounts ADD COLUMN pin_locked INTEGER NOT NULL DEFAULT 0').catch(() => {})
       // A link mailed to an unproven address must not be able to set a password.
       await sqlRaw("ALTER TABLE mail_reset_tokens ADD COLUMN purpose TEXT NOT NULL DEFAULT 'reset'").catch(() => {})
+      await sqlRaw('ALTER TABLE mail_reset_tokens ADD COLUMN hashed INTEGER NOT NULL DEFAULT 0').catch(() => {})
+      for (const row of await sqlRaw('SELECT token FROM mail_reset_tokens WHERE hashed = 0')) {
+        const raw = String(row.token)
+        await sqlRaw('UPDATE mail_reset_tokens SET token = ?, hashed = 1 WHERE token = ? AND hashed = 0', [tokenDigest(raw), raw])
+      }
       await sqlRaw("ALTER TABLE mail_webhook_events ADD COLUMN status TEXT NOT NULL DEFAULT 'working'")
         .catch(() => {})
       await sqlRaw('ALTER TABLE mail_sent ADD COLUMN attachments TEXT').catch(() => {})
@@ -2071,9 +2076,9 @@ export async function savePushSubscription(owner: string, subscription: PushSubs
     ON CONFLICT (endpoint) DO UPDATE SET owner = excluded.owner, subscription = excluded.subscription`
 }
 
-export async function deletePushSubscription(endpoint: string): Promise<void> {
+export async function deletePushSubscription(endpoint: string, owner: string): Promise<void> {
   await ensureMailSchema()
-  await db()`DELETE FROM mail_push_subscriptions WHERE endpoint = ${endpoint}`
+  await db()`DELETE FROM mail_push_subscriptions WHERE endpoint = ${endpoint} AND owner = ${owner.toLowerCase()}`
 }
 
 export async function listPushSubscriptions(owner: string): Promise<PushSubscriptionRow[]> {
@@ -2897,6 +2902,8 @@ export async function revokeShare(id: string, owner: string): Promise<boolean> {
   return rows.length > 0
 }
 
+const tokenDigest = (token: string): string => createHash('sha256').update(token).digest('hex')
+
 export async function createResetToken(
   email: string,
   token: string,
@@ -2907,8 +2914,8 @@ export async function createResetToken(
   const sql = db()
   await sql`DELETE FROM mail_reset_tokens WHERE expires_at < ${nowIso()}`
   await sql`
-    INSERT INTO mail_reset_tokens (token, email, expires_at, purpose)
-    VALUES (${token}, ${email.toLowerCase()}, ${new Date(expires).toISOString()}, ${purpose})`
+    INSERT INTO mail_reset_tokens (token, email, expires_at, purpose, hashed)
+    VALUES (${tokenDigest(token)}, ${email.toLowerCase()}, ${new Date(expires).toISOString()}, ${purpose}, 1)`
 }
 
 /** Spend a non-reset token, returning the address it was issued for. */
@@ -2917,7 +2924,7 @@ export async function consumeToken(token: string, purpose: 'verify-recovery'): P
   const sql = db()
   const rows = await sql`
     DELETE FROM mail_reset_tokens
-    WHERE token = ${token} AND purpose = ${purpose} AND expires_at > ${nowIso()}
+    WHERE token = ${tokenDigest(token)} AND purpose = ${purpose} AND expires_at > ${nowIso()}
     RETURNING email`
   return rows[0]?.email ? String(rows[0].email) : null
 }
@@ -2931,7 +2938,7 @@ export async function resetTokenEmail(token: string): Promise<string | null> {
   const sql = db()
   const rows = await sql`
     SELECT email FROM mail_reset_tokens
-    WHERE token = ${token} AND coalesce(purpose, 'reset') = 'reset' AND expires_at > ${nowIso()}`
+    WHERE token = ${tokenDigest(token)} AND coalesce(purpose, 'reset') = 'reset' AND expires_at > ${nowIso()}`
   const email = rows[0]?.email
   return email ? String(email) : null
 }
@@ -2942,7 +2949,7 @@ export async function resetPasswordWithToken(token: string, passwordHash: string
   const sql = db()
   const consumed = await sql`
     DELETE FROM mail_reset_tokens
-    WHERE token = ${token} AND coalesce(purpose, 'reset') = 'reset' AND expires_at > ${nowIso()}
+    WHERE token = ${tokenDigest(token)} AND coalesce(purpose, 'reset') = 'reset' AND expires_at > ${nowIso()}
     RETURNING email`
   const email = consumed[0]?.email
   if (!email) return null

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { dispatchDue } from '@/lib/scheduled'
 
@@ -12,7 +13,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: Request) {
   const expected = (process.env.MAINTENANCE_TOKEN ?? '').trim()
   const offered = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
-  if (!expected || offered !== expected) {
+  if (!expected || offered.length !== expected.length || !timingSafeEqual(Buffer.from(offered), Buffer.from(expected))) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
   return NextResponse.json({ ok: true, ...(await dispatchDue()) })

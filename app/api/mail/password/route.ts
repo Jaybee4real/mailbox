@@ -4,6 +4,7 @@ import { clearResetTokens, setAccountPassword } from '@/lib/mailbox'
 import { hashPassword, passwordProblem } from '@/lib/password'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession, passwordFingerprint } from '@/lib/session'
+import { notifyAccountChange } from '@/lib/signin'
 
 export const runtime = 'nodejs'
 
@@ -56,6 +57,7 @@ export async function POST(req: Request) {
   await setAccountPassword(account.email, passwordHash)
   // Any reset link that was already in flight is now a way back in for whoever asked for it.
   await clearResetTokens(account.email).catch(() => {})
+  await notifyAccountChange(req, account.email, { kind: 'password', how: 'self' })
 
   // Every other signed-in device fails its fingerprint check from here on; this response
   // carries the replacement so the person who made the change stays signed in.

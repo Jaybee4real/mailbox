@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { hashPassword, passwordProblem } from '@/lib/password'
-import { resetPasswordWithToken, resetTokenEmail } from '@/lib/mailbox'
+import { getAccount, resetPasswordWithToken, resetTokenEmail } from '@/lib/mailbox'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
 import { attachSession, issueSession, passwordFingerprint } from '@/lib/session'
-import { signInBody } from '@/lib/signin'
+import { notifyAccountChange, signInBody } from '@/lib/signin'
 
 export const runtime = 'nodejs'
 
@@ -39,6 +39,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'This reset link is invalid or has expired' }, { status: 400 })
   }
 
+  await notifyAccountChange(req, email, { kind: 'password', how: 'reset' })
+  if ((await getAccount(email))?.twoStep) return NextResponse.json({ ok: true, email, signIn: true })
   const session = issueSession(email, passwordFingerprint(passwordHash))
   return attachSession(NextResponse.json({ ok: true, email }), session)
 }

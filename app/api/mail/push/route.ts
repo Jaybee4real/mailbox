@@ -36,7 +36,9 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
+  const account = await resolveAccount(req)
+  const owner = account.address ?? account.email
   const endpoint = new URL(req.url).searchParams.get('endpoint') ?? ''
-  if (endpoint) await deletePushSubscription(endpoint)
+  if (endpoint && owner) await deletePushSubscription(endpoint, owner)
   return NextResponse.json({ ok: true })
 }

@@ -39,6 +39,14 @@ export async function mayReadSent(account: { address: string | null }, id: strin
   return (await sentOwners([id]))[id] === scope
 }
 
+export async function changeableSentIds(viewer: Viewer, ids: string[]): Promise<string[]> {
+  if (readsAllInboxes(viewer)) return ids
+  const scope = viewer.address?.trim().toLowerCase()
+  if (!scope) return []
+  const owners = await sentOwners(ids)
+  return ids.filter(id => owners[id] === scope)
+}
+
 export async function mayReadInbound(viewer: Viewer, id: string): Promise<boolean> {
   if (readsAllInboxes(viewer)) return true
   const scope = viewer.address?.trim().toLowerCase()
