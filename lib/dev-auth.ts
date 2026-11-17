@@ -1,7 +1,7 @@
 import { BRAND } from './brand'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { getAccount, getAccountByAddress, getAccountPasswordHash, setAccountPassword, MAIL_SEATS, type MailRole } from '@/lib/mailbox'
+import { getAccount, getAccountByAddress, getAccountPasswordHash, setAccountPassword, twoFactorState, MAIL_SEATS, type MailRole } from '@/lib/mailbox'
 import { hashPassword, verifyPassword, isLegacyHash } from '@/lib/password'
 import { passwordFingerprint, readSession } from '@/lib/session'
 import { readMobileSession } from '@/lib/mobile-session'
@@ -196,4 +196,20 @@ export async function signedInAs(req: Request, email: string | null): Promise<bo
 export async function mailAuthGuard(req: Request): Promise<NextResponse | null> {
   if (await authenticate(req)) return null
   return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 403 })
+}
+
+export const ADMIN_TWO_STEP_ERROR = 'Admins need two-step sign-in. Turn on an authenticator app or email codes in Settings › Security first.'
+
+export async function adminNeedsTwoStep(account: { email: string; role: MailRole }): Promise<boolean> {
+  if (account.role !== 'admin' || !account.email) return false
+  const factors = await twoFactorState(account.email)
+  return !factors.authenticator && !factors.email
+}
+
+export async function adminRefusal(account: { email: string; role: MailRole }, denied = 'Admin access required'): Promise<NextResponse | null> {
+  if (account.role !== 'admin') return NextResponse.json({ ok: false, error: denied }, { status: 403 })
+  if (await adminNeedsTwoStep(account)) {
+    return NextResponse.json({ ok: false, error: ADMIN_TWO_STEP_ERROR, twoStepRequired: true }, { status: 403 })
+  }
+  return null
 }

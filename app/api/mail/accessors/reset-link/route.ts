@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
+import { adminRefusal, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { createResetToken, getAccount } from '@/lib/mailbox'
 import { publicOrigin } from '@/lib/public-url'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
@@ -18,9 +18,8 @@ export async function POST(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
   const actor = await resolveAccount(req)
-  if (actor.role !== 'admin') {
-    return NextResponse.json({ ok: false, error: 'Admin access required' }, { status: 403 })
-  }
+  const refused = await adminRefusal(actor)
+  if (refused) return refused
   const limited = rateLimit(clientKey(req, 'reset-link'), 20, 60 * 60 * 1000)
   if (limited) return limited
 
