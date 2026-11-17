@@ -31,7 +31,7 @@ export async function sendPush(owner: string, payload: PushPayload): Promise<num
         delivered += 1
       } catch (err) {
         const status = (err as { statusCode?: number }).statusCode
-        if (status === 404 || status === 410) await deletePushSubscription(subscription.endpoint).catch(() => {})
+        if (status === 404 || status === 410) await deletePushSubscription(subscription.endpoint, owner).catch(() => {})
         else console.warn('[push] send failed', status ?? err)
       }
     }),

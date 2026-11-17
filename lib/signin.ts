@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { BRAND } from '@/lib/brand'
 import { renderActionEmail, withRequestText, type RequestNotice } from '@/lib/emails'
 import { sendMail, type SendResult } from '@/lib/mail-provider'
-import { recordSentMeta, setChallengeCode } from '@/lib/mailbox'
+import { getAccount, recordSentMeta, setChallengeCode } from '@/lib/mailbox'
 import { publicOrigin } from '@/lib/public-url'
 import { hashEmailCode, newEmailCode } from '@/lib/two-factor'
 import { describeRequest, visitorContext } from '@/lib/client-context'
@@ -124,4 +124,76 @@ export async function sendEmailCode(req: Request, challengeId: string, to: strin
   await setChallengeCode(challengeId, hashEmailCode(challengeId, code))
   if (sent.id) await recordSentMeta(sent.id, null, true).catch(() => {})
   return sent
+}
+
+export type AccountChange =
+  | { kind: 'password'; how: 'self' | 'reset' | 'admin' }
+  | { kind: 'recovery'; previous: string | null; next: string | null }
+
+function describeChange(change: AccountChange): { subject: string; title: string; happened: string; after: string } {
+  if (change.kind === 'recovery') {
+    return {
+      subject: `The recovery address for your ${BRAND.name} Mail account was changed`,
+      title: 'Your recovery address was changed',
+      happened: change.next
+        ? `The recovery address for this account was changed to ${change.next}. Password reset links now go there once it is confirmed.`
+        : 'The recovery address was removed from this account.',
+      after: '',
+    }
+  }
+  const happened = {
+    self: 'The password for this account was changed from a signed-in device.',
+    reset: 'The password for this account was reset with an emailed link.',
+    admin: 'An administrator of your workspace set a new password for this account.',
+  }[change.how]
+  return {
+    subject: `Your ${BRAND.name} Mail password was changed`,
+    title: 'Your password was changed',
+    happened,
+    after: ' Every other device signed in to it has been signed out.',
+  }
+}
+
+export async function notifyAccountChange(req: Request, email: string, change: AccountChange): Promise<void> {
+  try {
+    const account = await getAccount(email)
+    if (!account) return
+    const recipients = [...new Set(
+      [
+        account.address ?? account.email,
+        account.recoveryVerified ? account.recoveryEmail : null,
+        change.kind === 'recovery' ? change.previous : null,
+      ]
+        .filter((address): address is string => Boolean(address))
+        .map(address => address.trim().toLowerCase()),
+    )]
+    const { subject, title, happened, after } = describeChange(change)
+    const from = (process.env.MAIL_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
+    const request = requestNotice(req, {
+      account: account.email,
+      wasntYou: "If this wasn't you, reset your password now and tell your mailbox admin:",
+    })
+    const sent = await sendMail({
+      from,
+      fromName: `${BRAND.name} Mail`,
+      to: recipients,
+      subject,
+      text: withRequestText(`${happened}${after}\n\nAccount: ${account.email}\n\nIf this was you, there is nothing to do.`, request),
+      html: renderActionEmail({
+        eyebrow: `${BRAND.name} · Security`,
+        accent: BRAND.colors.accent,
+        title,
+        body: `${happened}${after} Account: ${account.email}.`,
+        actionLabel: 'Review your security',
+        actionUrl: deepLink(publicOrigin(req), 'security'),
+        expiry: 'If this was you, there is nothing to do.',
+        footer: "Wasn't you? Reset your password now and tell your mailbox admin.",
+        request,
+      }),
+      context: sendContext(req, 'security_notice', account.email),
+    })
+    if (sent.id) await recordSentMeta(sent.id, null, true).catch(() => {})
+  } catch (err) {
+    console.error('[mail] account-change notice failed:', err)
+  }
 }

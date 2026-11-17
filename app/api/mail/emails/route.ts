@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { matchesQuery, parseQuery } from '@/app/mail/search'
 import { FORWARD_RECIPIENTS, mailAuthGuard, resolveAccount } from '@/lib/dev-auth'
 import { scopeFor } from '@/lib/scope'
+import { changeableSentIds } from '@/lib/sent-access'
 import { readSentFlags, setSentFlags, readPixelOpens, readSentMeta, readSentOrigins, setSentMetaOwner, listAccounts, readSentArchive, type SentFlags } from '@/lib/mailbox'
 
 const SHARED_ADDRESS = BRAND.supportEmail.replace(/^.*<|>$/g, '').trim().toLowerCase()
@@ -155,6 +156,7 @@ export async function PATCH(req: Request) {
   if (body.starred !== undefined) flags.starred = body.starred
   if (body.archived !== undefined) flags.archived = body.archived
   if (body.trashed !== undefined) flags.trashed = body.trashed
-  await Promise.all(ids.map(id => setSentFlags(id, flags)))
+  const changeable = await changeableSentIds(await resolveAccount(req), ids)
+  await Promise.all(changeable.map(id => setSentFlags(id, flags)))
   return NextResponse.json({ ok: true })
 }

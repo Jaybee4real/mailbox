@@ -54,6 +54,11 @@ test('sent mail belongs to its assignment, else its sender, else the shared addr
   assert.equal(await access.mayReadSent(shared, 'from-shared'), true)
   assert.equal(await access.mayReadSent(shared, 'from-ada'), false)
   assert.equal(await access.mayReadSent({ address: null }, 'from-ada'), false)
+
+  const everything = ['from-ada', 'assigned', 'from-shared']
+  assert.deepEqual(await access.changeableSentIds(member, everything), ['from-ada', 'assigned'], "a colleague cannot trash someone else's Sent copy")
+  assert.deepEqual(await access.changeableSentIds({ address: 'boss@example.com', role: 'admin' }, everything), everything)
+  assert.deepEqual(await access.changeableSentIds({ address: null, role: 'member' }, everything), [])
 })
 
 test('removing an account kills its outstanding reset and invite links', async () => {
@@ -65,6 +70,17 @@ test('removing an account kills its outstanding reset and invite links', async (
   assert.equal(await mailbox.resetPasswordWithToken('invite-token', 'hash'), null)
   assert.equal(await mailbox.getAccount('leaver@example.com'), null, 'the link cannot recreate the account')
   assert.equal(await mailbox.resetTokenEmail('ada-token'), 'ada@example.com', 'other accounts keep theirs')
+})
+
+test('reset links are stored only as a digest and work once', async () => {
+  await mailbox.createAccount({ email: 'hashed@example.com', address: 'hashed@example.com', status: 'active' })
+  await mailbox.createResetToken('hashed@example.com', 'plain-reset-token', Date.now() + 3_600_000)
+  const stored = await mailbox.db()`SELECT token FROM mail_reset_tokens WHERE email = 'hashed@example.com'`
+  assert.equal(stored.length, 1)
+  assert.notEqual(stored[0].token, 'plain-reset-token')
+  assert.equal(await mailbox.resetTokenEmail(String(stored[0].token)), null, 'the stored value is not itself a working link')
+  assert.equal(await mailbox.resetPasswordWithToken('plain-reset-token', 'hash'), 'hashed@example.com')
+  assert.equal(await mailbox.resetPasswordWithToken('plain-reset-token', 'hash'), null)
 })
 
 test('received mail is readable by its owner, the shared address for unowned rows, and the all-inboxes reader', async () => {

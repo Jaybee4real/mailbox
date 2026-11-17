@@ -8,7 +8,7 @@ import { sendMail } from '@/lib/mail-provider'
 import { renderActionEmail, withRequestText } from '@/lib/emails'
 import { publicOrigin } from '@/lib/public-url'
 import { clientKey, rateLimit } from '@/lib/rate-limit'
-import { requestNotice, sendContext } from '@/lib/signin'
+import { notifyAccountChange, requestNotice, sendContext } from '@/lib/signin'
 import { VelaRateLimitError, rateLimitedResponse } from '@/lib/vela'
 
 export const runtime = 'nodejs'
@@ -44,8 +44,11 @@ export async function POST(req: Request) {
   }
 
   const recovery = (body.recovery ?? '').trim().toLowerCase()
+  const before = await getAccount(identity.email)
+  const previous = before?.recoveryVerified ? before.recoveryEmail : null
   if (!recovery) {
     await setRecoveryEmail(identity.email, null)
+    if (previous) await notifyAccountChange(req, identity.email, { kind: 'recovery', previous, next: null })
     return NextResponse.json({ ok: true, recoveryEmail: null, verified: false })
   }
   if (!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(recovery)) {
@@ -61,6 +64,7 @@ export async function POST(req: Request) {
   }
 
   await setRecoveryEmail(identity.email, recovery)
+  if (previous && previous !== recovery) await notifyAccountChange(req, identity.email, { kind: 'recovery', previous, next: recovery })
 
   const token = randomBytes(32).toString('hex')
   await createResetToken(identity.email, token, Date.now() + VERIFY_TTL_MS, 'verify-recovery')

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { mailAuthGuard } from '@/lib/dev-auth'
+import { clientKey, rateLimit } from '@/lib/rate-limit'
 import { inspectUrl, mergeVerdict, normalizeUrl, type LinkVerdict } from '@/lib/link-safety'
 
 export const runtime = 'nodejs'
@@ -9,6 +10,12 @@ const SAFE_BROWSING = 'https://safebrowsing.googleapis.com/v4/threatMatches:find
 // Verdicts are stable for a while and emails get re-opened constantly — cache per instance.
 const cache = new Map<string, { verdict: LinkVerdict; reasons: string[]; at: number }>()
 const TTL_MS = 6 * 60 * 60 * 1000
+const CACHE_LIMIT = 5000
+
+function remember(url: string, entry: { verdict: LinkVerdict; reasons: string[]; at: number }) {
+  if (cache.size >= CACHE_LIMIT && !cache.has(url)) cache.delete(cache.keys().next().value!)
+  cache.set(url, entry)
+}
 
 const THREAT_LABEL: Record<string, string> = {
   MALWARE: 'Known malware host (Google Safe Browsing)',
@@ -52,6 +59,8 @@ async function lookupRemote(urls: string[]): Promise<Map<string, string[]>> {
 export async function POST(req: Request) {
   const guard = await mailAuthGuard(req)
   if (guard) return guard
+  const limited = rateLimit(clientKey(req, 'link-check'), 600, 10 * 60 * 1000)
+  if (limited) return limited
 
   let body: { links?: Array<{ url: string; text?: string }> }
   try {
@@ -85,9 +94,9 @@ export async function POST(req: Request) {
     const threats = remote.get(url)
     if (threats?.length) {
       results[link.url] = { verdict: 'dangerous', reasons: [...new Set([...(results[link.url]?.reasons ?? []), ...threats])] }
-      cache.set(url, { verdict: 'dangerous', reasons: threats, at: now })
+      remember(url, { verdict: 'dangerous', reasons: threats, at: now })
     } else if (needRemote.includes(url)) {
-      cache.set(url, { verdict: 'safe', reasons: [], at: now })
+      remember(url, { verdict: 'safe', reasons: [], at: now })
     }
   }
 
