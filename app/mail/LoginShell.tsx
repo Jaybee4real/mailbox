@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { CLIENT_BRAND } from '@/lib/brand.client'
+import PoweredBy from './PoweredBy'
 import styles from './page.module.css'
 
 type Props = {
@@ -32,7 +33,10 @@ export default function LoginShell({ domains, children }: Props) {
           <a href={CLIENT_BRAND.websiteUrl} target="_blank" rel="noreferrer">{CLIENT_BRAND.website}</a>
         </footer>
       </aside>
-      <main className={styles.loginMain}>{children}</main>
+      <main className={styles.loginMain}>
+        {children}
+        <PoweredBy />
+      </main>
     </div>
   )
 }

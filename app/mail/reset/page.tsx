@@ -4,6 +4,7 @@ import { CLIENT_BRAND } from '@/lib/brand.client'
 import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import PoweredBy from '../PoweredBy'
 import styles from '../page.module.css'
 
 function ResetForm() {
@@ -146,6 +147,7 @@ export default function ResetPage() {
       <Suspense fallback={<p className={styles.loginSub}>Loading…</p>}>
         <ResetForm />
       </Suspense>
+      <PoweredBy />
     </div>
   )
 }
