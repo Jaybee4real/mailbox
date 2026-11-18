@@ -35,8 +35,33 @@ test('an invite to a disposable address is refused before any account is created
   }))
 
   assert.equal(response.status, 400)
-  assert.deepEqual(await response.json(), { ok: false, error: "Please use a permanent email address. Disposable email addresses aren't accepted." })
+  assert.deepEqual(await response.json(), {
+    ok: false,
+    error: "Please use a permanent email address. Disposable email addresses aren't accepted.",
+    code: 'disposable_email',
+  })
   assert.equal(await mailbox.getAccount('check@mailinator.com'), null)
   assert.equal((await mailbox.listAccounts()).length, accountsBefore)
   assert.equal(outboundRequests, 0)
+})
+
+test('a disposable recovery address is refused before it is saved or a link is sent', async () => {
+  const mailbox = await import('./mailbox.ts')
+  const { issueSession, passwordFingerprint, SESSION_COOKIE } = await import('./session.ts')
+  const { POST } = await import('../app/api/mail/recovery/route.ts')
+
+  await mailbox.createAccount({ email: 'keeper@example.com', address: 'keeper@example.com', role: 'member', status: 'active' })
+  const cookie = `${SESSION_COOKIE}=${issueSession('keeper@example.com', passwordFingerprint(undefined))}`
+  const sentBefore = outboundRequests
+
+  const response = await POST(new Request('https://mail.example.com/api/mail/recovery', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', cookie },
+    body: JSON.stringify({ recovery: 'Keeper@YopMail.com' }),
+  }))
+
+  assert.equal(response.status, 400)
+  assert.equal((await response.json()).code, 'disposable_email')
+  assert.equal((await mailbox.getAccount('keeper@example.com'))?.recoveryEmail ?? null, null)
+  assert.equal(outboundRequests, sentBefore)
 })

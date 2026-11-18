@@ -1,3 +1,4 @@
+import { DISPOSABLE_EMAIL_MESSAGE, isDisposableEmail } from '@/lib/disposable-email'
 import { BlockedRecipientsError } from '@/lib/blocked'
 import { BRAND, ADDRESS_DOMAINS } from '@/lib/brand'
 import { randomBytes } from 'node:crypto'
@@ -53,6 +54,9 @@ export async function POST(req: Request) {
   }
   if (!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(recovery)) {
     return NextResponse.json({ ok: false, error: 'That is not an email address we can send to.' }, { status: 400 })
+  }
+  if (isDisposableEmail(recovery)) {
+    return NextResponse.json({ ok: false, error: DISPOSABLE_EMAIL_MESSAGE, code: 'disposable_email' }, { status: 400 })
   }
   // A recovery address inside the mailbox it recovers is no recovery at all: the reset
   // link would land in the inbox the person cannot open.
