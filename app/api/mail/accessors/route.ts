@@ -107,7 +107,7 @@ export async function POST(req: Request) {
   const separateSignIn = ownSignIn || holderOfSendTo?.status === 'active'
   const existing = separateSignIn ? null : holderOfSendTo
   if (!ownSignIn && !holderOfSendTo && isDisposableEmail(sendTo)) {
-    return NextResponse.json({ ok: false, error: DISPOSABLE_EMAIL_MESSAGE }, { status: 400 })
+    return NextResponse.json({ ok: false, error: DISPOSABLE_EMAIL_MESSAGE, code: 'disposable_email' }, { status: 400 })
   }
   // An invite has to reach somebody. Sending it to a mailbox on our own domain that nobody
   // can open yet — the very address this invite would create, most often — posts the link
