@@ -25,11 +25,11 @@ assert.equal(direct.location, null, 'a caller outside Cloudflare cannot pick its
 assert.match(direct.time, /14:05 UTC$/, 'without a trusted timezone the time is UTC')
 assert.match(formatRequestTime(moment, 'Not/AZone'), /14:05 UTC$/, 'an unknown timezone falls back to UTC')
 
-assert.equal(nativeAppDevice('Vela Mail on ios', null), 'Vela Mail on iOS')
-assert.equal(nativeAppDevice('Vela Mail on android', null), 'Vela Mail on Android')
-assert.equal(nativeAppDevice(null, 'okhttp/4.12.0'), 'Vela Mail on Android')
-assert.equal(nativeAppDevice('<b>evil</b>', null), 'Vela Mail app', 'the device header is never echoed')
-assert.equal(describeRequest(browser, { native: true, deviceHeader: 'Vela Mail on ios', now: moment }).device, 'Vela Mail on iOS')
+assert.equal(nativeAppDevice('Vela Mail on ios', null), 'Vela mobile app on iOS')
+assert.equal(nativeAppDevice('Vela Mail on android', null), 'Vela mobile app on Android')
+assert.equal(nativeAppDevice(null, 'okhttp/4.12.0'), 'Vela mobile app on Android')
+assert.equal(nativeAppDevice('<b>evil</b>', null), 'Vela mobile app', 'the device header is never echoed')
+assert.equal(describeRequest(browser, { native: true, deviceHeader: 'Vela Mail on ios', now: moment }).device, 'Vela mobile app on iOS')
 
 const brand: EmailBrand = { name: 'Example Mail', accent: '#0560fa', accentOnDark: '#8fb4ff', tagline: 'Team mail', site: 'mail.example.com', siteUrl: 'https://mail.example.com' }
 const hostile = { time: '<script>alert(1)</script>', ip: '"><img src=x>', location: 'Zürich & <b>', device: '<i>Chrome</i>' }

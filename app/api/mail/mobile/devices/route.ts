@@ -23,7 +23,7 @@ export async function PUT(req: Request) {
   if (guard) return guard
   const account = await resolveAccount(req)
   const session = await readMobileSession(req)
-  if (!session) return NextResponse.json({ ok: false, error: 'Sign in from Vela Mail.' }, { status: 400 })
+  if (!session) return NextResponse.json({ ok: false, error: 'Sign in from the Vela mobile app.' }, { status: 400 })
   let body: { token?: string | null; previews?: boolean; provider?: string }
   try { body = await req.json() } catch { return NextResponse.json({ ok: false, error: 'Invalid request.' }, { status: 400 }) }
   if (body.token && (!PUSH_KINDS.includes(String(body.provider)) || !/^[\w:-]{20,4096}$/.test(body.token))) return NextResponse.json({ ok: false, error: 'Invalid FCM token.' }, { status: 400 })

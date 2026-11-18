@@ -39,6 +39,6 @@ export async function POST(req: Request) {
   const fingerprint = await currentFingerprint(email)
   const token = issueSession(email, fingerprint)
   return attachSession(NextResponse.json({ ok: true, email, session: Boolean(token),
-    ...(nativeClient(req) ? { token: await issueMobileSession(email, fingerprint, req.headers.get('x-mail-device') ?? 'Vela Mail') } : {}),
+    ...(nativeClient(req) ? { token: await issueMobileSession(email, fingerprint, req.headers.get('x-mail-device') ?? 'Vela mobile app') } : {}),
   }, { headers: { 'Cache-Control': 'no-store' } }), token)
 }

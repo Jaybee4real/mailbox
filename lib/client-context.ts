@@ -129,7 +129,7 @@ export function nativeAppDevice(deviceHeader: string | null, userAgent: string |
   const platform =
     deviceHeader?.match(/\bon\s+(ios|android)\b/i)?.[1].toLowerCase()
     ?? (/iPhone|iPad|Darwin|CFNetwork/.test(agent) ? 'ios' : /Android|okhttp/i.test(agent) ? 'android' : null)
-  return platform ? `Vela Mail on ${NATIVE_PLATFORMS[platform]}` : 'Vela Mail app'
+  return platform ? `Vela mobile app on ${NATIVE_PLATFORMS[platform]}` : 'Vela mobile app'
 }
 
 export function formatRequestTime(moment: Date, timezone: string | null): string {

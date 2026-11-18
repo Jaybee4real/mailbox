@@ -84,6 +84,6 @@ export async function POST(req: Request) {
   await clearPinLock(challenge.email).catch(() => {})
   const token = issueSession(challenge.email, await currentFingerprint(challenge.email))
   return attachSession(NextResponse.json({ ok: true, email: challenge.email, session: Boolean(token),
-    ...(nativeClient(req) ? { token: await issueMobileSession(challenge.email, await currentFingerprint(challenge.email), req.headers.get('x-mail-device') ?? 'Vela Mail') } : {}),
+    ...(nativeClient(req) ? { token: await issueMobileSession(challenge.email, await currentFingerprint(challenge.email), req.headers.get('x-mail-device') ?? 'Vela mobile app') } : {}),
   }, { headers: { 'Cache-Control': 'no-store' } }), token)
 }

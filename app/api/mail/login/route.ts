@@ -87,6 +87,6 @@ export async function POST(req: Request) {
 
   const token = issueSession(identity, await currentFingerprint(identity))
   return attachSession(NextResponse.json({ ok: true, email: identity, session: Boolean(token),
-    ...(nativeClient(req) ? { token: await issueMobileSession(identity, await currentFingerprint(identity), req.headers.get('x-mail-device') ?? 'Vela Mail') } : {}),
+    ...(nativeClient(req) ? { token: await issueMobileSession(identity, await currentFingerprint(identity), req.headers.get('x-mail-device') ?? 'Vela mobile app') } : {}),
   }, { headers: { 'Cache-Control': 'no-store' } }), token)
 }

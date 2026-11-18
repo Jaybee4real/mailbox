@@ -127,7 +127,7 @@ export default function PasskeySettings({ addRequest = 0, onCount }: Props) {
       <p className={styles.pwHeading}>Passkeys</p>
       <p className={styles.settingsProse}>
         Sign in with Face ID, Touch ID, a fingerprint or your device PIN instead of your password. A passkey also counts as
-        two-step sign-in, and it only works on this mailbox&apos;s own website and the Vela Mail app, so it cannot be phished.
+        two-step sign-in, and it only works on this mailbox&apos;s own website and the Vela mobile app, so it cannot be phished.
       </p>
 
       {passkeys?.map(passkey => (
@@ -148,7 +148,7 @@ export default function PasskeySettings({ addRequest = 0, onCount }: Props) {
       {supported === null ? null : !supported ? (
         <p className={styles.settingsNote}>
           This device cannot hold a passkey. It needs Face ID, Touch ID, Windows Hello, a fingerprint reader or a screen
-          lock in a browser such as Safari, Chrome or Edge. You can add one from your phone or in the Vela Mail app.
+          lock in a browser such as Safari, Chrome or Edge. You can add one from your phone or in the Vela mobile app.
         </p>
       ) : adding ? (
         <div className={styles.factorSetup}>

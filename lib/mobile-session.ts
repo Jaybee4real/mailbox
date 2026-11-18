@@ -37,7 +37,7 @@ async function ready() {
     .catch(error => { schema = undefined; throw error })
   await schema
 }
-export async function issueMobileSession(email: string, fingerprint: string, device = 'Vela Mail') {
+export async function issueMobileSession(email: string, fingerprint: string, device = 'Vela mobile app') {
   await ready()
   const token = `vm_${randomBytes(32).toString('base64url')}`
   const id = randomBytes(16).toString('hex')
