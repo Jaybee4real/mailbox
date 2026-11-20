@@ -95,7 +95,7 @@ function ResetForm() {
   }
 
   return (
-    <form className={styles.loginCard} onSubmit={submit}>
+    <form method="post" className={styles.loginCard} onSubmit={submit}>
       <div className={styles.loginBrand}>
         <span className={styles.brandMark} role="img" aria-label={CLIENT_BRAND.name} />
         <h1 className={styles.loginTitle}>{invite ? `Welcome to ${CLIENT_BRAND.name} Mail` : 'Set a new password'}</h1>

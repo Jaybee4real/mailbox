@@ -6647,6 +6647,7 @@ export default function DevMailPage() {
       return (
         <LoginShell domains={LOGIN_DOMAINS}>
           <form
+            method="post"
             className={styles.loginCard}
             onSubmit={event => {
               event.preventDefault()
@@ -6731,6 +6732,7 @@ export default function DevMailPage() {
     return (
       <LoginShell domains={LOGIN_DOMAINS}>
         <form
+          method="post"
           className={styles.loginCard}
           onSubmit={event => {
             event.preventDefault()
