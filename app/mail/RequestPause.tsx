@@ -19,11 +19,23 @@ export function useCountdown(until: number | null): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (!until) return
-    const first = window.setTimeout(() => setNow(Date.now()), 0)
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    let timer = 0
+    const tick = () => {
+      const current = Date.now()
+      setNow(current)
+      window.clearTimeout(timer)
+      if (current < until) timer = window.setTimeout(tick, (until - current) % 1000 || 1000)
+    }
+    const catchUp = () => {
+      if (document.visibilityState === 'visible') tick()
+    }
+    timer = window.setTimeout(tick, 0)
+    document.addEventListener('visibilitychange', catchUp)
+    window.addEventListener('focus', catchUp)
     return () => {
-      window.clearTimeout(first)
-      window.clearInterval(timer)
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', catchUp)
+      window.removeEventListener('focus', catchUp)
     }
   }, [until])
   return until ? secondsLeft(until, now) : 0
