@@ -11,8 +11,7 @@ const SCOPE_WORDS: Record<PauseScope, string> = {
 export const scopeWords = (scope: PauseScope): string => SCOPE_WORDS[scope] ?? SCOPE_WORDS.device
 
 export function formatWait(seconds: number): string {
-  const whole = Math.max(0, Math.ceil(seconds))
-  if (whole < 10) return 'less than a minute'
+  const whole = Math.max(1, Math.ceil(seconds))
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
 }
 
@@ -22,11 +21,11 @@ export function readPause(status: number, retryAfterHeader: string | null, body:
   if (status !== 429) return null
   const data = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
   const scope: PauseScope = data.scope === 'account' || data.scope === 'device' || data.scope === 'ip' ? data.scope : 'ip'
+  const retrySeconds = [data.retry_after, retryAfterHeader].map(Number).find(seconds => Number.isFinite(seconds) && seconds > 0)
   const until = Date.parse(String(data.blocked_until ?? ''))
-  const retrySeconds = Number(data.retry_after ?? retryAfterHeader)
-  const blockedUntil = Number.isFinite(until) && until > now
-    ? until
-    : now + (Number.isFinite(retrySeconds) && retrySeconds > 0 ? retrySeconds : 60) * 1000
+  const blockedUntil = retrySeconds
+    ? now + retrySeconds * 1000
+    : Number.isFinite(until) && until > now ? until : now + 60_000
   return { scope, blockedUntil, message: typeof data.error === 'string' ? data.error : '' }
 }
 
