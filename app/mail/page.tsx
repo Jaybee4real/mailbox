@@ -60,7 +60,7 @@ import qrcode from 'qrcode-generator'
 import Ticker, { TICKER_SPOTS, tickerDefault, tickerSettingsFrom, type TickerSettings, type TickerSpot } from './Ticker'
 import { splitQuotedTail, splitQuotedText } from './quoted'
 import { ATTACH_TOTAL_LIMIT_BYTES, carriedBytes, isEmbedded, overAttachmentTotal, referencedCids, resolveInlineImages } from '@/lib/attachments'
-import { applyThreadFlagDeltas, normalizeSubject, sesLocalPart } from '@/lib/threads'
+import { applyThreadFlagDeltas, applyThreadMove, normalizeSubject, sesLocalPart } from '@/lib/threads'
 import { matchesInboxFilters, normalizeInboxFilters, type InboxFilter, type ListShow } from '@/lib/inbox-filters'
 import { FIRST_MESSAGE_REASON, isLookalikeReason } from '@/lib/risk'
 import { defaultSignature, fillSignature } from '@/lib/default-signature'
@@ -251,6 +251,9 @@ type ConversationRow = {
   snippet: string
   labels: string[]
 }
+
+type ThreadList = { rows: ConversationRow[]; cursor: string | null }
+const NO_THREADS: ConversationRow[] = []
 
 type InboundEmail = {
   id: string
@@ -2093,32 +2096,43 @@ export default function DevMailPage() {
     setBlockMsg({ text: data.warning ?? (method === 'POST' ? `${address.trim().toLowerCase()} is blocked.` : `${address} is unblocked.`), bad: Boolean(data.warning) })
   }
 
-  const [threads, setThreads] = useState<ConversationRow[]>([])
+  const [threadLists, setThreadLists] = useState<Record<string, ThreadList>>({})
   const [priorityIds, setPriorityIds] = useState<Set<string>>(() => new Set())
-  const [threadsResolved, setThreadsResolved] = useState(false)
+  const [threadsResolvedKey, setThreadsResolvedKey] = useState<string | null>(null)
   const threadFolder = folder === 'inbox' && showFiltered ? 'filtered' : folder === 'archived' ? 'archive' : folder === 'trash' ? 'trash' : folder === 'starred' ? 'starred' : folder === 'snoozed' ? 'snoozed' : folder === 'spam' ? 'spam' : 'inbox'
   const threadsFetch = useRef<string | null>(null)
-  const threadsLoadedFolder = useRef<string | null>(null)
-  const [threadsCursor, setThreadsCursor] = useState<string | null>(null)
+  const threadsConfirmed = useRef(new Set<string>())
   const THREAD_PAGE = 500
   // The key carries the mailbox as well as the folder: switching tabs has to refetch, and
   // the guard would otherwise treat the other mailbox's list as already loaded.
   const threadShow: ListShow = threadFolder === 'inbox' || threadFolder === 'filtered' ? listShow : 'all'
   const threadKey = `${mailboxQuery}|${threadFolder}|${threadShow}`
+  const threads = threadLists[threadKey]?.rows ?? NO_THREADS
+  const threadsCursor = threadLists[threadKey]?.cursor ?? null
+  const threadsResolved = threadsResolvedKey === threadKey
+  const setThreads = useCallback((update: (rows: ConversationRow[]) => ConversationRow[]) => {
+    setThreadLists(lists => Object.fromEntries(Object.entries(lists).map(([key, list]) => [key, { ...list, rows: update(list.rows) }])))
+  }, [])
+  const moveThread = useCallback((threadId: string, change: (thread: ConversationRow) => ConversationRow) => {
+    setThreadLists(lists => Object.fromEntries(Object.entries(lists).map(([key, list]) => [key, {
+      ...list,
+      rows: key === threadKey
+        ? list.rows.filter(thread => thread.threadId !== threadId)
+        : list.rows.map(thread => (thread.threadId === threadId ? change(thread) : thread)),
+    }])))
+  }, [threadKey])
 
   useEffect(() => {
-    setThreads([])
-    setThreadsCursor(null)
-    setThreadsResolved(false)
+    setThreadsResolvedKey(null)
     threadsFetch.current = null
-    threadsLoadedFolder.current = null
     setInboxEmails([])
     setServerCounts(null)
   }, [mailboxQuery])
   const loadThreads = useCallback(async () => {
     if (!isLoggedIn) return
     if (threadsFetch.current === threadKey) return
-    threadsFetch.current = threadKey
+    const requestKey = threadKey
+    threadsFetch.current = requestKey
     try {
       const params = new URLSearchParams(mailboxQuery.replace(/^\?/, ''))
       params.set('folder', threadFolder)
@@ -2143,19 +2157,23 @@ export default function DevMailPage() {
         const listedIds = new Set(listed.map(entry => entry.threadId))
         // A rule can hold priority mail out of the inbox page, and old mail sits past it.
         const fresh = [...listed, ...(pinned ?? []).filter(entry => !listedIds.has(entry.threadId))]
-        const replace = threadsLoadedFolder.current !== threadKey
-        threadsLoadedFolder.current = threadKey
-        setThreads(current => {
-          if (replace || current.length === 0) return fresh
+        const nextCursor: string | null = data.nextCursor ?? null
+        const replace = !threadsConfirmed.current.has(requestKey) || !nextCursor
+        threadsConfirmed.current.add(requestKey)
+        const pageEnd = listed.length ? listed[listed.length - 1].latestAt : ''
+        setThreadLists(lists => {
+          const current = lists[requestKey]
+          if (replace || !current?.rows.length) return { ...lists, [requestKey]: { rows: fresh, cursor: nextCursor } }
           const freshIds = new Set(fresh.map(entry => entry.threadId))
-          return [...fresh, ...current.filter(entry => !freshIds.has(entry.threadId))]
+          // Rows inside the page the server just sent that it no longer lists have left this folder.
+          const deeper = current.rows.filter(entry => !freshIds.has(entry.threadId) && entry.latestAt < pageEnd)
+          return { ...lists, [requestKey]: { rows: [...fresh, ...deeper], cursor: current.cursor ?? nextCursor } }
         })
-        setThreadsCursor(current => (replace ? (data.nextCursor ?? null) : current ?? (data.nextCursor ?? null)))
       }
     } catch {
     } finally {
-      if (threadsFetch.current === threadKey) threadsFetch.current = null
-      setThreadsResolved(true)
+      if (threadsFetch.current === requestKey) threadsFetch.current = null
+      setThreadsResolvedKey(requestKey)
     }
   }, [isLoggedIn, threadFolder, threadKey, threadShow, mailboxQuery, apiHeaders])
 
@@ -2164,6 +2182,7 @@ export default function DevMailPage() {
     if (!threadsCursor || threadPageInFlight.current) return
     threadPageInFlight.current = true
     setLoadingMore(true)
+    const requestKey = threadKey
     try {
       const moreParams = new URLSearchParams(mailboxQuery.replace(/^\?/, ''))
       moreParams.set('folder', threadFolder)
@@ -2174,20 +2193,20 @@ export default function DevMailPage() {
       const data = await response.json().catch(() => null)
       if (!data?.ok || !Array.isArray(data.threads)) return
       const fresh = data.threads as ConversationRow[]
-      setThreads(current => {
+      setThreadLists(lists => {
+        const current = lists[requestKey]?.rows ?? []
         const seen = new Set(current.map(entry => entry.threadId))
-        return [...current, ...fresh.filter(entry => !seen.has(entry.threadId))]
+        return { ...lists, [requestKey]: { rows: [...current, ...fresh.filter(entry => !seen.has(entry.threadId))], cursor: data.nextCursor ?? null } }
       })
-      setThreadsCursor(data.nextCursor ?? null)
     } catch {
     } finally {
       threadPageInFlight.current = false
       setLoadingMore(false)
     }
-  }, [threadsCursor, threadFolder, threadShow, mailboxQuery, apiHeaders])
+  }, [threadsCursor, threadKey, threadFolder, threadShow, mailboxQuery, apiHeaders])
 
   useEffect(() => {
-    setThreadsResolved(false)
+    setThreadsResolvedKey(null)
     void loadThreads()
   }, [loadThreads])
 
@@ -2856,15 +2875,19 @@ export default function DevMailPage() {
     try {
       const cached = localStorage.getItem(`${LS_INBOX_CACHE_KEY}:${email}${mailboxQuery}`)
       if (!cached) return
-      const saved = JSON.parse(cached) as { at?: number; rows?: InboundEmail[]; threads?: ConversationRow[]; folder?: string; counts?: typeof serverCounts }
+      const saved = JSON.parse(cached) as { at?: number; rows?: InboundEmail[]; lists?: Record<string, ConversationRow[]>; folder?: string; counts?: typeof serverCounts }
       if (saved?.counts) setServerCounts(current => current ?? saved.counts!)
-      const rows = Array.isArray(saved?.rows) ? saved.rows : null
-      if (!rows?.length) return
-      if (saved.folder !== threadFolder) return
-      setInboxEmails(current => (current.length ? current : rows))
-      if (Array.isArray(saved.threads) && saved.threads.length) {
-        setThreads(current => (current.length ? current : saved.threads!))
+      const savedLists = Object.entries(saved?.lists ?? {}).filter(([key, rows]) => key.startsWith(`${mailboxQuery}|`) && Array.isArray(rows) && rows.length)
+      if (savedLists.length) {
+        setThreadLists(lists => {
+          const next = { ...lists }
+          for (const [key, rows] of savedLists) next[key] = next[key] ?? { rows, cursor: null }
+          return next
+        })
       }
+      const rows = Array.isArray(saved?.rows) ? saved.rows : null
+      if (!rows?.length || saved.folder !== threadFolder) return
+      setInboxEmails(current => (current.length ? current : rows))
       setMailboxLoading(false)
       setMailboxStale(true)
     } catch {
@@ -2882,14 +2905,18 @@ export default function DevMailPage() {
           at: Date.now(),
           folder: threadFolder,
           rows: inboxEmails.slice(0, INBOX_PAGE).map(entry => ({ ...entry, html: null })),
-          threads: threads.slice(0, 200),
+          lists: Object.fromEntries(
+            Object.entries(threadLists)
+              .filter(([key]) => key.startsWith(`${mailboxQuery}|`) && threadsConfirmed.current.has(key))
+              .map(([key, list]) => [key, list.rows.slice(0, 200)]),
+          ),
           counts: serverCounts,
         }),
       )
     } catch {
       // Storage full or blocked: the cache is an optimisation, never a requirement.
     }
-  }, [inboxEmails, threads, threadFolder, isLoggedIn, mailboxStale, email, mailboxQuery, serverCounts])
+  }, [inboxEmails, threadLists, threadFolder, isLoggedIn, mailboxStale, email, mailboxQuery, serverCounts])
 
   const typedOnce = useRef(false)
   useEffect(() => {
@@ -2987,7 +3014,7 @@ export default function DevMailPage() {
     (threadId: string | null, until: Date | null) => {
       if (!threadId) return
       setSnoozeMenuOpen(false)
-      setThreads(list => list.filter(thread => thread.threadId !== threadId))
+      moveThread(threadId, thread => ({ ...thread, snoozedUntil: until ? until.toISOString() : null }))
       setSelectedId(null)
       setReaderOpenMobile(false)
       fetch('/api/mail/inbox', {
@@ -2998,7 +3025,7 @@ export default function DevMailPage() {
         .then(() => loadCounts(true))
         .catch(() => {})
     },
-    [apiHeaders, loadCounts],
+    [apiHeaders, loadCounts, moveThread],
   )
 
   const SWIPE_COMMIT = 96
@@ -3505,10 +3532,7 @@ export default function DevMailPage() {
     setSelectedBulk(new Set())
     setInboxEmails([])
     setSentEmails([])
-    setThreads([])
-    setThreadsCursor(null)
-    threadsLoadedFolder.current = null
-    setThreadsResolved(false)
+    setThreadsResolvedKey(null)
     refreshAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mailbox])
@@ -4125,7 +4149,10 @@ export default function DevMailPage() {
     : listCountPaging
       ? 'conversations loaded'
       : (folderConversationTotal ?? loadedRows) === 1 ? 'conversation' : 'conversations'
-  const listCountTitle = `${listCountFigure} ${listCountUnit}`
+  const listCountLoading = isInboundFolder ? !search.trim() && !threadsResolved : mailboxLoading && loadedRows === 0
+  const listCountTitle = listCountLoading
+    ? `Loading ${isInboundFolder ? 'conversations' : 'messages'}`
+    : `${listCountFigure} ${listCountUnit}`
 
   const selectedInbound = selectedId ? inboxEmails.find(entry => entry.id === selectedId) ?? null : null
   const selectedSent =
@@ -4436,7 +4463,7 @@ export default function DevMailPage() {
       const domain = parseAddress(entry.from).split('@')[1] ?? 'this sender'
       setSentFlash(`Mail from ${domain} is trusted now`)
       window.setTimeout(() => setSentFlash(''), 2500)
-      threadsLoadedFolder.current = null
+      threadsConfirmed.current.clear()
       threadsFetch.current = null
       loadThreads()
     },
@@ -4502,7 +4529,7 @@ export default function DevMailPage() {
           if (flags.starred !== undefined || (flags.read !== undefined && showFilteredRef.current)) loadCounts(true)
         })
     },
-    [apiHeaders],
+    [apiHeaders, setThreads],
   )
 
   /**
@@ -4519,13 +4546,7 @@ export default function DevMailPage() {
       setInboxEmails(list =>
         list.map(entry => (threadKeys.get(entry.id) === threadKeys.get(id) ? { ...entry, ...flags } : entry)),
       )
-      setThreads(list =>
-        list.filter(thread => {
-          if (thread.threadId !== threadId) return true
-          // The row leaves the folder it was swiped out of; the next refresh restates it.
-          return false
-        }),
-      )
+      moveThread(threadId, thread => applyThreadMove(thread, flags))
       fetch('/api/mail/inbox', {
         method: 'PATCH',
         headers: apiHeaders(),
@@ -4534,7 +4555,7 @@ export default function DevMailPage() {
         .then(() => loadCounts(true))
         .catch(() => {})
     },
-    [apiHeaders, setInboundFlag, threadIds, threadKeys, loadCounts],
+    [apiHeaders, setInboundFlag, threadIds, threadKeys, loadCounts, moveThread],
   )
   /**
    * The row carries the newest message's id, but the star belongs to the conversation —
@@ -4567,7 +4588,7 @@ export default function DevMailPage() {
         .then(() => loadCounts(true))
         .catch(() => {})
     },
-    [apiHeaders, setInboundFlag, threadIds, threadKeys, loadCounts],
+    [apiHeaders, setInboundFlag, threadIds, threadKeys, loadCounts, setThreads],
   )
 
   useEffect(() => { swipeCommitRef.current = commitRowFlags }, [commitRowFlags])
@@ -4724,7 +4745,7 @@ export default function DevMailPage() {
       setMailSettings(nextSettings)
       if (!next.length) setShowFiltered(false)
       await fetch('/api/mail/settings', { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(nextSettings) }).catch(() => {})
-      threadsLoadedFolder.current = null
+      threadsConfirmed.current.clear()
       threadsFetch.current = null
       await Promise.all([loadThreads(), loadCounts(true)])
     },
@@ -9052,8 +9073,14 @@ export default function DevMailPage() {
           </button>
           <h1 className={styles.listTitle}>{folder === 'inbox' && showFiltered ? 'Filtered' : folderTitles[folder]}</h1>
           <span className={styles.listMeta} title={listCountTitle}>
-            {listCountFigure}{' '}
-            <span className={styles.listMetaUnit}>{listCountUnit}</span>
+            {listCountLoading ? (
+              <span className={styles.listMetaUnit}>{listCountTitle}</span>
+            ) : (
+              <>
+                {listCountFigure}{' '}
+                <span className={styles.listMetaUnit}>{listCountUnit}</span>
+              </>
+            )}
           </span>
           {folder === 'inbox' && (
             <InboxFilters

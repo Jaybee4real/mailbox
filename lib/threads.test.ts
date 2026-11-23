@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { applyThreadFlagDeltas, referencedIds, sesLocalPart } from './threads.ts'
+import { applyThreadFlagDeltas, applyThreadMove, referencedIds, sesLocalPart } from './threads.ts'
 
 type Counts = {
   threadId: string
@@ -100,5 +100,15 @@ assert.deepEqual(
 assert.deepEqual(referencedIds('not json'), [])
 assert.deepEqual(referencedIds(JSON.stringify({ 'message-id': '<own@x>' })), [])
 assert.equal(sesLocalPart('<011001a1a1f248e4-04905abd-000000@eu-north-1.amazonses.com>'), '011001a1a1f248e4-04905abd-000000')
+
+const conversation = { ...thread({ unreadCount: 2, starredCount: 1, inboxCount: 3, archivedCount: 1, trashedCount: 1 }), count: 5 }
+const movedToTrash = applyThreadMove(conversation, { trashed: true })
+assert.deepEqual([movedToTrash.trashedCount, movedToTrash.inboxCount, movedToTrash.archivedCount], [5, 0, 0], 'a trashed conversation leaves every other folder')
+const restored = applyThreadMove(movedToTrash, { trashed: false })
+assert.deepEqual([restored.trashedCount, restored.inboxCount], [0, 5], 'a restored conversation is back in the inbox')
+const movedToArchive = applyThreadMove(conversation, { archived: true })
+assert.deepEqual([movedToArchive.inboxCount, movedToArchive.archivedCount, movedToArchive.trashedCount], [0, 4, 1], 'archiving keeps trashed messages in the trash')
+assert.equal(movedToArchive.starredCount, 1, 'and keeps the star')
+assert.equal(applyThreadMove(conversation, {}), conversation)
 
 console.log('threads: ok')

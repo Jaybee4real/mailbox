@@ -81,3 +81,15 @@ export function applyThreadFlagDeltas<Row extends ThreadCounts>(
     return next
   })
 }
+
+export function applyThreadMove<Row extends ThreadCounts & { count: number }>(
+  row: Row,
+  flags: Pick<ThreadFlags, 'archived' | 'trashed'>,
+): Row {
+  if (flags.trashed === true) return { ...row, trashedCount: row.count, inboxCount: 0, archivedCount: 0, unreadCount: 0, starredCount: 0 }
+  const kept = flags.trashed === false ? row.count : row.count - row.trashedCount
+  const trashedCount = flags.trashed === false ? 0 : row.trashedCount
+  if (flags.archived === true) return { ...row, trashedCount, archivedCount: kept, inboxCount: 0 }
+  if (flags.archived === false || flags.trashed === false) return { ...row, trashedCount, archivedCount: 0, inboxCount: kept }
+  return row
+}
