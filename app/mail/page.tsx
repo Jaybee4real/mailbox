@@ -73,6 +73,7 @@ import PasskeySignIn from './PasskeySignIn'
 import RequestPause, { PauseAnnouncer, useCountdown, usePause } from './RequestPause'
 import { formatWait, readPause, readThrottle } from './pause'
 import { readDeepLink, spacedCode, type DeepLink } from '@/lib/deep-links'
+import { startProductAnalytics } from '@/lib/monitoring.client'
 import { parseAddress, replyAllFor, replyFor } from './recipients'
 import LinkSettings, { defaultLinkSettings, linkSettingsFromShare, linkSettingsPayload, linkSummary, linkTerms, type LinkSettingsValue } from './LinkSettings'
 import { shareGate, type ShareAccess } from '@/lib/share-policy'
@@ -3584,6 +3585,9 @@ export default function DevMailPage() {
   }, [isLoggedIn, apiHeaders])
 
   const accountEmail = account?.email ?? null
+  useEffect(() => {
+    if (accountEmail) void startProductAnalytics()
+  }, [accountEmail])
   const trackOpensDefault = account?.trackOpens === true
   const composeTracked = compose.track ?? trackOpensDefault
   useEffect(() => {
