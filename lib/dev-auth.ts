@@ -5,6 +5,7 @@ import { getAccount, getAccountByAddress, getAccountPasswordHash, setAccountPass
 import { hashPassword, verifyPassword, isLegacyHash } from '@/lib/password'
 import { passwordFingerprint, readSession } from '@/lib/session'
 import { readMobileSession } from '@/lib/mobile-session'
+import { isWatched, reportSecurityEvent } from '@/lib/security-events'
 
 /**
  * The two original accounts. They may sign in with the email-derived default password
@@ -98,7 +99,7 @@ export async function verifyMailAuth(
       // actually hosts, never an arbitrary one. The same pair installed on two tenants
       // would otherwise be one key to both mailboxes.
       const seat = await resolveSeat(normalized)
-      if (seat) return { ok: true, email: seat.email }
+      if (seat && !isWatched(normalized, seat.email, seat.address)) return { ok: true, email: seat.email }
       if (isLegacyDefaultAccount(normalized)) return { ok: true, email: normalized }
       return { ok: false, error: 'Invalid credentials' }
     }
@@ -106,7 +107,7 @@ export async function verifyMailAuth(
 
   const account = await resolveSeat(normalized)
   const legacy = isLegacyDefaultAccount(normalized)
-  if (!account && !legacy) {
+  if ((!account && !legacy) || isWatched(normalized, account?.email, account?.address)) {
     await decoyPasswordCheck(password)
     return { ok: false, error: 'Invalid credentials' }
   }
@@ -145,9 +146,14 @@ export async function currentFingerprint(email: string): Promise<string> {
  * so changing or resetting a password signs out every device that was already signed in.
  */
 async function sessionIdentity(req: Request): Promise<string | null> {
+  const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
+  if (bearer && isWatched(bearer)) {
+    void reportSecurityEvent(req, { level: 2, kind: 'decoy-key', detail: `Retired API token presented to ${new URL(req.url).pathname}` })
+    return null
+  }
   const session = req.headers.get('authorization')?.startsWith('Bearer vm_')
     ? await readMobileSession(req) : readSession(req)
-  if (!session) return null
+  if (!session || isWatched(session.email)) return null
 
   const account = await getAccount(session.email)
   if (!account && !isLegacyDefaultAccount(session.email)) return null

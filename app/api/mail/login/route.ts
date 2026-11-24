@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { currentFingerprint, resolveSeat, verifyMailAuth } from '@/lib/dev-auth'
 import { createLoginChallenge, recordSignin, twoFactorState, clearPinLock } from '@/lib/mailbox'
 import { clientKey, rateLimit, clearRateLimit } from '@/lib/rate-limit'
+import { isWatched, reportSecurityEvent } from '@/lib/security-events'
 import { attachSession, issueSession } from '@/lib/session'
 import { issueMobileSession } from '@/lib/mobile-session'
 import { requestContext, requesterContext, signInBody, withDeviceCookie } from '@/lib/signin'
@@ -36,6 +37,9 @@ export async function POST(req: Request) {
 
   const seat = await resolveSeat(email).catch(() => null)
   const seatKey = seat?.email ?? email
+  if (isWatched(email, seat?.email, seat?.address)) {
+    void reportSecurityEvent(req, { level: 3, kind: 'honey-account', detail: `Password sign-in attempt for ${email}` })
+  }
   // Keyed on address as well as caller, so one shared office IP cannot lock
   // everybody out, and a rotating-IP attacker still meets a per-account ceiling.
   const key = `${clientKey(req, 'login')}:${seatKey}`
