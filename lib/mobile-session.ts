@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
+import { isWatched, reportSecurityEvent } from './security-events'
 import { tursoQuery } from './turso'
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex')
@@ -50,6 +51,10 @@ export async function issueMobileSession(email: string, fingerprint: string, dev
 export async function readMobileSession(req: Request) {
   const token = req.headers.get('authorization')?.match(/^Bearer (vm_[\w-]{43})$/)?.[1]
   if (!token) return null
+  if (isWatched(token)) {
+    void reportSecurityEvent(req, { level: 2, kind: 'decoy-key', detail: `Retired app token presented to ${new URL(req.url).pathname}` })
+    return null
+  }
   await ready()
   const [row] = await tursoQuery('SELECT * FROM mail_mobile_sessions WHERE token_hash = ? AND expires_at > ?', [digest(token), Date.now()])
   if (!row) return null

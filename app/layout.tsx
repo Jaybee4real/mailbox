@@ -1,7 +1,9 @@
 import { BRAND } from '@/lib/brand'
 import { BRAND_ENV_KEYS } from '@/lib/brand.client'
+import { MONITORING_ENV_KEYS } from '@/lib/monitoring'
 import type { Metadata, Viewport } from 'next'
 import type { CSSProperties, ReactNode } from 'react'
+import ErrorReporting from './ErrorReporting'
 import './globals.css'
 
 // One image serves every deployment, so nothing that names the brand may be settled at
@@ -39,7 +41,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           dangerouslySetInnerHTML={{
             __html: `window.__MAILBOX_BRAND_ENV__=${JSON.stringify(
               {
-                ...Object.fromEntries(BRAND_ENV_KEYS.flatMap(key => (process.env[key] ? [[key, process.env[key]]] : []))),
+                ...Object.fromEntries([...BRAND_ENV_KEYS, ...MONITORING_ENV_KEYS].flatMap(key => (process.env[key] ? [[key, process.env[key]]] : []))),
                 NEXT_PUBLIC_MAIL_SUPPORT_EMAIL: BRAND.supportEmail,
               },
             ).replace(/</g, '\\u003c')}`,
@@ -50,6 +52,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         data-mark-style={BRAND.chromeMarkStyle}
         style={{ ['--brand-mark' as string]: `url('${BRAND.chromeMarkUrl}')` } as CSSProperties}
       >
+        <ErrorReporting />
         {children}
       </body>
     </html>

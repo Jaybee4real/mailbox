@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { isMailAccount, resolveSeat } from '@/lib/dev-auth'
 import { createResetToken, getAccount, recordSentMeta } from '@/lib/mailbox'
+import { isWatched, reportSecurityEvent } from '@/lib/security-events'
 import { sendMail } from '@/lib/mail-provider'
 import { renderActionEmail, withRequestText } from '@/lib/emails'
 import { publicOrigin } from '@/lib/public-url'
@@ -38,7 +39,11 @@ export async function POST(req: Request) {
 
   const email = String(body.email ?? '').trim().toLowerCase()
   if (!email || email.length > 254) return NextResponse.json({ ok: false, error: 'Enter your email address.' }, { status: 400 })
-  const seatKey = (await resolveSeat(email).catch(() => null))?.email ?? email
+  const seat = await resolveSeat(email).catch(() => null)
+  const seatKey = seat?.email ?? email
+  if (isWatched(email, seat?.email, seat?.address)) {
+    void reportSecurityEvent(req, { level: 3, kind: 'honey-account', detail: `Password reset requested for ${email}` })
+  }
 
   const limited = rateLimit(`${clientKey(req, 'request-reset')}:${seatKey}`, 5, HOUR_MS)
   if (limited) return limited

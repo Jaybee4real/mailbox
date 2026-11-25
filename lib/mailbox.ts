@@ -20,6 +20,7 @@ import { impersonationReasons, judgeMessage, raiseRisk, senderDomainOf, type Ris
 import type { ShareAccess, ShareSettings } from './share-policy'
 import { velaApiBase, velaApiKey } from './vela-config'
 import { removeAllPasskeys } from './passkeys'
+import { isWatched, watchListSize } from './security-events'
 
 export { judgeMessage, senderDomainOf, type Risk, type RiskJudgement, type RiskSignals, type SenderStanding }
 
@@ -2034,14 +2035,20 @@ export async function recordContact(rawEmail: string, name: string | null): Prom
       name = COALESCE(excluded.name, mail_contacts.name)`
 }
 
+const CONTACT_SUGGESTIONS = 8
+
 export async function searchContacts(query: string): Promise<Contact[]> {
   await ensureMailSchema()
   const sql = db()
   const term = `%${query.trim().toLowerCase()}%`
+  const limit = CONTACT_SUGGESTIONS + watchListSize()
   const rows = query.trim()
-    ? await sql`SELECT email, name FROM mail_contacts WHERE lower(email) LIKE ${term} OR lower(coalesce(name,'')) LIKE ${term} ORDER BY seen_count DESC, last_seen DESC LIMIT 8`
-    : await sql`SELECT email, name FROM mail_contacts ORDER BY seen_count DESC, last_seen DESC LIMIT 8`
-  return rows.map(row => ({ email: String(row.email), name: (row.name as string) ?? null }))
+    ? await sql`SELECT email, name FROM mail_contacts WHERE lower(email) LIKE ${term} OR lower(coalesce(name,'')) LIKE ${term} ORDER BY seen_count DESC, last_seen DESC LIMIT ${limit}`
+    : await sql`SELECT email, name FROM mail_contacts ORDER BY seen_count DESC, last_seen DESC LIMIT ${limit}`
+  return rows
+    .filter(row => !isWatched(String(row.email)))
+    .slice(0, CONTACT_SUGGESTIONS)
+    .map(row => ({ email: String(row.email), name: (row.name as string) ?? null }))
 }
 
 // ── Settings ───────────────────────────────────────────────────
@@ -2171,7 +2178,7 @@ export async function listAccounts(): Promise<MailAccount[]> {
   await ensureMailSchema()
   const sql = db()
   const rows = await sql`SELECT email, name, address, role, status, invited_by, created_at, recovery_email, recovery_verified, totp_secret, email_code_enabled, (password_hash IS NOT NULL) AS has_password FROM mail_accounts ORDER BY created_at ASC`
-  return rows.map(mapAccount)
+  return rows.map(mapAccount).filter(account => !isWatched(account.email, account.address))
 }
 
 export async function getAccount(email: string): Promise<MailAccount | null> {

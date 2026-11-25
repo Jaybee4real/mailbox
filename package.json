@@ -42,6 +42,7 @@
   },
   "dependencies": {
     "@libsql/client": "0.18.0",
+    "@sentry/nextjs": "11.11.0",
     "@simplewebauthn/browser": "14.0.0",
     "@simplewebauthn/server": "14.0.3",
     "@tiptap/extension-color": "^3.31.3",
@@ -57,6 +58,7 @@
     "@tiptap/starter-kit": "^3.31.3",
     "next": "16.4.5",
     "nspell": "2.1.5",
+    "posthog-js": "1.447.6",
     "qrcode-generator": "2.0.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
