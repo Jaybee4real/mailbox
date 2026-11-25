@@ -40,6 +40,8 @@ export function reportSecurityEvent(req: Request, event: SecurityEvent): Promise
     }),
     signal: AbortSignal.timeout(REPORT_TIMEOUT_MS),
   })
-    .then(() => undefined)
+    .then(response => {
+      if (!response.ok) console.warn('[security-events]', `report answered ${response.status}`)
+    })
     .catch(err => console.warn('[security-events]', err instanceof Error ? err.message : err))
 }

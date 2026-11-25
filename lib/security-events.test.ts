@@ -53,6 +53,26 @@ test('nothing is sent while the reporting settings are missing', async () => {
   assert.equal(calls, 0)
 })
 
+test('a report the endpoint refuses is logged', async () => {
+  const { reportSecurityEvent } = await import('./security-events.ts')
+  const originalFetch = globalThis.fetch
+  const originalWarn = console.warn
+  const warnings: unknown[][] = []
+  process.env.SECURITY_EVENTS_URL = 'https://events.example.com/report'
+  process.env.SECURITY_EVENTS_TOKEN = 'report-token'
+  globalThis.fetch = (async () => new Response('{}', { status: 404 })) as typeof fetch
+  console.warn = (...args: unknown[]) => void warnings.push(args)
+  try {
+    await reportSecurityEvent(new Request('https://mail.example.com/api/mail/login'), { level: 3, kind: 'honey-account', detail: 'test' })
+  } finally {
+    globalThis.fetch = originalFetch
+    console.warn = originalWarn
+    delete process.env.SECURITY_EVENTS_URL
+    delete process.env.SECURITY_EVENTS_TOKEN
+  }
+  assert.deepEqual(warnings, [['[security-events]', 'report answered 404']])
+})
+
 test('the watched account cannot sign in even with its real password, and every attempt is reported', async () => {
   const sink = await collector()
   process.env.SECURITY_EVENTS_URL = sink.url
