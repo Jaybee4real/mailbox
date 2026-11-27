@@ -2,14 +2,16 @@ import type { NextConfig } from "next";
 import { execSync } from "node:child_process";
 import packageJson from "./package.json";
 
-const buildSha = (() => {
-  if (process.env.BUILD_SHA) return process.env.BUILD_SHA;
+const fromGit = (args: string) => {
   try {
-    return execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    return execSync(`git ${args}`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
   } catch {
     return "";
   }
-})();
+};
+
+const buildSha = process.env.BUILD_SHA || fromGit("rev-parse HEAD");
+const buildNumber = process.env.BUILD_NUMBER || fromGit("rev-list --count HEAD");
 
 /**
  * This is a private mailbox. Nothing here should ever be indexed, summarised or
@@ -34,6 +36,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),
     NEXT_PUBLIC_APP_VERSION: packageJson.version,
     NEXT_PUBLIC_BUILD_SHA: buildSha,
+    NEXT_PUBLIC_BUILD_NUMBER: buildNumber,
   },
   async headers() {
     return [

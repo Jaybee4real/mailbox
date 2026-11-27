@@ -270,6 +270,7 @@
   cursor: pointer;
 }
 .railVersion:hover { color: var(--nc-fg-2); }
+.railVersionShort { display: none; }
 
 .railClose {
   display: none;
@@ -390,7 +391,9 @@
   .railCollapsed:not(:hover) .folderSpinner,
   .railCollapsed:not(:hover) .railIdentityText,
   .railCollapsed:not(:hover) .railLink,
-  .railCollapsed:not(:hover) .railVersion { display: none; }
+  .railCollapsed:not(:hover) .railVersionFull { display: none; }
+  .railCollapsed:not(:hover) .railVersionShort { display: inline; }
+  .railCollapsed:not(:hover) .railVersion { align-self: center; padding: 2px 0; }
   .railCollapsed:not(:hover) .brand { flex-direction: column-reverse; gap: 12px; padding: 0 0 12px; }
   .railCollapsed:not(:hover) .railToggle { margin-left: 0; }
   .railCollapsed:not(:hover) .composeBtn { padding: 12px 0; }

@@ -67,7 +67,7 @@ import { defaultSignature, fillSignature } from '@/lib/default-signature'
 import styles from './page.module.css'
 import HumanCheck from './HumanCheck'
 import PeopleList, { type Person } from './PeopleList'
-import { APP_VERSION, BUILD_LABEL, BUILD_SHA, builtAt } from '@/lib/build-info'
+import { APP_VERSION, BUILD_LABEL, BUILD_NUMBER, BUILD_SHA, builtAt } from '@/lib/build-info'
 import PasskeySettings from './PasskeySettings'
 import PasskeySignIn from './PasskeySignIn'
 import RequestPause, { PauseAnnouncer, useCountdown, usePause } from './RequestPause'
@@ -9049,9 +9049,11 @@ export default function DevMailPage() {
             type="button"
             className={styles.railVersion}
             onClick={() => { setSettingsTab('app'); setSettingsOpen(true); setRailOpen(false) }}
-            title={`Built ${builtAt()}`}
+            title={`${APP_VERSION ? `Version ${APP_VERSION} · ` : ''}built ${builtAt()}`}
+            aria-label={BUILD_LABEL}
           >
-            {BUILD_LABEL}
+            <span className={styles.railVersionFull}>{BUILD_LABEL}</span>
+            <span className={styles.railVersionShort}>{BUILD_NUMBER || BUILD_SHA || 'dev'}</span>
           </button>
         </div>
       </aside>
@@ -11259,7 +11261,7 @@ export default function DevMailPage() {
             <div className={styles.settingsField}>
               <span>Build</span>
               <p className={styles.settingsNote}>
-                Version {APP_VERSION || 'unknown'}{BUILD_SHA ? ` · commit ${BUILD_SHA}` : ''} · built {builtAt()}
+                Version {APP_VERSION || 'unknown'}{BUILD_NUMBER ? ` · build ${BUILD_NUMBER}` : ''}{BUILD_SHA ? ` · commit ${BUILD_SHA}` : ''} · built {builtAt()}
               </p>
             </div>
             </>)}

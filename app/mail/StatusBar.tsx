@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { BUILD_FULL_SHA, isNewerBuild } from '@/lib/build-info'
 import { useConfirm } from './ConfirmDialog'
 import styles from './page.module.css'
 
@@ -12,9 +13,9 @@ const PROBE_FAST_MS = 2500
 const SHOW_AFTER_MS = 2000
 const BACK_FOR_MS = 2500
 const PROBE_EVERY_MS = 5000
-const VERSION_EVERY_MS = 3 * 60 * 1000
+const VERSION_EVERY_MS = 5 * 60 * 1000
+const DISMISSED_KEY = 'mailbox:update-dismissed'
 const GATEWAY = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530])
-const BUILD = process.env.NEXT_PUBLIC_BUILD_TIME ?? null
 
 type Check = { done: boolean; result?: Probe }
 type Tracked = { path: string; started: number; ended?: number; server?: boolean; check?: Check }
@@ -70,7 +71,7 @@ function reportSlow(request: Tracked) {
   } catch {}
 }
 
-type Probe = { reached: 'ok' | 'gateway' | 'network' | 'timeout'; ms: number; build: string | null }
+type Probe = { reached: 'ok' | 'gateway' | 'network' | 'timeout'; ms: number }
 
 let sharedCheck: { check: Check; at: number } | null = null
 
@@ -93,11 +94,9 @@ async function probe(): Promise<Probe> {
   try {
     const response = await (plainFetch ?? fetch)('/api/version', { cache: 'no-store', signal: controller.signal })
     const ms = Date.now() - started
-    if (GATEWAY.has(response.status)) return { reached: 'gateway', ms, build: null }
-    const data = response.ok ? ((await response.json().catch(() => null)) as { build?: string | null } | null) : null
-    return { reached: 'ok', ms, build: data?.build ?? null }
+    return { reached: GATEWAY.has(response.status) ? 'gateway' : 'ok', ms }
   } catch {
-    return { reached: controller.signal.aborted ? 'timeout' : 'network', ms: Date.now() - started, build: null }
+    return { reached: controller.signal.aborted ? 'timeout' : 'network', ms: Date.now() - started }
   } finally {
     window.clearTimeout(timer)
   }
@@ -217,20 +216,33 @@ function useLink(): { link: Link; retry: () => Promise<boolean> } {
   return { link: shown, retry }
 }
 
+async function servedBuild(): Promise<string | null> {
+  try {
+    const response = await (plainFetch ?? fetch)('/version.json', { cache: 'no-store' })
+    if (!response.ok) return null
+    const data = (await response.json().catch(() => null)) as { sha?: unknown } | null
+    return isNewerBuild(BUILD_FULL_SHA, data?.sha) ? data.sha : null
+  } catch {
+    return null
+  }
+}
+
 function useNewVersion(): string | null {
   const [newer, setNewer] = useState<string | null>(null)
   useEffect(() => {
-    if (!BUILD) return
+    if (!BUILD_FULL_SHA) return
     let stopped = false
     const check = async () => {
       if (stopped) return
-      const { build } = await probe()
-      if (build && build !== BUILD) setNewer(build)
+      const sha = await servedBuild()
+      if (sha && !stopped) setNewer(sha)
     }
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void check()
     }, VERSION_EVERY_MS)
-    const onWake = () => void check()
+    const onWake = () => {
+      if (document.visibilityState === 'visible') void check()
+    }
     document.addEventListener('visibilitychange', onWake)
     window.addEventListener('focus', onWake)
     window.addEventListener('mailbox:back-online', onWake)
@@ -244,6 +256,21 @@ function useNewVersion(): string | null {
     }
   }, [])
   return newer
+}
+
+function readDismissed(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.sessionStorage.getItem(DISMISSED_KEY)
+  } catch {
+    return null
+  }
+}
+
+function rememberDismissed(sha: string) {
+  try {
+    window.sessionStorage.setItem(DISMISSED_KEY, sha)
+  } catch {}
 }
 
 const ICONS = {
@@ -311,7 +338,7 @@ const COPY: Record<Exclude<Link, 'online'>, { title: string; detail: string }> =
 export default function StatusBar() {
   const { link, retry } = useLink()
   const newer = useNewVersion()
-  const [dismissed, setDismissed] = useState<string | null>(null)
+  const [dismissed, setDismissed] = useState<string | null>(readDismissed)
   const [retrying, setRetrying] = useState<'checking' | 'failed' | null>(null)
   const confirm = useConfirm()
   const ref = useRef<HTMLDivElement | null>(null)
@@ -377,15 +404,22 @@ export default function StatusBar() {
         <div className={`${styles.statusBar} ${styles.status_update}`} role="status">
           <span className={styles.statusIcon}>{ICONS.update}</span>
           <span className={styles.statusText}>
-            <strong>Update ready</strong>
-            <span>A newer version of the mailbox is available.</span>
+            <strong>A new version is available</strong>
+            <span>Reload to get the latest version of the mailbox.</span>
           </span>
           <span className={styles.statusActions}>
-            <button type="button" className={styles.statusGhost} onClick={() => setDismissed(newer)}>
+            <button
+              type="button"
+              className={styles.statusGhost}
+              onClick={() => {
+                if (newer) rememberDismissed(newer)
+                setDismissed(newer)
+              }}
+            >
               Later
             </button>
             <button type="button" className={styles.statusPrimary} onClick={refresh}>
-              Refresh
+              Reload
             </button>
           </span>
         </div>
