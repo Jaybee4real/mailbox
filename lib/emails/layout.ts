@@ -74,11 +74,15 @@ function themeCss(brand: EmailBrand): string {
   ${outlookBackgrounds.backgrounds.join('\n  ')}`
 }
 
+const VELA_MARK = 'https://novacraft.africa/vela-mark-email.png'
+
+const velaMark = (size: number) =>
+  `<img src="${VELA_MARK}" width="${size}" height="${size}" alt="Vela" style="display:block;width:${size}px;height:${size}px;border:0;outline:none;">`
+
 function header(brand: EmailBrand): string {
-  const initial = escapeHtml(brand.name.trim()[0]?.toUpperCase() ?? '•')
   const mark = brand.markUrl
-    ? `<img src="${safeUrl(brand.markUrl)}" width="32" height="32" alt="" style="display:block;width:32px;height:32px;border:0;outline:none;border-radius:8px;">`
-    : `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="32" height="32" align="center" bgcolor="${brand.accent}" class="em-bar em-btn-text" style="width:32px;height:32px;border-radius:8px;background-color:${brand.accent};font-family:${SANS};font-size:16px;font-weight:700;line-height:32px;color:${brand.buttonText ?? '#ffffff'};">${initial}</td></tr></table>`
+    ? `<img src="${safeUrl(brand.markUrl)}" height="32" alt="${escapeHtml(brand.name)}" style="display:block;height:32px;width:auto;max-width:120px;border:0;outline:none;">`
+    : velaMark(32)
   return `<tr><td style="padding:0 4px 18px;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
       <td valign="middle" style="padding:0 12px 0 0;">${mark}</td>
@@ -200,7 +204,7 @@ export type EmailLayoutInput = {
   reason?: string
 }
 
-const poweredBy = `<p style="margin:10px 0 0;">Powered by <a href="https://vela.novacraft.africa" class="em-footer" style="color:${LIGHT.footer};text-decoration:underline;">Vela Mail</a> by <a href="https://novacraft.africa" class="em-footer" style="color:${LIGHT.footer};text-decoration:underline;">Novacraft</a></p>`
+const poweredBy = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:10px 0 0;"><tr><td valign="middle" style="padding:0 6px 0 0;">${velaMark(16)}</td><td valign="middle" class="em-footer" style="font-family:${SANS};font-size:12px;line-height:16px;color:${LIGHT.footer};">Powered by <a href="https://vela.novacraft.africa" class="em-footer" style="color:${LIGHT.footer};text-decoration:underline;">Vela Mail</a> by <a href="https://novacraft.africa" class="em-footer" style="color:${LIGHT.footer};text-decoration:underline;">Novacraft</a></td></tr></table>`
 
 export function emailLayout(input: EmailLayoutInput): string {
   const { brand } = input
