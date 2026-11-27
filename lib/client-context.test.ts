@@ -23,6 +23,8 @@ const spoofed = visitorContext(request({ 'x-real-ip': '203.0.113.7', 'x-forwarde
 assert.equal(spoofed.ip, '203.0.113.7', 'a direct caller cannot choose its own address')
 assert.equal(spoofed.city, null, 'nor its own location')
 assert.equal(clientIp(request({})), null)
+assert.equal(clientIp(request({ 'x-forwarded-for': '6.6.6.6, 203.0.113.7' })), '203.0.113.7', 'a forged first X-Forwarded-For hop is not the source')
+assert.equal(clientIp(request({ 'x-real-ip': '203.0.113.7', 'x-forwarded-for': '6.6.6.6, 203.0.113.7' })), '203.0.113.7', 'without Cloudflare the proxy-reported peer wins')
 
 const headers = originHeaders({ ...context, city: 'Zürich\r\nBcc: victim@example.com' })
 assert.equal(headers['X-Originating-IP'], '[198.51.100.9]')

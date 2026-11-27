@@ -53,6 +53,53 @@ test('nothing is sent while the reporting settings are missing', async () => {
   assert.equal(calls, 0)
 })
 
+test('a report carries request context without secrets, and its path never carries the query', async () => {
+  const { reportSecurityEvent } = await import('./security-events.ts')
+  const originalFetch = globalThis.fetch
+  let sent: Record<string, unknown> = {}
+  process.env.SECURITY_EVENTS_URL = 'https://events.example.com/report'
+  process.env.SECURITY_EVENTS_TOKEN = 'report-token'
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    sent = JSON.parse(String(init.body))
+    return new Response('{}')
+  }) as typeof fetch
+  const req = new Request('https://mail.example.com/api/mail/login?token=abc123secret&lang=en', {
+    method: 'POST',
+    headers: {
+      'x-real-ip': '172.70.1.2',
+      'cf-connecting-ip': '198.51.100.9',
+      'x-forwarded-for': '6.6.6.6, 172.70.1.2',
+      'cf-ray': '8f1c2d3e4f5a6b7c-LOS',
+      'accept-language': 'en-GB',
+      referer: 'https://mail.example.com/mail/reset?token=resettoken999',
+      cookie: 'mailbox_session=sessioncookie777',
+      authorization: 'Bearer bearertoken555',
+    },
+    body: JSON.stringify({ email: 'k.watch@example.com', password: 'hunter2' }),
+  })
+  try {
+    await reportSecurityEvent(req, { level: 3, kind: 'honey-account', detail: 'test', account: 'k.watch@example.com', bodyFields: ['email', 'password'] })
+  } finally {
+    globalThis.fetch = originalFetch
+    delete process.env.SECURITY_EVENTS_URL
+    delete process.env.SECURITY_EVENTS_TOKEN
+  }
+  const context = sent.context as Record<string, string>
+  assert.equal(sent.path, '/api/mail/login')
+  assert.equal(sent.source, '198.51.100.9')
+  assert.equal(context.Method, 'POST')
+  assert.equal(context.Query, 'token=[redacted]&lang=en')
+  assert.equal(context.Referer, 'https://mail.example.com/mail/reset')
+  assert.equal(context['X-Forwarded-For'], '6.6.6.6, 172.70.1.2')
+  assert.equal(context['CF-Ray'], '8f1c2d3e4f5a6b7c-LOS')
+  assert.equal(context['Attempted account'], 'k.watch@example.com')
+  assert.equal(context['Body fields'], 'email, password')
+  const everything = JSON.stringify(sent)
+  for (const secret of ['abc123secret', 'resettoken999', 'sessioncookie777', 'bearertoken555', 'hunter2']) assert.ok(!everything.includes(secret), `${secret} stays on the server`)
+  assert.ok(Object.keys(context).every(key => /^[A-Za-z0-9 ._-]+$/.test(key)) && Object.keys(context).length <= 40)
+  assert.ok(Object.values(context).every(value => value.length <= 500))
+})
+
 test('a report the endpoint refuses is logged', async () => {
   const { reportSecurityEvent } = await import('./security-events.ts')
   const originalFetch = globalThis.fetch

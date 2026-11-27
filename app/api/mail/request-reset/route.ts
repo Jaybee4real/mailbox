@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   const seat = await resolveSeat(email).catch(() => null)
   const seatKey = seat?.email ?? email
   if (isWatched(email, seat?.email, seat?.address)) {
-    void reportSecurityEvent(req, { level: 3, kind: 'honey-account', detail: `Password reset requested for ${email}` })
+    void reportSecurityEvent(req, { level: 3, kind: 'honey-account', detail: `Password reset requested for ${email}`, account: email, bodyFields: Object.keys(body) })
   }
 
   const limited = rateLimit(`${clientKey(req, 'request-reset')}:${seatKey}`, 5, HOUR_MS)

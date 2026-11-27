@@ -61,7 +61,7 @@ export function clientIp(req: Request): string | null {
   const peer = req.headers.get('x-real-ip') || forwarded[forwarded.length - 1] || null
   const viaCloudflare = req.headers.get('cf-connecting-ip')
   if (peer && viaCloudflare && isCloudflareAddress(peer)) return viaCloudflare.trim()
-  return forwarded[0] || peer
+  return peer
 }
 
 export type VisitorContext = {
