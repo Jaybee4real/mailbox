@@ -34,12 +34,12 @@ assert.equal(describeRequest(browser, { native: true, deviceHeader: 'Vela Mail o
 const brand: EmailBrand = { name: 'Example Mail', accent: '#0560fa', accentOnDark: '#8fb4ff', tagline: 'Team mail', site: 'mail.example.com', siteUrl: 'https://mail.example.com' }
 const hostile = { time: '<script>alert(1)</script>', ip: '"><img src=x>', location: 'Zürich & <b>', device: '<i>Chrome</i>' }
 const notice = { details: hostile, wasntYou: 'Reset it <now>:', helpUrl: 'https://mail.example.com/mail' }
-const panel = requestPanel(notice)
+const panel = requestPanel(brand, notice)
 assert.ok(!/<script>|<img|<b>|<i>|<now>/.test(panel), 'every value is escaped')
 assert.match(panel, /Request details/)
 assert.match(panel, /Wasn't you\?/)
 assert.match(panel, /href="https:\/\/mail\.example\.com\/mail"/)
-assert.ok(!requestPanel({ ...notice, helpUrl: 'javascript:alert(1)' }).includes('javascript:'), 'only http(s) links are kept')
+assert.ok(!requestPanel(brand, { ...notice, helpUrl: 'javascript:alert(1)' }).includes('javascript:'), 'only http(s) links are kept')
 
 const html = emailLayout({ brand, eyebrow: 'Account', heading: 'Reset your password', bodyHtml: '<p>Hi</p>', request: { ...notice, details } })
 for (const value of [details.time, details.ip, details.location, details.device]) assert.ok(html.includes(value!), `html shows ${value}`)

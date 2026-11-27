@@ -8,7 +8,7 @@ const emails = await import('./index.ts')
 const hostile = '<script>alert(1)</script>'
 const rendered: Array<[string, string]> = [
   ['reset', emails.renderActionEmail({ eyebrow: 'Example · Mail', title: 'Reset your password', body: `Someone asked to reset the password for ${hostile}.`, actionLabel: 'Set a new password', actionUrl: 'https://mail.example.com/mail/reset?token=abc', expiry: 'This link expires in 30 minutes.', footer: 'Ignore this if it was not you.' })],
-  ['sign-in code', emails.renderActionEmail({ eyebrow: 'Example · Mail', code: '123 456', recipient: 'ada@example.org', reason: 'because two-step sign-in by email is on for your account', title: '123 456', body: 'Enter this code.', actionLabel: 'Open', actionUrl: 'https://mail.example.com/mail', expiry: 'Expires in 10 minutes.', footer: 'Not you? Change your password.' })],
+  ['sign-in code', emails.renderActionEmail({ eyebrow: 'Example · Mail', code: '123456', recipient: 'ada@example.org', reason: 'because two-step sign-in by email is on for your account', title: '123456', body: 'Enter this code.', actionLabel: 'Open', actionUrl: 'https://mail.example.com/mail', expiry: 'Expires in 10 minutes.', footer: 'Not you? Change your password.' })],
   ['academy follow-up', emails.renderAcademyFollowupEmail({ firstName: hostile, courses: 'Programming', cohortDate: 'March 2027' })],
   ['contact follow-up', emails.renderContactFollowupEmail({ firstName: 'Ada', projectType: 'Mobile app', includeAcademy: 'true' })],
   ['notification', emails.renderNotificationEmail('project', [{ label: 'Name', value: hostile }])],
@@ -21,7 +21,12 @@ for (const [name, html] of rendered) {
   assert.match(html, /Example Mail|Example/, `${name}: carries the deployment's brand`)
 }
 assert.match(rendered[0][1], /href="https:\/\/mail\.example\.com\/mail\/reset\?token=abc"/)
-assert.match(rendered[1][1], /class="readout em-accent"[^>]*>123 456</, 'the code is shown as a readout')
+assert.match(rendered[1][1], /class="readout em-ink"[^>]*>123456</, 'the code is shown as one unbroken readout')
+assert.match(rendered[1][1], /class="readout[^"]*" style="[^"]*letter-spacing:0;[^"]*user-select:all;/, 'the code has no spacing tricks and copies in one go')
+assert.match(emails.renderActionEmail({ eyebrow: 'Example · Mail', code: '123 456', title: '123456', body: 'Enter this code.', actionLabel: 'Open', actionUrl: 'https://mail.example.com/mail', expiry: 'Expires in 10 minutes.', footer: 'Not you?' }), />123456</, 'a code passed with a space still shows unbroken')
+assert.match(rendered[0][1], /Powered by <a href="https:\/\/vela\.novacraft\.africa"/, 'mailbox mail carries the Vela line')
+assert.ok(!rendered[3][1].includes('Powered by'), 'company follow-ups do not')
+assert.ok(!/linear-gradient|radial-gradient/.test(rendered.map(([, html]) => html).join('')), 'no gradients')
 assert.ok(!rendered[1][1].includes('href="https://mail.example.com/mail"'), 'a code email has no button')
 assert.match(rendered[1][1], /Sent to ada@example\.org because two-step sign-in by email is on/)
 assert.match(rendered[0][1], /#0560fa/, 'an rgb() accent is converted for email clients')
@@ -32,7 +37,7 @@ const request = {
   wasntYou: 'Reset your password or ask your mailbox admin:',
   helpUrl: 'https://mail.example.com/mail',
 }
-const withRequest = emails.renderActionEmail({ eyebrow: 'Example · Mail', code: '123 456', title: '123 456', body: 'Enter this code.', actionLabel: 'Open', actionUrl: 'https://mail.example.com/mail', expiry: 'Expires in 10 minutes.', footer: 'Not you?', request })
+const withRequest = emails.renderActionEmail({ eyebrow: 'Example · Mail', code: '123456', title: '123456', body: 'Enter this code.', actionLabel: 'Open', actionUrl: 'https://mail.example.com/mail', expiry: 'Expires in 10 minutes.', footer: 'Not you?', request })
 assert.match(withRequest, /Request details/)
 assert.match(withRequest, /198\.51\.100\.9/)
 assert.match(withRequest, /Ikeja, Lagos, NG/)
@@ -43,12 +48,18 @@ assert.ok(!rendered[1][1].includes('Request details'), 'the block appears only w
 const access = emails.renderAccessEmail({ brand: emails.MAIL_BRAND, kind: 'reset', product: 'Example Mail', recipient: 'ada@example.org', link: 'https://mail.example.com/mail/reset?token=abc', expiry: '30 minutes', request })
 assert.match(access.html, /Request details/)
 assert.match(access.text, /IP address: 198\.51\.100\.9\nLocation: Ikeja, Lagos, NG/)
-assert.match(emails.withRequestText('Your code is 123 456.', request), /^Your code is 123 456\.\n\nRequest details\nTime: /)
+assert.match(emails.withRequestText('Your code is 123456.', request), /^Your code is 123456\.\n\nRequest details\nTime: /)
 
-const linked = emails.renderActionEmail({ eyebrow: 'Example · Mail', code: '123 456', title: '123 456', body: 'Enter this code.', actionLabel: 'Open Example Mail', actionUrl: 'https://mail.example.com/mail', codeLinkUrl: 'https://mail.example.com/mail/signin?email=ada%40example.com&code=123456', expiry: 'Expires in 10 minutes.', footer: 'Not you?', request: { ...request, devicesUrl: 'https://mail.example.com/mail/security' } })
+const linked = emails.renderActionEmail({ eyebrow: 'Example · Mail', code: '123456', title: '123456', body: 'Enter this code.', actionLabel: 'Open Example Mail', actionUrl: 'https://mail.example.com/mail', codeLinkUrl: 'https://mail.example.com/mail/signin?email=ada%40example.com&code=123456', expiry: 'Expires in 10 minutes.', footer: 'Not you?', request: { ...request, devicesUrl: 'https://mail.example.com/mail/security' } })
 assert.match(linked, /href="https:\/\/mail\.example\.com\/mail\/signin\?email=ada%40example\.com&amp;code=123456"/, 'a code email opens the code screen with the code filled in')
 assert.match(linked, /Open Example Mail/)
 assert.match(linked, /href="https:\/\/mail\.example\.com\/mail\/security"[^>]*>Review signed-in devices</)
 assert.ok(!rendered[1][1].includes('href="https://mail.example.com/mail/signin'), 'without a link the code email still has no button')
+
+const pale = emails.accentColors('#f5d90a')
+assert.equal(pale.accent, '#f5d90a', 'the fill stays the exact accent')
+assert.notEqual(pale.accentInk, '#f5d90a', 'text on white gets a darker shade of a pale accent')
+assert.equal(pale.buttonText, '#16121f', 'a pale button gets dark label text')
+assert.equal(emails.accentColors('#0560fa').buttonText, '#ffffff')
 
 console.log('mailbox emails: ok')

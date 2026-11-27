@@ -1,7 +1,7 @@
 import { BRAND } from '../brand.ts'
 import { hexToHsl } from '../accent-ramp.ts'
 import {
-  bulletList, calloutPanel, codePanel, detailsPanel, emailLayout, emailText, escapeHtml, withRequestText,
+  bulletList, calloutPanel, codePanel, detailsPanel, emailLayout, emailText, escapeHtml, MONO, paragraph, withRequestText,
   type EmailBrand, type RequestNotice,
 } from './layout.ts'
 
@@ -15,23 +15,68 @@ const toHex = (color: string): string => {
   return channels.length === 3 ? `#${channels.map(channel => channel.toString(16).padStart(2, '0')).join('')}` : '#6d28d9'
 }
 
+const hslToHex = (h: number, s: number, l: number): string => {
+  const sat = s / 100
+  const light = l / 100
+  const chroma = sat * Math.min(light, 1 - light)
+  const channel = (offset: number) => {
+    const k = (offset + h / 30) % 12
+    return Math.round(255 * (light - chroma * Math.max(-1, Math.min(k - 3, 9 - k, 1))))
+  }
+  return `#${[channel(0), channel(8), channel(4)].map(value => value.toString(16).padStart(2, '0')).join('')}`
+}
+
 const accentOnDark = (color: string): string => {
   const hsl = hexToHsl(toHex(color))
-  return hsl ? `hsl(${hsl.h.toFixed(0)} ${Math.min(88, hsl.s).toFixed(0)}% 74%)` : '#c4b5fd'
+  return hsl ? hslToHex(hsl.h, Math.min(88, hsl.s), 74) : '#c4b5fd'
+}
+
+const luminance = (hex: string): number => {
+  const [red, green, blue] = [1, 3, 5].map(start => {
+    const value = parseInt(hex.slice(start, start + 2), 16) / 255
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+}
+
+const contrast = (first: string, second: string): number => {
+  const [lighter, darker] = [luminance(first), luminance(second)].sort((one, two) => two - one)
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+const READABLE = 4.5
+
+/** The accent as a fill, plus the darker shade that reads as text on white and the label colour that reads on the fill. */
+export function accentColors(color: string): Pick<EmailBrand, 'accent' | 'accentOnDark' | 'accentInk' | 'buttonText'> {
+  const accent = toHex(color)
+  const hsl = hexToHsl(accent)
+  let accentInk = accent
+  if (hsl) {
+    for (let lightness = hsl.l; contrast(accentInk, '#ffffff') < READABLE && lightness > 5; lightness -= 2) {
+      accentInk = hslToHex(hsl.h, hsl.s, lightness)
+    }
+  }
+  return {
+    accent,
+    accentOnDark: accentOnDark(color),
+    accentInk,
+    buttonText: contrast(accent, '#ffffff') >= contrast(accent, '#16121f') ? '#ffffff' : '#16121f',
+  }
 }
 
 export const MAIL_BRAND: EmailBrand = {
   name: `${BRAND.name} Mail`,
-  accent: toHex(BRAND.colors.accent),
-  accentOnDark: accentOnDark(BRAND.colors.accent),
+  ...accentColors(BRAND.colors.accent),
   markUrl: BRAND.logoUrl,
   tagline: 'Team mail',
   site: BRAND.publicUrl.replace(/^https?:\/\//, ''),
   siteUrl: BRAND.publicUrl,
+  poweredBy: true,
 }
 
 const COMPANY_BRAND: EmailBrand = {
   ...MAIL_BRAND,
+  poweredBy: false,
   name: BRAND.name,
   tagline: BRAND.legalName,
   site: BRAND.website,
@@ -183,11 +228,11 @@ export function renderAcademyFollowupEmail(vars: AcademyFollowupVars): string {
     bodyHtml: `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.firstName)},</p><p style="margin:0;">${escapeHtml(copy.intro)}</p>`,
     moduleHtml: [
       calloutPanel(COMPANY_BRAND, copy.boxTitle, escapeHtml(vars.cohortDate), escapeHtml(copy.dateQuestion)),
-      `<p class="em-dim" style="margin:24px 0 0;">${escapeHtml(copy.connectLead)}</p>`,
+      paragraph(escapeHtml(copy.connectLead)),
       bulletList(copy.connect.map(escapeHtml)),
-      calloutPanel(COMPANY_BRAND, copy.quickStartTitle, escapeHtml(copy.quickStartText), bulletList(copy.quickStart.map(escapeHtml))),
-      `<p class="em-dim" style="margin:24px 0 0;">${escapeHtml(copy.closing)}</p>`,
-      `<p class="em-ink" style="margin:16px 0 0;font-weight:600;">${escapeHtml(copy.signatureName)}<br><span class="em-dim" style="font-weight:400;">${escapeHtml(copy.signatureRole)}</span></p>`,
+      calloutPanel(COMPANY_BRAND, copy.quickStartTitle, '', `<p style="margin:0;">${escapeHtml(copy.quickStartText)}</p>${bulletList(copy.quickStart.map(escapeHtml))}`),
+      paragraph(escapeHtml(copy.closing)),
+      paragraph(`${escapeHtml(copy.signatureName)}<br><span class="em-dim" style="font-weight:400;">${escapeHtml(copy.signatureRole)}</span>`, { strong: true, top: 16 }),
     ].join(''),
     reason: `because you registered for ${BRAND.name} Academy`,
   })
@@ -274,18 +319,18 @@ export function renderContactFollowupEmail(vars: ContactFollowupVars): string {
     bodyHtml: `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.firstName)},</p><p style="margin:0;">${escapeHtml(copy.intro)}</p>`,
     moduleHtml: [
       calloutPanel(COMPANY_BRAND, "What we're thinking", escapeHtml(vars.projectType), escapeHtml(copy.scopeLead)),
-      `<p class="em-dim" style="margin:24px 0 0;">${escapeHtml(copy.detailsLead)}</p>`,
+      paragraph(escapeHtml(copy.detailsLead)),
       bulletList(copy.details.map(escapeHtml)),
       copy.academy
         ? calloutPanel(
             COMPANY_BRAND,
             copy.academy.headline,
-            escapeHtml(copy.academy.text),
-            bulletList(copy.academy.bullets.map(escapeHtml)) + `<p style="margin:12px 0 0;">${escapeHtml(copy.academy.cta)}</p>`,
+            '',
+            `<p style="margin:0;">${escapeHtml(copy.academy.text)}</p>${bulletList(copy.academy.bullets.map(escapeHtml))}<p style="margin:12px 0 0;">${escapeHtml(copy.academy.cta)}</p>`,
           )
         : '',
-      `<p class="em-dim" style="margin:24px 0 0;">${escapeHtml(copy.closing)}</p>`,
-      `<p class="em-ink" style="margin:16px 0 0;font-weight:600;">${escapeHtml(copy.signatureName)}<br><span class="em-dim" style="font-weight:400;">${escapeHtml(copy.signatureRole)}</span></p>`,
+      paragraph(escapeHtml(copy.closing)),
+      paragraph(`${escapeHtml(copy.signatureName)}<br><span class="em-dim" style="font-weight:400;">${escapeHtml(copy.signatureRole)}</span>`, { strong: true, top: 16 }),
     ].join(''),
     reason: `because you sent a project inquiry on ${BRAND.website}`,
   })
@@ -342,7 +387,7 @@ export function renderAccessEmail(input: AccessEmailInput): { subject: string; h
       heading,
       bodyHtml: `<p style="margin:0;">${escapeHtml(lead)}</p>`,
       moduleHtml: detailsPanel([
-        ['Account', `<span style="font-family:'SFMono-Regular',Menlo,Consolas,monospace;font-size:13px;">${escapeHtml(input.recipient)}</span>`],
+        ['Account', `<span style="font-family:${MONO};font-size:13px;">${escapeHtml(input.recipient)}</span>`],
         ...(invite && input.invitedBy ? [['Invited by', escapeHtml(input.invitedBy)] as [string, string]] : []),
         ['Link expires', escapeHtml(input.expiry)],
       ]),
@@ -381,7 +426,7 @@ export type ActionEmailVars = {
 }
 
 export function renderActionEmail(vars: ActionEmailVars): string {
-  const brand = vars.accent ? { ...MAIL_BRAND, accent: toHex(vars.accent), accentOnDark: accentOnDark(vars.accent) } : MAIL_BRAND
+  const brand = vars.accent ? { ...MAIL_BRAND, ...accentColors(vars.accent) } : MAIL_BRAND
   const eyebrow = vars.eyebrow.split('·').pop()?.trim() || 'Account'
   return emailLayout({
     brand,
@@ -389,7 +434,7 @@ export function renderActionEmail(vars: ActionEmailVars): string {
     eyebrow: vars.code ? 'Sign-in code' : eyebrow === 'Mail' ? 'Account' : eyebrow,
     heading: vars.code ? 'Your sign-in code' : vars.title,
     bodyHtml: `<p style="margin:0;">${escapeHtml(vars.body)}</p>`,
-    moduleHtml: vars.code ? codePanel(brand, vars.code, 'Expires in 10 min') : '',
+    moduleHtml: vars.code ? codePanel(vars.code, 'Expires in 10 min') : '',
     cta: vars.code ? (vars.codeLinkUrl ? { label: vars.actionLabel, url: vars.codeLinkUrl } : undefined) : { label: vars.actionLabel, url: vars.actionUrl },
     noteHtml: `<p style="margin:0 0 8px;">${escapeHtml(vars.expiry)}</p><p style="margin:0;">${escapeHtml(vars.footer)}</p>`,
     request: vars.request,

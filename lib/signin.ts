@@ -90,7 +90,6 @@ export async function signInBody(req: Request): Promise<SignInBody> {
 /** Sends a fresh six-digit code for a challenge; the code itself is never stored. */
 export async function sendEmailCode(req: Request, challengeId: string, to: string, purpose: 'signin' | 'enroll', account: string): Promise<SendResult> {
   const code = newEmailCode()
-  const spaced = `${code.slice(0, 3)} ${code.slice(3)}`
   const from = (process.env.MAIL_FROM ?? BRAND.supportEmail).replace(/^.*<|>$/g, '').trim()
   const doing = purpose === 'signin' ? 'finish signing in to' : 'turn on email codes for'
   const request = requestNotice(req, { account })
@@ -100,14 +99,14 @@ export async function sendEmailCode(req: Request, challengeId: string, to: strin
     from,
     fromName: `${BRAND.name} Mail`,
     to: [to],
-    subject: `${spaced} is your ${BRAND.name} Mail code`,
-    text: withRequestText(`Your code to ${doing} ${BRAND.name} Mail is ${spaced}.\n\nOpen ${BRAND.name} Mail with the code filled in: ${codeLinkUrl}\n\nIt expires in 10 minutes. If you did not ask for it, someone has your password — change it.`, request),
+    subject: `${code} is your ${BRAND.name} Mail code`,
+    text: withRequestText(`Your code to ${doing} ${BRAND.name} Mail is ${code}.\n\nOpen ${BRAND.name} Mail with the code filled in: ${codeLinkUrl}\n\nIt expires in 10 minutes. If you did not ask for it, someone has your password — change it.`, request),
     html: renderActionEmail({
       eyebrow: `${BRAND.name} · Mail`,
-      code: spaced,
+      code,
       recipient: to,
       reason: purpose === 'signin' ? 'because two-step sign-in by email is on for your account' : 'because email codes were requested for your account',
-      title: spaced,
+      title: code,
       body: `Enter this code to ${doing} ${BRAND.name} Mail. ${BRAND.name} will never ask for it by phone, chat or email.`,
       actionLabel: `Open ${BRAND.name} Mail`,
       actionUrl: `${origin}/mail`,
